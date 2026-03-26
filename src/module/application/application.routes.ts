@@ -1,0 +1,35 @@
+import { Hono } from "hono";
+import { authMiddleware } from "../../middleware/auth.js";
+import { ProductRoutes } from "./product/product.routes.js";
+import { RawMaterialRoutes } from "./rawmat/rawmat.routes.js";
+import { WarehouseRoutes } from "./warehouse/warehouse.routes.js";
+import { SalesRoutes } from "./sales/sales.routes.js";
+import { SharedRoutes } from "./shared/shared.routes.js";
+import { RecipeRoutes } from "./recipe/recipe.routes.js";
+import { ForecastRoutes } from "./forecast/forecast.routes.js";
+import RecomendationRoutes from "./recomendation/recomendation.routes.js";
+import PurchaseRoutes from "./purchase/purchase.routes.js";
+import OpenPoRoutes from "./open-po/open-po.routes.js";
+import BOMRoutes from "./bom/bom.routes.js";
+import RecomendationV2Routes from "./recomendation-v2/recomendation-v2.routes.js";
+import { OutletRoutes } from "./outlet/outlet.routes.js";
+import StockTransferRoutes from "./stock-transfer/stock-transfer.routes.js";
+import StockMovementRoutes from "./stock-movement/stock-movement.routes.js";
+
+export const ApplicationRoutes = new Hono().use(authMiddleware);
+
+ApplicationRoutes.route("/products", ProductRoutes);
+ApplicationRoutes.route("/rawmat", RawMaterialRoutes);
+ApplicationRoutes.route("/warehouses", WarehouseRoutes);
+ApplicationRoutes.route("/sales", SalesRoutes);
+ApplicationRoutes.route("/shared", SharedRoutes);
+ApplicationRoutes.route("/recipes", RecipeRoutes);
+ApplicationRoutes.route("/forecasts", ForecastRoutes);
+ApplicationRoutes.route("/recomendations", RecomendationRoutes);
+ApplicationRoutes.route("/recomendations-v2", RecomendationV2Routes);
+ApplicationRoutes.route("/purchases", PurchaseRoutes);
+ApplicationRoutes.route("/po/open", OpenPoRoutes);
+ApplicationRoutes.route("/bom", BOMRoutes);
+ApplicationRoutes.route("/outlets", OutletRoutes);
+ApplicationRoutes.route("/stock-transfers", StockTransferRoutes);
+ApplicationRoutes.route("/stock-movements", StockMovementRoutes);
