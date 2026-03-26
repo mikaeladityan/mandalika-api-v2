@@ -376,6 +376,7 @@ model Forecast {
   updated_at             DateTime           @updatedAt
   base_forecast          Decimal            @db.Decimal(18, 2)
   final_forecast         Decimal            @db.Decimal(18, 2)
+  ratio                  Decimal?           @db.Decimal(5, 2)
   forecast_percentage_id Int
   forecast_percentage    ForecastPercentage @relation(fields: [forecast_percentage_id], references: [id])
   product                Product            @relation(fields: [product_id], references: [id], onDelete: Cascade)

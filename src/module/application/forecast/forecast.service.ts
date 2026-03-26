@@ -107,12 +107,13 @@ export class ForecastService {
             const m = monthsRange[i]!;
             const pct = pctMap.get(`${m.year}-${m.month}`);
 
-            // Stop calculation if percentage is not found, or is null/undefined/zero
-            if (!pct || pct.value === null || pct.value === undefined || Number(pct.value) === 0) {
+            // Special Rule for Display: Ignore existing percentage settings and force 0 growth
+            const pctValue = body.is_display ? 0 : Number(pct?.value ?? 0);
+
+            // If not is_display, stop calculation if percentage is not found or zero
+            if (!body.is_display && (!pct || Number(pct.value) === 0)) {
                 break;
             }
-
-            const pctValue = Number(pct.value);
             const nextInputMap = new Map<number, number>();
             const status = i === 0 ? "ADJUSTED" : "DRAFT";
 
@@ -231,7 +232,7 @@ export class ForecastService {
                         base_forecast: r.base_forecast,
                         final_forecast: r.final_forecast,
                         trend: ForecastService.trend(r.final_forecast, r.input),
-                        forecast_percentage_id: pct.id,
+                        forecast_percentage_id: pct?.id ?? 1,
                         status: status,
                     });
                     // For the next month in horizon, the input is this month's final_forecast
@@ -379,50 +380,226 @@ export class ForecastService {
         };
     }
     static async updateManual(body: UpdateManualForecastDTO) {
-        const { product_id, month, year, final_forecast } = body;
+        const { product_id, month, year, final_forecast, ratio } = body;
 
-        // Check if forecast entry exists
-        const existing = await prisma.forecast.findUnique({
-            where: {
-                product_id_month_year: { product_id, month, year },
-            },
+        // 1. Load product to check if it's a Display product
+        const product = await prisma.product.findUnique({
+            where: { id: product_id },
+            include: { product_type: true },
         });
 
-        if (!existing) {
-            // Find a dummy or default percentage for this month/year if it's display manual
-            const pct = await prisma.forecastPercentage.findUnique({
-                where: { month_year: { month, year } },
+        if (!product) throw new ApiError(404, "Produk tidak ditemukan.");
+
+        const isDisplayProduct = product?.product_type?.name?.toLowerCase().includes("display");
+
+        if (!isDisplayProduct) {
+            throw new ApiError(403, "Update manual hanya diizinkan untuk produk Display.");
+        }
+
+        // Helper to resolve base_forecast if it doesn't exist
+        const getBase = async (m: number, y: number) => {
+            const existing = await prisma.forecast.findUnique({
+                where: { product_id_month_year: { product_id, month: m, year: y } },
+            });
+            if (existing) return Number(existing.base_forecast);
+
+            // Fallback to recent sales
+            const prevMonth = m === 1 ? 12 : m - 1;
+            const prevYear = m === 1 ? y - 1 : y;
+            const sales = await prisma.salesActual.findFirst({
+                where: { product_id, month: prevMonth, year: prevYear, type: "ALL" },
+            });
+            return Number(sales?.quantity ?? 0);
+        };
+
+        const currentBase = await getBase(month, year);
+        
+        // New Logic: final_forecast in input is treated as Base Forecast
+        let resolvedBase = final_forecast !== undefined ? final_forecast : currentBase;
+        let resolvedRatio = ratio !== undefined ? ratio : 0;
+        
+        // If it's an existing record and only ratio changed, we might want to keep the existing ratio if ratio was undefined
+        // But the DTO usually sends what's in the form.
+        
+        let resolvedFinal = resolvedBase * (1 + resolvedRatio / 100);
+
+        const shouldPropagate = isDisplayProduct && final_forecast !== undefined;
+
+        if (!shouldPropagate) {
+            // SINGLE UPDATE (Non-Display or Display Ratio-only)
+            const existing = await prisma.forecast.findUnique({
+                where: { product_id_month_year: { product_id, month, year } },
             });
 
-            // If not exist, we create with base=final
-            await prisma.forecast.create({
-                data: {
+            if (!existing) {
+                const pct = await prisma.forecastPercentage.findUnique({
+                    where: { month_year: { month, year } },
+                });
+                await prisma.forecast.create({
+                    data: {
+                        product_id,
+                        month,
+                        year,
+                        base_forecast: resolvedBase,
+                        final_forecast: resolvedFinal,
+                        ratio: resolvedRatio,
+                        trend: ForecastService.trend(resolvedFinal, resolvedBase),
+                        status: "ADJUSTED",
+                        forecast_percentage_id: pct?.id ?? 1,
+                    },
+                });
+            } else {
+                await prisma.forecast.update({
+                    where: { product_id_month_year: { product_id, month, year } },
+                    data: {
+                        base_forecast: resolvedBase,
+                        final_forecast: resolvedFinal,
+                        ratio: resolvedRatio,
+                        trend: ForecastService.trend(resolvedFinal, resolvedBase),
+                        status: "ADJUSTED",
+                    },
+                });
+            }
+
+            // Recalculate Safety Stock for this month
+            const windowSize = 4;
+            const safetyPct = Number(product.safety_percentage ?? 0);
+            const avg = resolvedFinal; // Simplified for single update; usually requires window lookup but Display is manual-first
+            
+            await prisma.safetyStock.upsert({
+                where: { product_id_month_year: { product_id, month, year } },
+                create: {
                     product_id,
                     month,
                     year,
-                    base_forecast: final_forecast,
-                    final_forecast: final_forecast,
+                    horizon: windowSize,
+                    avg_forecast: avg,
+                    total_forecast: avg * windowSize,
+                    safety_stock_quantity: avg * safetyPct,
+                    safety_stock_ratio: safetyPct,
+                },
+                update: {
+                    avg_forecast: avg,
+                    total_forecast: avg * windowSize,
+                    safety_stock_quantity: avg * safetyPct,
+                    safety_stock_ratio: safetyPct,
+                }
+            });
+
+        } else {
+            // PROPAGATION (Display Base Forecast update)
+            const horizon = 12;
+            const monthsRange = Array.from({ length: horizon }, (_, i) => {
+                const d = new Date(year, month - 1 + i, 1);
+                return { month: d.getMonth() + 1, year: d.getFullYear() };
+            });
+
+            const percentages = await prisma.forecastPercentage.findMany({
+                where: {
+                    OR: monthsRange.map((m) => ({ month: m.month, year: m.year })),
+                },
+            });
+            const pctMap = new Map(percentages.map((p) => [`${p.year}-${p.month}`, p]));
+
+            const nowIso = new Date().toISOString();
+            const forecastBatch = monthsRange.map((m) => {
+                const pct = pctMap.get(`${m.year}-${m.month}`);
+                const isTargetMonth = m.month === month && m.year === year;
+                
+                // Ratio is month-specific per user request
+                const mRatio = isTargetMonth ? resolvedRatio : 0;
+                const mFinal = resolvedBase * (1 + mRatio / 100);
+
+                return {
+                    product_id,
+                    month: m.month,
+                    year: m.year,
+                    final_forecast: mFinal, 
+                    base_forecast: resolvedBase,  
+                    ratio: mRatio,         
                     trend: "STABLE",
                     status: "ADJUSTED",
-                    forecast_percentage_id: pct?.id ?? 1, // Fallback to ID 1 or something appropriate
-                },
+                    forecast_percentage_id: pct?.id ?? 1,
+                };
             });
-        } else {
-            await prisma.forecast.update({
-                where: {
-                    product_id_month_year: { product_id, month, year },
-                },
-                data: {
-                    final_forecast,
-                    status: "ADJUSTED",
-                },
-            });
-        }
 
-        // Recalculate safety stock for this product and month
-        // In a real scenario, we might want to trigger a full recalculation of the window,
-        // but for now, let's keep it simple or just let the user run analytics later.
-        // However, user said "Display" is pure manual, so maybe they don't use safety stock as much.
+            await prisma.$transaction(async (tx) => {
+                const valuesSql = forecastBatch
+                    .map(
+                        (f) =>
+                            `(${f.product_id}, ${f.month}, ${f.year}, '${f.trend}', '${f.status}', ${f.base_forecast}, ${f.final_forecast}, ${f.ratio}, ${f.forecast_percentage_id}, '${nowIso}', '${nowIso}')`,
+                    )
+                    .join(", ");
+
+                await tx.$executeRawUnsafe(`
+                    INSERT INTO forecasts (
+                        product_id, month, year, trend, status, 
+                        base_forecast, final_forecast, ratio, forecast_percentage_id, 
+                        created_at, updated_at
+                    )
+                    VALUES ${valuesSql}
+                    ON CONFLICT (product_id, month, year)
+                    DO UPDATE SET
+                        trend = EXCLUDED.trend,
+                        status = EXCLUDED.status,
+                        base_forecast = EXCLUDED.base_forecast,
+                        final_forecast = EXCLUDED.final_forecast,
+                        ratio = EXCLUDED.ratio,
+                        forecast_percentage_id = EXCLUDED.forecast_percentage_id,
+                        updated_at = EXCLUDED.updated_at;
+                `);
+
+                const windowSize = 4;
+                const safetyStockBatch: any[] = [];
+                const safetyPct = Number(product.safety_percentage ?? 0);
+
+                for (const m of monthsRange) {
+                    const isTargetMonth = m.month === month && m.year === year;
+                    const mRatio = isTargetMonth ? resolvedRatio : 0;
+                    const mFinal = resolvedBase * (1 + mRatio / 100);
+                    
+                    const avg = mFinal;
+                    const totalDemand = mFinal * windowSize;
+                    safetyStockBatch.push({
+                        product_id,
+                        month: m.month,
+                        year: m.year,
+                        horizon: windowSize,
+                        avg_forecast: avg,
+                        total_forecast: totalDemand,
+                        safety_stock_quantity: avg * safetyPct,
+                        safety_stock_ratio: safetyPct,
+                    });
+                }
+
+                if (safetyStockBatch.length > 0) {
+                    const ssSql = safetyStockBatch
+                        .map(
+                            (s) =>
+                                `(${s.product_id}, ${s.month}, ${s.year}, ${s.horizon}, ${s.avg_forecast}, ${s.total_forecast}, ${s.safety_stock_quantity}, ${s.safety_stock_ratio}, '${nowIso}', '${nowIso}')`,
+                        )
+                        .join(", ");
+
+                    await tx.$executeRawUnsafe(`
+                        INSERT INTO safety_stock (
+                            product_id, month, year, horizon, 
+                            avg_forecast, total_forecast, 
+                            safety_stock_quantity, safety_stock_ratio, 
+                            created_at, updated_at
+                        )
+                        VALUES ${ssSql}
+                        ON CONFLICT (product_id, month, year)
+                        DO UPDATE SET
+                            horizon = EXCLUDED.horizon,
+                            avg_forecast = EXCLUDED.avg_forecast,
+                            total_forecast = EXCLUDED.total_forecast,
+                            safety_stock_quantity = EXCLUDED.safety_stock_quantity,
+                            safety_stock_ratio = EXCLUDED.safety_stock_ratio,
+                            updated_at = EXCLUDED.updated_at;
+                    `);
+                }
+            }, { timeout: 30000 });
+        }
 
         return { message: "Forecast berhasil diperbarui secara manual." };
     }
@@ -508,7 +685,8 @@ export class ForecastService {
                             'base_forecast',  f.base_forecast,
                             'final_forecast', f.final_forecast,
                             'trend',          f.trend,
-                            'status',         f.status
+                            'status',         f.status,
+                            'ratio',          f.ratio
                         ) ORDER BY f.year ASC, f.month ASC
                     ), '[]'::json)
                     FROM "forecasts" f
@@ -573,6 +751,7 @@ export class ForecastService {
                 final_forecast: string | null;
                 trend: string;
                 status: string;
+                ratio: string | null;
             }[] =
                 typeof p.forecasts_data === "string"
                     ? JSON.parse(p.forecasts_data)
@@ -593,11 +772,14 @@ export class ForecastService {
                     status: forecast?.status ?? null,
                     is_current_month: m.is_current_month,
                     is_actionable: !forecast || forecast.status !== "FINALIZED",
-                    percentage_value: pctMap.has(`${m.year}-${m.month}`)
-                        ? Number(
-                              (Number(pctMap.get(`${m.year}-${m.month}`)!.value) * 100).toFixed(2),
-                          )
-                        : null,
+                    ratio: forecast?.ratio != null ? Number(forecast.ratio) : 0,
+                    percentage_value: query.is_display
+                        ? (forecast?.ratio != null ? Number(forecast.ratio) : 0)
+                        : pctMap.has(`${m.year}-${m.month}`)
+                          ? Number(
+                                (Number(pctMap.get(`${m.year}-${m.month}`)!.value) * 100).toFixed(2),
+                            )
+                          : null,
                 };
             });
 

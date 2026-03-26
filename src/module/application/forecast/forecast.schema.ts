@@ -58,7 +58,8 @@ export const UpdateManualForecastSchema = z.object({
     product_id: z.coerce.number().int().positive(),
     month: z.coerce.number().int().min(1).max(12),
     year: z.coerce.number().int().min(2000).max(2100),
-    final_forecast: z.coerce.number().min(0),
+    final_forecast: z.coerce.number().min(0).optional(),
+    ratio: z.coerce.number().optional(),
 });
 
 // ─── Types / DTOs ──────────────────────────────────────────────────────────────
@@ -92,6 +93,7 @@ export type ResponseForecastDTO = {
         status: string | null;
         is_current_month: boolean;
         is_actionable: boolean;
+        ratio: number;
         percentage_value: number | null;
     }>;
     safety_stock_summary: {
