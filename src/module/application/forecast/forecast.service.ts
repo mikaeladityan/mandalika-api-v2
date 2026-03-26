@@ -734,6 +734,8 @@ export class ForecastService {
                 }
               )
             ${searchRaw ? Prisma.sql`AND (p.name ILIKE ${searchRaw} OR p.code ILIKE ${searchRaw})` : Prisma.empty}
+            ${query.type_id ? Prisma.sql`AND p.type_id = ${query.type_id}` : Prisma.empty}
+            ${query.size_id ? Prisma.sql`AND p.size_id = ${query.size_id}` : Prisma.empty}
             ORDER BY 
                 (CASE WHEN MAX(COALESCE(f_m1.final_forecast, 0)) OVER(PARTITION BY p.name) > 0 THEN 1 ELSE 0 END) DESC,
                 group_sort_priority DESC, 

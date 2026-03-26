@@ -19,6 +19,8 @@ export const QueryForecastSchema = z.object({
     take: z.coerce.number().int().positive().max(1000).default(25).optional(),
     horizon: z.coerce.number().int().min(3).max(12).default(12).optional(),
     is_display: z.coerce.boolean().optional(),
+    type_id: z.coerce.number().optional(),
+    size_id: z.coerce.number().optional(),
 });
 
 // ─── Finalize ──────────────────────────────────────────────────────────────────
