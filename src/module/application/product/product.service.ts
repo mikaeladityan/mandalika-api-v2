@@ -285,30 +285,63 @@ export class ProductService {
             })) as unknown as ResponseProductDTO[],
         };
     }
-
     static async detail(id: number): Promise<ResponseProductDTO> {
-        const products = await prisma.$queryRaw<any[]>`
-            SELECT 
-                p.*,
-                json_build_object('id', pt.id, 'name', pt.name, 'slug', pt.slug) as product_type,
-                json_build_object('id', u.id, 'name', u.name, 'slug', u.slug) as unit,
-                json_build_object('id', ps.id, 'size', ps.size) as size
-            FROM products p
-            LEFT JOIN product_types pt ON p.type_id = pt.id
-            LEFT JOIN unit_of_materials u ON p.unit_id = u.id
-            LEFT JOIN product_size ps ON p.size_id = ps.id
-            WHERE p.id = ${id}
-            LIMIT 1
-        `;
+        const product = await prisma.product.findUnique({
+            where: { id },
+            include: {
+                product_type: true,
+                unit: true,
+                size: true,
+                product_inventories: {
+                    include: {
+                        warehouse: true,
+                    },
+                },
+                recipes: {
+                    where: { is_active: true },
+                    include: {
+                        raw_materials: {
+                            include: {
+                                unit_raw_material: true,
+                            },
+                        },
+                    },
+                },
+            },
+        });
 
-        if (products.length === 0) throw new ApiError(404, "Produk tidak ditemukan");
+        if (!product) throw new ApiError(404, "Produk tidak ditemukan");
 
-        const product = products[0];
+        // Map and transform Prisma result to DTO
         return {
             ...product,
             z_value: Number(product.z_value),
             distribution_percentage: Number(product.distribution_percentage),
             safety_percentage: Number(product.safety_percentage),
+            product_inventories: product.product_inventories.map((i) => ({
+                id: i.id,
+                quantity: Number(i.quantity),
+                min_stock: i.min_stock ? Number(i.min_stock) : null,
+                warehouse: {
+                    id: i.warehouse.id,
+                    name: i.warehouse.name,
+                },
+            })),
+            recipes: product.recipes.map((r) => ({
+                id: r.id,
+                quantity: Number(r.quantity),
+                version: r.version,
+                is_active: r.is_active,
+                raw_material: {
+                    id: r.raw_materials.id,
+                    name: r.raw_materials.name,
+                    price: Number(r.raw_materials.price),
+                    unit_raw_material: {
+                        name: r.raw_materials.unit_raw_material.name,
+                    },
+                    current_stock: 0,
+                },
+            })),
         } as unknown as ResponseProductDTO;
     }
 

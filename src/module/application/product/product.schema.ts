@@ -20,6 +20,7 @@ export const RequestProductSchema = z.object({
     product_type: z.string().nullable().optional(),
     distribution_percentage: z.coerce.number().min(0).default(0).optional(),
     safety_percentage: z.coerce.number().min(0).default(0).optional(),
+    description: z.string().nullable().optional(),
 });
 
 export const ResponseProductSchema = RequestProductSchema.extend({
@@ -31,6 +32,38 @@ export const ResponseProductSchema = RequestProductSchema.extend({
     created_at: z.date(),
     updated_at: z.date(),
     deleted_at: z.date().nullable(),
+    recipes: z
+        .array(
+            z.object({
+                id: z.number(),
+                quantity: z.number(),
+                version: z.number(),
+                is_active: z.boolean(),
+                raw_material: z.object({
+                    id: z.number(),
+                    name: z.string(),
+                    price: z.number(),
+                    current_stock: z.number().optional(),
+                    unit_raw_material: z.object({
+                        name: z.string(),
+                    }),
+                }),
+            }),
+        )
+        .optional(),
+    product_inventories: z
+        .array(
+            z.object({
+                id: z.number(),
+                quantity: z.number(),
+                min_stock: z.number().nullable(),
+                warehouse: z.object({
+                    id: z.number(),
+                    name: z.string(),
+                }),
+            }),
+        )
+        .optional(),
 });
 
 export const QueryProductSchema = z.object({
