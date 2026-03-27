@@ -89,9 +89,11 @@ describe("ProductService", () => {
                 z_value: "1.65",
                 distribution_percentage: "0.5",
                 safety_percentage: "0.1",
+                product_inventories: [],
+                recipes: []
             };
             // @ts-ignore
-            prisma.$queryRaw.mockResolvedValue([mockProduct]);
+            prisma.product.findUnique.mockResolvedValue(mockProduct);
 
             const result = await ProductService.detail(1);
 
@@ -103,7 +105,7 @@ describe("ProductService", () => {
 
         it("should throw error if product not found", async () => {
             // @ts-ignore
-            prisma.$queryRaw.mockResolvedValue([]);
+            prisma.product.findUnique.mockResolvedValue(null);
 
             await expect(ProductService.detail(999)).rejects.toThrow(ApiError);
         });

@@ -57,6 +57,8 @@ vi.mock("../config/prisma.js", () => ({
                     z_value: 1.65,
                     status: "ACTIVE",
                     deleted_at: null,
+                    product_inventories: [],
+                    recipes: []
                 };
             }),
             findFirst: vi.fn().mockResolvedValue(null),
@@ -246,7 +248,7 @@ vi.mock("../config/prisma.js", () => ({
             delete: vi.fn().mockResolvedValue({ id: 1 }),
             count: vi.fn().mockResolvedValue(2),
         },
-        salesActual: {
+        productIssuance: {
             findMany: vi.fn().mockResolvedValue([
                 { product_id: 1, quantity: "100" },
                 { product_id: 2, quantity: "80" },

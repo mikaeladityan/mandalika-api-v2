@@ -1,12 +1,12 @@
 // import.service.ts
 import { randomUUID } from "crypto";
 import prisma from "../../../../config/prisma.js";
-import { SalesImportPreviewDTO, SalesImportRowSchema, ResponseSalesImportDTO } from "./import.schema.js";
+import { IssuanceImportPreviewDTO, IssuanceImportRowSchema, ResponseIssuanceImportDTO } from "./import.schema.js";
 import { ImportCacheService } from "../../../../lib/utils/import.cache.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { logger } from "../../../../lib/logger.js";
 
-const CACHE_PREFIX = "sales:import:";
+const CACHE_PREFIX = "issuance:import:";
 
 type ImportCachePayload = {
     status: "preview" | "executing";
@@ -14,13 +14,13 @@ type ImportCachePayload = {
     total: number;
     valid: number;
     invalid: number;
-    rows: SalesImportPreviewDTO[];
+    rows: IssuanceImportPreviewDTO[];
 };
 
-export class SalesImportService {
-    static async preview(rows: Record<string, unknown>[]): Promise<ResponseSalesImportDTO> {
+export class IssuanceImportService {
+    static async preview(rows: Record<string, unknown>[]): Promise<ResponseIssuanceImportDTO> {
         // 1. Parse all rows (sync)
-        const parsed = rows.map((row) => SalesImportRowSchema.safeParse(row));
+        const parsed = rows.map((row) => IssuanceImportRowSchema.safeParse(row));
 
         // 2. Batch-fetch all valid product codes in a single query — avoids N+1
         const validCodes = parsed
@@ -36,7 +36,7 @@ export class SalesImportService {
         const productMap = new Map(products.map((p) => [p.code, p]));
 
         // 3. Build result rows
-        const parsedRows: SalesImportPreviewDTO[] = parsed.map((result) => {
+        const parsedRows: IssuanceImportPreviewDTO[] = parsed.map((result) => {
             if (!result.success) {
                 return {
                     code: "",
@@ -51,7 +51,7 @@ export class SalesImportService {
             return {
                 code: data["PRODUCT CODE"],
                 product_name: product?.name ?? "",
-                amount: data["TOTAL SALES"],
+                amount: data["TOTAL"],
                 type: product?.product_type?.name ?? "",
                 errors: [],
             };
@@ -108,10 +108,9 @@ export class SalesImportService {
         return Number(digitsOnly);
     }
 
-    private static async bulkInsert(data: SalesImportPreviewDTO[], month: number, year: number, type: any = "ALL") {
+    private static async bulkInsert(data: IssuanceImportPreviewDTO[], month: number, year: number, type: any = "ALL") {
         if (!data.length) return;
 
-        // Single-pass map+filter — avoids iterating data twice
         const codes: string[] = [];
         const quantities: number[] = [];
         for (const d of data) {
@@ -123,7 +122,7 @@ export class SalesImportService {
         }
 
         if (codes.length !== data.length) {
-            logger.warn("Some sales rows were dropped due to invalid quantity", {
+            logger.warn("Some issuance rows were dropped due to invalid quantity", {
                 total: data.length,
                 valid: codes.length,
                 dropped: data.length - codes.length,
@@ -132,9 +131,8 @@ export class SalesImportService {
 
         if (!codes.length) throw new ApiError(400, "Semua baris memiliki kuantitas tidak valid");
 
-        // Single $executeRaw is already atomic — no $transaction wrapper needed
         await prisma.$executeRaw`
-            INSERT INTO sales_actuals (
+            INSERT INTO product_issuances (
                 product_id,
                 month,
                 year,
@@ -148,7 +146,7 @@ export class SalesImportService {
                 ${month}::int,
                 ${year}::int,
                 q.quantity::numeric,
-                CAST(${type} AS "SalesType"),
+                CAST(${type} AS "IssuanceType"),
                 NOW(),
                 NOW()
             FROM

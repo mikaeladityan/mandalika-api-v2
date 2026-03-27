@@ -25,14 +25,7 @@ export class OutletInventoryService {
             include: { product: { select: { id: true, name: true, code: true } } },
         });
         
-        if (!inventory) {
-            return {
-                quantity: 0,
-                min_stock: null,
-                location_name: outlet.name,
-                is_low_stock: false,
-            };
-        }
+        if (!inventory) throw new ApiError(404, "Stok produk tidak ditemukan di outlet ini");
 
         return {
             ...inventory,

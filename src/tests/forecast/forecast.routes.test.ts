@@ -64,7 +64,7 @@ describe("ForecastRoutes", () => {
             // @ts-ignore
             prisma.product.findMany.mockResolvedValue(mockProducts);
             // @ts-ignore
-            prisma.salesActual.findMany.mockResolvedValue([
+            prisma.productIssuance.findMany.mockResolvedValue([
                 { product_id: 1, quantity: "100" },
                 { product_id: 2, quantity: "100" },
             ]);
@@ -91,7 +91,7 @@ describe("ForecastRoutes", () => {
             // @ts-ignore
             prisma.product.findMany.mockResolvedValue(mockProducts);
             // @ts-ignore
-            prisma.salesActual.findMany.mockResolvedValue([]);
+            prisma.productIssuance.findMany.mockResolvedValue([]);
             // @ts-ignore
             prisma.forecastPercentage.findMany.mockResolvedValue([
                 { id: 1, month: 1, year: 2026, value: "20.00" },
@@ -144,7 +144,7 @@ describe("ForecastRoutes", () => {
             // @ts-ignore
             prisma.product.findMany.mockResolvedValue([]);
             // @ts-ignore
-            prisma.salesActual.findMany.mockResolvedValue([]);
+            prisma.productIssuance.findMany.mockResolvedValue([]);
 
             const res = await app.request(`${BASE}/run`, {
                 method: "POST",

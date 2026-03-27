@@ -110,7 +110,7 @@ export class BOMService {
 
         // 5. Batch Fetch Sales & Forecasts
         const [salesData, forecastData] = await Promise.all([
-            prisma.salesActual.findMany({
+            prisma.productIssuance.findMany({
                 where: {
                     product_id: { in: productIds },
                     OR: salesRange.map((s) => ({ month: s.month, year: s.year })),

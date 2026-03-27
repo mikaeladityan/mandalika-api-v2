@@ -1,18 +1,18 @@
 import { Context } from "hono";
-import { SalesService } from "./sales.service.js";
+import { IssuanceService } from "./issuance.service.js";
 import { ApiResponse } from "../../../lib/api.response.js";
-import { QuerySalesDTO, QuerySalesRekapDTO } from "./sales.schema.js";
+import { QueryIssuanceDTO, QueryIssuanceRekapDTO } from "./issuance.schema.js";
 
-export class SalesController {
+export class IssuanceController {
     static async create(c: Context) {
         const body = c.get("body");
-        await SalesService.create(body);
+        await IssuanceService.create(body);
         return ApiResponse.sendSuccess(c, undefined, 201);
     }
 
     static async update(c: Context) {
         const body = c.get("body");
-        await SalesService.update(body);
+        await IssuanceService.update(body);
         return ApiResponse.sendSuccess(c, undefined, 200);
     }
 
@@ -32,10 +32,10 @@ export class SalesController {
             type,
         } = c.req.query();
 
-        const params: QuerySalesDTO = {
-            sortBy: (sortBy as QuerySalesDTO["sortBy"]) || "name",
-            sortOrder: (sortOrder as QuerySalesDTO["sortOrder"]) || "desc",
-            gender: (gender as QuerySalesDTO["gender"]) || undefined,
+        const params: QueryIssuanceDTO = {
+            sortBy: (sortBy as QueryIssuanceDTO["sortBy"]) || "name",
+            sortOrder: (sortOrder as QueryIssuanceDTO["sortOrder"]) || "desc",
+            gender: (gender as QueryIssuanceDTO["gender"]) || undefined,
             variant: variant || undefined,
             size: size ? Number(size) : undefined,
             horizon: horizon ? Number(horizon) : undefined,
@@ -44,17 +44,17 @@ export class SalesController {
             search: search || undefined,
             page: page ? Number(page) : 1,
             take: take ? Number(take) : 10,
-            type: (type as QuerySalesDTO["type"]) || undefined,
+            type: (type as QueryIssuanceDTO["type"]) || undefined,
         };
 
-        const result = await SalesService.list(params);
+        const result = await IssuanceService.list(params);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 
     static async detail(c: Context) {
         const product_id = c.req.param("product_id");
         const { year, month, type } = c.req.query();
-        const data = await SalesService.detail(
+        const data = await IssuanceService.detail(
             Number(product_id),
             Number(year),
             Number(month),
@@ -77,20 +77,20 @@ export class SalesController {
             sortOrder,
         } = c.req.query();
 
-        const params: QuerySalesRekapDTO = {
+        const params: QueryIssuanceRekapDTO = {
             year: year ? Number(year) : undefined,
             month: month ? Number(month) : undefined,
             search: search || undefined,
-            gender: (gender as QuerySalesRekapDTO["gender"]) || undefined,
+            gender: (gender as QueryIssuanceRekapDTO["gender"]) || undefined,
             size: size ? Number(size) : undefined,
             variant: variant || undefined,
             page: page ? Number(page) : 1,
             take: take ? Number(take) : 25,
-            sortBy: (sortBy as QuerySalesRekapDTO["sortBy"]) || "name",
-            sortOrder: (sortOrder as QuerySalesRekapDTO["sortOrder"]) || "asc",
+            sortBy: (sortBy as QueryIssuanceRekapDTO["sortBy"]) || "name",
+            sortOrder: (sortOrder as QueryIssuanceRekapDTO["sortOrder"]) || "asc",
         };
 
-        const result = await SalesService.rekap(params);
+        const result = await IssuanceService.rekap(params);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 }

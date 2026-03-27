@@ -1,18 +1,18 @@
 import z from "zod";
 import { ResponseProductSchema } from "../product/product.schema.js";
-import { GENDER, SalesType } from "../../../generated/prisma/enums.js";
+import { GENDER, IssuanceType } from "../../../generated/prisma/enums.js";
 
-export const RequestSalesSchema = z.object({
+export const RequestIssuanceSchema = z.object({
     product_id: z.number("Produk tidak boleh kosong"),
     quantity: z.number(),
     month: z.number().optional(),
     year: z.number().optional(),
-    type: z.nativeEnum(SalesType).default(SalesType.ALL),
+    type: z.nativeEnum(IssuanceType).default(IssuanceType.ALL),
 });
 
-export type RequestSalesDTO = z.infer<typeof RequestSalesSchema>;
+export type RequestIssuanceDTO = z.infer<typeof RequestIssuanceSchema>;
 
-export const ResponseSalesSchema = RequestSalesSchema.extend({
+export const ResponseIssuanceSchema = RequestIssuanceSchema.extend({
     id: z.number().optional(),
     month: z.number(),
     year: z.number(),
@@ -26,7 +26,7 @@ export const ResponseSalesSchema = RequestSalesSchema.extend({
     }),
 });
 
-export const QuerySalesSchema = z.object({
+export const QueryIssuanceSchema = z.object({
     size: z.number().optional(),
     variant: z.string().optional(),
     gender: z.enum(GENDER).optional(),
@@ -36,8 +36,8 @@ export const QuerySalesSchema = z.object({
 
     year: z.number().optional(),
     month: z.number().optional(),
-    search: z.string().optional(), // Added search parameter
-    type: z.nativeEnum(SalesType).optional(),
+    search: z.string().optional(),
+    type: z.nativeEnum(IssuanceType).optional(),
 
     page: z.number().int().positive().default(1).optional(),
     take: z.number().int().positive().max(100).default(25).optional(),
@@ -46,9 +46,10 @@ export const QuerySalesSchema = z.object({
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
-export type ResponseSalesDTO = z.infer<typeof ResponseSalesSchema>;
-export type QuerySalesDTO = z.infer<typeof QuerySalesSchema>;
-export const QuerySalesRekapSchema = z.object({
+export type ResponseIssuanceDTO = z.infer<typeof ResponseIssuanceSchema>;
+export type QueryIssuanceDTO = z.infer<typeof QueryIssuanceSchema>;
+
+export const QueryIssuanceRekapSchema = z.object({
     year: z.number().int().positive().optional(),
     month: z.number().int().min(1).max(12).optional(),
     search: z.string().optional(),
@@ -61,4 +62,4 @@ export const QuerySalesRekapSchema = z.object({
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
-export type QuerySalesRekapDTO = z.infer<typeof QuerySalesRekapSchema>;
+export type QueryIssuanceRekapDTO = z.infer<typeof QueryIssuanceRekapSchema>;

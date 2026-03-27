@@ -34,7 +34,7 @@ describe("BOMService", () => {
         qRaw.mockResolvedValueOnce([{ total: 1n }]); // countRes
 
         // Mock findMany for sales, forecast, and safety stock
-        (prisma.salesActual.findMany as any).mockResolvedValue([]);
+        (prisma.productIssuance.findMany as any).mockResolvedValue([]);
         (prisma.forecast.findMany as any).mockResolvedValue([
             { product_id: 1, month: 4, year: 2026, final_forecast: 100 }
         ]);
@@ -62,7 +62,7 @@ describe("BOMService", () => {
         qRaw.mockResolvedValueOnce(mockBOMRows);
         qRaw.mockResolvedValueOnce([{ total: 1n }]);
 
-        (prisma.salesActual.findMany as any).mockResolvedValue([]);
+        (prisma.productIssuance.findMany as any).mockResolvedValue([]);
         (prisma.forecast.findMany as any).mockResolvedValue([]);
         (prisma.safetyStock.findMany as any).mockResolvedValue([]);
 

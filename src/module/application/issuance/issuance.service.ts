@@ -1,12 +1,11 @@
 import prisma from "../../../config/prisma.js";
-import { Prisma, SalesType, Trend } from "../../../generated/prisma/client.js";
+import { Prisma, IssuanceType, Trend } from "../../../generated/prisma/client.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
-// import { SalesActualHookService } from "./sales.hooks.js";
 
-import { QuerySalesDTO, RequestSalesDTO, ResponseSalesDTO, QuerySalesRekapDTO } from "./sales.schema.js";
+import { QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO } from "./issuance.schema.js";
 
-export class SalesService {
+export class IssuanceService {
     private static resolvePeriod(month?: number, year?: number) {
         const now = new Date();
         const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
@@ -20,13 +19,13 @@ export class SalesService {
         return prisma.product.findUnique({ where: { id } });
     }
 
-    private static async findSaleByPeriod(product_id: number, month: number, year: number, type: SalesType = SalesType.ALL) {
-        return prisma.salesActual.findUnique({
+    private static async findIssuanceByPeriod(product_id: number, month: number, year: number, type: IssuanceType = IssuanceType.ALL) {
+        return prisma.productIssuance.findUnique({
             where: { product_id_year_month_type: { product_id, month, year, type } },
         });
     }
 
-    static async create(body: RequestSalesDTO): Promise<void> {
+    static async create(body: RequestIssuanceDTO): Promise<void> {
         const { product_id, quantity, month: rawMonth, year: rawYear, type } = body;
 
         const product = await this.findProduct(product_id);
@@ -34,56 +33,39 @@ export class SalesService {
 
         const { month, year } = this.resolvePeriod(rawMonth, rawYear);
 
-        const exist = await this.findSaleByPeriod(product_id, month, year, type);
+        const exist = await this.findIssuanceByPeriod(product_id, month, year, type);
         if (exist) {
             throw new ApiError(
                 400,
-                `Data penjualan ${product.name.toUpperCase()} tipe ${type} pada periode ${month}/${year} sudah tersedia`,
+                `Data pengeluaran ${product.name.toUpperCase()} tipe ${type} pada periode ${month}/${year} sudah tersedia`,
             );
         }
 
-        await prisma.salesActual.create({
+        await prisma.productIssuance.create({
             data: { product_id, quantity, month, year, type },
         });
-
-        // // 🔑 TX DITERUSKAN — akan diaktifkan saat modul forecasting tersedia
-        // await SalesActualHookService.afterSalesInserted(
-        //     product_id,
-        //     year,
-        //     month,
-        //     type,
-        // );
     }
 
-    static async update(body: RequestSalesDTO): Promise<void> {
+    static async update(body: RequestIssuanceDTO): Promise<void> {
         const { product_id, quantity, month, year, type } = body;
 
         if (!month || !year) {
             throw new ApiError(400, "Bulan dan tahun wajib diisi untuk proses update");
         }
 
-        const sale = await this.findSaleByPeriod(product_id, month, year, type);
-        if (!sale) throw new ApiError(404, "Data penjualan tidak ditemukan");
+        const issuance = await this.findIssuanceByPeriod(product_id, month, year, type);
+        if (!issuance) throw new ApiError(404, "Data pengeluaran tidak ditemukan");
 
-        await prisma.salesActual.update({
-            where: { id: sale.id },
+        await prisma.productIssuance.update({
+            where: { id: issuance.id },
             data: { quantity },
         });
-
-        // // 🔑 TX DITERUSKAN — akan diaktifkan saat modul forecasting tersedia
-        // await SalesActualHookService.afterSalesInserted(
-        //     product_id,
-        //     year,
-        //     month,
-        //     type,
-        // );
     }
 
     private static getLastNMonths(n: number): { year: number; month: number }[] {
         const periods: { year: number; month: number }[] = [];
         const now = new Date();
 
-        // Start from M-1 (Previous Month)
         for (let i = n - 1; i >= 0; i--) {
             const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1 - i, 1));
             periods.push({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 });
@@ -104,19 +86,16 @@ export class SalesService {
         take = 10,
         search,
         type,
-    }: QuerySalesDTO): Promise<{ sales: SalesListItem[]; len: number }> {
+    }: QueryIssuanceDTO): Promise<{ issuances: IssuanceListItem[]; len: number }> {
         const periods = this.getLastNMonths(horizon || 13);
         const start = periods[0]!;
         const end = periods.at(-1)!;
 
-        // year*12 + month memberikan nilai komparasi linear yang aman (1-indexed)
         const startVal = start.year * 12 + start.month;
         const endVal = end.year * 12 + end.month;
 
         const { skip, take: limit } = GetPagination(page, take);
 
-        // 1. DYNAMIC WHERE CLAUSE — parameterized, aman dari SQL Injection
-        // PostgreSQL mewajibkan casting eksplisit pada Enum Type di Raw Query
         const conditions: Prisma.Sql[] = [
             Prisma.sql`p.status NOT IN ('BLOCK'::"STATUS", 'DELETE'::"STATUS", 'PENDING'::"STATUS")`,
         ];
@@ -131,7 +110,6 @@ export class SalesService {
         }
 
         if (size) {
-            // size value ada di product_size.size, bukan di products.size_id
             conditions.push(Prisma.sql`ps.size = ${Number(size)}`);
         }
 
@@ -145,14 +123,12 @@ export class SalesService {
             conditions.push(Prisma.sql`p.id = ${product_id}`);
         }
 
-        // Additional filter for Sales Type in the subquery
         const saTypeFilter = type
-            ? Prisma.sql`AND sa.type = CAST(${type} AS "SalesType")`
-            : Prisma.sql`AND sa.type = 'ALL'::"SalesType"`;
+            ? Prisma.sql`AND sa.type = CAST(${type} AS "IssuanceType")`
+            : Prisma.sql`AND sa.type = 'ALL'::"IssuanceType"`;
 
         const whereSql = Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`;
 
-        // 2. COUNT TOTAL UNTUK PAGINATION
         const countResult = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`
             SELECT COUNT(p.id)::int AS total
             FROM products p
@@ -162,9 +138,8 @@ export class SalesService {
         `);
         const total = Number(countResult[0]?.total ?? 0);
 
-        if (total === 0) return { sales: [], len: 0 };
+        if (total === 0) return { issuances: [], len: 0 };
 
-        // 3. SECURE DYNAMIC SORTING — whitelist-based, tidak menerima raw string dari client
         const orderBySql =
             sortBy === "name" && sortOrder === "asc"
                 ? Prisma.sql`ORDER BY p.name ASC`
@@ -176,10 +151,9 @@ export class SalesService {
                       ? Prisma.sql`ORDER BY p.code DESC`
                       : sortBy === "quantity" && sortOrder === "asc"
                         ? Prisma.sql`ORDER BY "totalQuantity" ASC`
-                        : Prisma.sql`ORDER BY "totalQuantity" DESC`; // default
+                        : Prisma.sql`ORDER BY "totalQuantity" DESC`;
 
-        // 4. MAIN DATA QUERY — agregasi di DB level
-        const rows = await prisma.$queryRaw<RawSalesRow[]>(Prisma.sql`
+        const rows = await prisma.$queryRaw<RawIssuanceRow[]>(Prisma.sql`
             SELECT
                 p.id,
                 p.code,
@@ -199,12 +173,12 @@ export class SalesService {
                         )
                     ) FILTER (WHERE sa.year IS NOT NULL),
                     '[]'::json
-                )                                AS sales_actuals
+                )                                AS issuances_data
             FROM products p
             LEFT JOIN product_types pt   ON p.type_id  = pt.id
             LEFT JOIN unit_of_materials u ON p.unit_id  = u.id
             LEFT JOIN product_size ps    ON p.size_id  = ps.id
-            LEFT JOIN sales_actuals sa
+            LEFT JOIN product_issuances sa
                 ON  sa.product_id = p.id
                 AND (sa.year * 12 + sa.month) >= ${startVal}
                 AND (sa.year * 12 + sa.month) <= ${endVal}
@@ -215,21 +189,20 @@ export class SalesService {
             LIMIT ${product_id && product_id_2 ? 2 : limit} OFFSET ${skip}
         `);
 
-        // 5. NORMALISASI + TREND (TypeScript level)
-        const sales = rows.map((row) => {
+        const issuances = rows.map((row) => {
             const actuals = (
-                typeof row.sales_actuals === "string"
-                    ? JSON.parse(row.sales_actuals)
-                    : row.sales_actuals
+                typeof row.issuances_data === "string"
+                    ? JSON.parse(row.issuances_data)
+                    : row.issuances_data
             ) as Array<{ year: number; month: number; quantity: string | number }>;
 
-            const salesMap = new Map<string, number>(
+            const issuanceMap = new Map<string, number>(
                 actuals.map((s) => [`${s.year}-${s.month}`, Number(s.quantity)]),
             );
 
             let totalQuantity = 0;
             const rawSeries = periods.map(({ year, month }) => {
-                const qty = salesMap.get(`${year}-${month}`) ?? 0;
+                const qty = issuanceMap.get(`${year}-${month}`) ?? 0;
                 totalQuantity += qty;
                 return { year, month, quantity: qty };
             });
@@ -259,24 +232,24 @@ export class SalesService {
             };
         });
 
-        return { sales, len: total };
+        return { issuances, len: total };
     }
 
     static async detail(
         product_id: number,
         year: number,
         month: number,
-        type?: SalesType,
-    ): Promise<ResponseSalesDTO> {
+        type?: IssuanceType,
+    ): Promise<ResponseIssuanceDTO> {
         if (!year || !month) throw new ApiError(400, "Tahun dan bulan wajib diisi");
 
-        const sale = await prisma.salesActual.findUnique({
+        const issuance = await prisma.productIssuance.findUnique({
             where: {
                 product_id_year_month_type: {
                     product_id,
                     year,
                     month,
-                    type: type ?? SalesType.ALL,
+                    type: type ?? IssuanceType.ALL,
                 },
             },
             include: {
@@ -291,16 +264,16 @@ export class SalesService {
             },
         });
 
-        if (!sale) throw new ApiError(404, "Data penjualan tidak ditemukan");
+        if (!issuance) throw new ApiError(404, "Data pengeluaran tidak ditemukan");
 
         return {
-            ...sale,
-            quantity: Number(sale.quantity),
+            ...issuance,
+            quantity: Number(issuance.quantity),
             product: {
-                id: sale.product.id,
-                name: sale.product.name,
-                code: sale.product.code,
-                product_type: sale.product.product_type ?? null,
+                id: issuance.product.id,
+                name: issuance.product.name,
+                code: issuance.product.code,
+                product_type: issuance.product.product_type ?? null,
             },
         };
     }
@@ -316,7 +289,7 @@ export class SalesService {
         take = 25,
         sortBy = "name",
         sortOrder = "asc",
-    }: QuerySalesRekapDTO): Promise<{ rekap: any[]; len: number }> {
+    }: QueryIssuanceRekapDTO): Promise<{ rekap: any[]; len: number }> {
         const { year, month } = this.resolvePeriod(rawMonth, rawYear);
         const { skip, take: limit } = GetPagination(page, take);
 
@@ -334,7 +307,6 @@ export class SalesService {
 
         const whereSql = Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`;
 
-        // Count for pagination
         const countResult = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`
             SELECT COUNT(p.id)::int AS total
             FROM products p
@@ -346,13 +318,11 @@ export class SalesService {
 
         if (total === 0) return { rekap: [], len: 0 };
 
-        // Secure dynamic sorting
         const validSortFields = ["name", "code", "offline", "online", "spin_wheel", "garansi_out", "all_qty", "total_qty"];
         const actualSortBy = validSortFields.includes(sortBy) ? sortBy : "name";
         const actualSortOrder = sortOrder === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
         
-        // Sorting logic based on columns
-        let orderBySql = Prisma.sql`ORDER BY p.name ASC`; // Default
+        let orderBySql = Prisma.sql`ORDER BY p.name ASC`;
         if (actualSortBy === "name") orderBySql = Prisma.sql`ORDER BY p.name ${actualSortOrder}`;
         else if (actualSortBy === "code") orderBySql = Prisma.sql`ORDER BY p.code ${actualSortOrder}`;
         else if (actualSortBy === "offline") orderBySql = Prisma.sql`ORDER BY offline ${actualSortOrder}`;
@@ -385,7 +355,7 @@ export class SalesService {
             LEFT JOIN product_types pt ON p.type_id = pt.id
             LEFT JOIN product_size ps ON p.size_id = ps.id
             LEFT JOIN unit_of_materials u ON p.unit_id = u.id
-            LEFT JOIN sales_actuals sa ON sa.product_id = p.id AND sa.month = ${month} AND sa.year = ${year}
+            LEFT JOIN product_issuances sa ON sa.product_id = p.id AND sa.month = ${month} AND sa.year = ${year}
             ${whereSql}
             GROUP BY p.id, p.code, p.name, ps.size, u.name, pt.name
             ${orderBySql}
@@ -425,8 +395,7 @@ export class SalesService {
     }
 }
 
-// Internal types — tidak diekspos keluar
-type RawSalesRow = {
+type RawIssuanceRow = {
     id: number;
     code: string;
     name: string;
@@ -436,10 +405,10 @@ type RawSalesRow = {
     pt_name: string | null;
     pt_slug: string | null;
     totalQuantity: string | number;
-    sales_actuals: string | Array<{ year: number; month: number; quantity: string | number }>;
+    issuances_data: string | Array<{ year: number; month: number; quantity: string | number }>;
 };
 
-type SalesListItem = {
+type IssuanceListItem = {
     product_id: number;
     year: number;
     month: number;

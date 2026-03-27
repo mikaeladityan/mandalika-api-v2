@@ -134,7 +134,7 @@ model Product {
   unit                    Unit?               @relation(fields: [unit_id], references: [id])
   recipes                 Recipes[]
   safety_stock            SafetyStock[]
-  sales_actuals           SalesActual[]
+  issuances               ProductIssuance[]
   outlet_inventories      OutletInventory[]
   stock_transfer_items    StockTransferItem[]
 
@@ -329,7 +329,7 @@ model WarehouseAddress {
   @@map("warehouse_addresses")
 }
 
-enum SalesType {
+enum IssuanceType {
   ALL
   OFFLINE
   ONLINE
@@ -337,20 +337,20 @@ enum SalesType {
   GARANSI_OUT
 }
 
-model SalesActual {
-  id         Int       @id @default(autoincrement())
+model ProductIssuance {
+  id         Int          @id @default(autoincrement())
   product_id Int
   month      Int
   year       Int
-  quantity   Decimal   @db.Decimal(18, 2)
-  type       SalesType @default(ALL)
-  created_at DateTime  @default(now())
-  updated_at DateTime  @updatedAt
-  product    Product   @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  quantity   Decimal      @db.Decimal(18, 2)
+  type       IssuanceType @default(ALL)
+  created_at DateTime     @default(now())
+  updated_at DateTime     @updatedAt
+  product    Product      @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@unique([product_id, year, month, type])
   @@index([year, month])
-  @@map("sales_actuals")
+  @@map("product_issuances")
 }
 
 model ForecastPercentage {
@@ -596,7 +596,7 @@ enum MovementRefType {
   PURCHASE_ORDER
   STOCK_TRANSFER
   STOCK_ADJUSTMENT
-  SALES_TRANSACTION
+  ISSUANCE_TRANSACTION
   MANUAL
 }
 

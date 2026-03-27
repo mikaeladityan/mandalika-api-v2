@@ -264,7 +264,7 @@ export class RecomendationV2Service {
                             SELECT sa.month, sa.year, SUM(sa.quantity * rec.quantity * 
                                 CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
                             ) as qty
-                            FROM "sales_actuals" sa
+                            FROM "product_issuances" sa
                             JOIN "recipes" rec ON rec.product_id = sa.product_id AND rec.is_active = true
                             JOIN "products" p ON p.id = sa.product_id
                             LEFT JOIN "product_size" ps ON ps.id = p.size_id

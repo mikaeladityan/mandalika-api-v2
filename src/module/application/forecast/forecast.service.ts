@@ -69,7 +69,7 @@ export class ForecastService {
         // 3. Load actual sales for the base month (M-1 of start_month)
         const prevMonth = start_month === 1 ? 12 : start_month - 1;
         const prevYear = start_month === 1 ? start_year - 1 : start_year;
-        const salesData = await prisma.salesActual.findMany({
+        const salesData = await prisma.productIssuance.findMany({
             where: {
                 product_id: { in: products.map((p) => p.id) },
                 year: prevYear,
@@ -406,7 +406,7 @@ export class ForecastService {
             // Fallback to recent sales
             const prevMonth = m === 1 ? 12 : m - 1;
             const prevYear = m === 1 ? y - 1 : y;
-            const sales = await prisma.salesActual.findFirst({
+            const sales = await prisma.productIssuance.findFirst({
                 where: { product_id, month: prevMonth, year: prevYear, type: "ALL" },
             });
             return Number(sales?.quantity ?? 0);
