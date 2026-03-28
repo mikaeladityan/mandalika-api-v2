@@ -74,7 +74,17 @@ export class RecomendationV2Service {
         const fcEndM = forecastPeriods[forecastPeriods.length - 1]?.month || currentMonth;
         const fcEndY = forecastPeriods[forecastPeriods.length - 1]?.year || currentYear;
 
-        const searchRaw = search ? `%${search}%` : null;
+        const cleanSearch = search?.trim();
+        const searchRaw = cleanSearch ? `%${cleanSearch}%` : null;
+        const searchFilter = searchRaw
+            ? Prisma.sql`AND (
+                rm.name ILIKE ${searchRaw} 
+                OR rm.barcode ILIKE ${searchRaw} 
+                OR s.name ILIKE ${searchRaw} 
+                OR rmc.name ILIKE ${searchRaw}
+                OR urm.name ILIKE ${searchRaw}
+              )`
+            : Prisma.empty;
 
         const typeFilter = (() => {
             switch (type) {
@@ -319,7 +329,7 @@ export class RecomendationV2Service {
                             'quantity', mro.quantity,
                             'horizon', mro.horizon
                         )
-                        FROM "material_recommendation_orders" mro
+                        FROM "material_purchase_drafts" mro
                         WHERE mro.raw_mat_id = rm.id
                           AND mro.month = ${currentMonth}
                           AND mro.year = ${currentYear}
@@ -333,10 +343,26 @@ export class RecomendationV2Service {
                 LEFT JOIN rm_forecast_agg fa ON fa.raw_mat_id = rm.id
                 LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = rm.id
                 WHERE ${typeFilter}
-                  AND rm.barcode != 'FO-ALK'
-                  ${searchRaw ? Prisma.sql`AND (rm.name ILIKE ${searchRaw} OR rm.barcode ILIKE ${searchRaw})` : Prisma.empty}
+                  AND rm.deleted_at IS NULL
+                  AND rm.barcode IS DISTINCT FROM 'FO-ALK'
+                  ${searchFilter}
             ) AS base
-            ORDER BY forecast_needed DESC, material_name ASC
+            ORDER BY 
+                ${
+                    query.sortBy
+                        ? query.sortBy === "material_name"
+                            ? Prisma.sql`material_name ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
+                            : query.sortBy === "barcode"
+                              ? Prisma.sql`barcode ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
+                              : query.sortBy === "current_stock"
+                                ? Prisma.sql`current_stock ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
+                                : query.sortBy === "forecast_needed"
+                                  ? Prisma.sql`forecast_needed ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
+                                  : query.sortBy === "recommendation_quantity"
+                                    ? Prisma.sql`recommendation_val ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
+                                    : Prisma.sql`forecast_needed DESC, material_name ASC`
+                        : Prisma.sql`forecast_needed DESC, material_name ASC`
+                }
             LIMIT ${limit} OFFSET ${skip}
         `;
 
@@ -345,9 +371,11 @@ export class RecomendationV2Service {
             FROM "raw_materials" rm
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
             LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+            LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
             WHERE ${typeFilter}
-              AND rm.barcode != 'FO-ALK'
-              ${searchRaw ? Prisma.sql`AND (rm.name ILIKE ${searchRaw} OR rm.barcode ILIKE ${searchRaw})` : Prisma.empty}
+              AND rm.deleted_at IS NULL
+              AND rm.barcode IS DISTINCT FROM 'FO-ALK'
+              ${searchFilter}
         `;
 
         const data = rows.map((r) => {
@@ -395,7 +423,7 @@ export class RecomendationV2Service {
                 forecast_needed: Number(r.forecast_needed),
                 recommendation_quantity: Number(r.recommendation_val),
 
-                // Work Order data
+                // Work Order / Consolidation data
                 work_order_id: workOrder?.id || null,
                 work_order_status: workOrder?.status || null,
                 work_order_pic_id: workOrder?.pic_id || null,
@@ -411,7 +439,11 @@ export class RecomendationV2Service {
         return {
             data,
             len: Number(totalQuery[0]?.count || 0),
-            periods: { sales_periods: salesPeriods, forecast_periods: forecastPeriods, po_periods: poPeriods },
+            periods: {
+                sales_periods: salesPeriods,
+                forecast_periods: forecastPeriods,
+                po_periods: poPeriods,
+            },
         };
     }
 
@@ -428,7 +460,7 @@ export class RecomendationV2Service {
             safety_stock_x_resep,
         } = body;
 
-        return await prisma.materialRecommendationOrder.upsert({
+        return await prisma.materialPurchaseDraft.upsert({
             where: {
                 raw_mat_id_month_year: {
                     raw_mat_id,
@@ -461,7 +493,7 @@ export class RecomendationV2Service {
 
     static async approveWorkOrder(body: RequestApproveWorkOrderDTO, userId: string) {
         return await prisma.$transaction(async (tx) => {
-            const rec = await tx.materialRecommendationOrder.findUniqueOrThrow({
+            const rec = await tx.materialPurchaseDraft.findUniqueOrThrow({
                 where: { id: body.id },
             });
 
@@ -483,7 +515,7 @@ export class RecomendationV2Service {
                 select: { id: true },
             });
 
-            const updatedRec = await tx.materialRecommendationOrder.update({
+            const updatedRec = await tx.materialPurchaseDraft.update({
                 where: { id: body.id },
                 data: {
                     status: "ACC",
@@ -497,7 +529,7 @@ export class RecomendationV2Service {
     }
 
     static async destroyWorkOrder(id: number) {
-        const rec = await prisma.materialRecommendationOrder.findUnique({
+        const rec = await prisma.materialPurchaseDraft.findUnique({
             where: { id },
         });
 
@@ -506,7 +538,7 @@ export class RecomendationV2Service {
             throw new Error("Only DRAFT work orders can be deleted.");
         }
 
-        return await prisma.materialRecommendationOrder.delete({
+        return await prisma.materialPurchaseDraft.delete({
             where: { id },
         });
     }
@@ -642,7 +674,7 @@ export class RecomendationV2Service {
                     WHERE rec.is_active = true
                     GROUP BY rec.raw_mat_id
                 )
-            INSERT INTO "material_recommendation_orders" (
+            INSERT INTO "material_purchase_drafts" (
                 raw_mat_id, month, year, quantity, horizon,
                 total_needed, current_stock, stock_fg_x_resep, safety_stock_x_resep,
                 created_at, updated_at, status
@@ -669,7 +701,7 @@ export class RecomendationV2Service {
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
             LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
-            LEFT JOIN "material_recommendation_orders" mro
+            LEFT JOIN "material_purchase_drafts" mro
                 ON mro.raw_mat_id = rm.id AND mro.month = ${month} AND mro.year = ${year}
             LEFT JOIN po_agg po ON po.raw_material_id = rm.id
             LEFT JOIN inv_agg inv ON inv.raw_material_id = rm.id
@@ -677,7 +709,8 @@ export class RecomendationV2Service {
             LEFT JOIN ss_agg ss ON ss.raw_mat_id = rm.id
             LEFT JOIN fg_agg fg ON fg.raw_mat_id = rm.id
             WHERE ${typeFilter}
-              AND rm.barcode != 'FO-ALK'
+              AND rm.deleted_at IS NULL
+              AND rm.barcode IS DISTINCT FROM 'FO-ALK'
             ON CONFLICT (raw_mat_id, month, year) DO UPDATE SET
                 horizon = EXCLUDED.horizon,
                 quantity = EXCLUDED.quantity,
@@ -710,51 +743,108 @@ export class RecomendationV2Service {
             "Des",
         ];
 
-        // Define Base Headers (Final: Barcode first, Safety Stock after MOQ, Total Stock after Current Stock, No UOM)
-        const columns: any[] = [
-            { header: "BARCODE", key: "barcode", width: 15 },
-            { header: "MATERIAL", key: "material_name", width: 35 },
-            { header: "MOQ", key: "moq", width: 10 },
-            { header: "SAFETY STOCK", key: "safety_stock_x_resep", width: 18 },
-            { header: "LT", key: "lead_time", width: 10 },
-            { header: "CURRENT STOCK", key: "current_stock", width: 15 },
-            { header: "TOTAL STOCK", key: "total_stock", width: 15 },
+        const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : null;
+
+        // Custom filter function to check if a column should be included in export
+        const isVisible = (uiId: string) => {
+            if (!visibleCols) return true;
+            return visibleCols.includes(uiId);
+        };
+
+        // Define All Possible Columns
+        const allColumns: any[] = [
+            { header: "RANK", key: "ranking", width: 8, uiId: "ranking" },
+            { header: "BARCODE", key: "barcode", width: 15, uiId: "material_name" },
+            { header: "MATERIAL", key: "material_name", width: 35, uiId: "material_name" },
+            { header: "SUPPLIER", key: "supplier_name", width: 25, uiId: "supplier" },
+            { header: "MOQ", key: "moq", width: 10, uiId: "moq" },
+            {
+                header: "SAFETY STOCK",
+                key: "safety_stock_x_resep",
+                width: 18,
+                uiId: "safety_stock_x_resep",
+            },
+            { header: "LT", key: "lead_time", width: 10, uiId: "lead_time" },
+            { header: "CURRENT STOCK", key: "current_stock", width: 15, uiId: "current_stock" },
+            { header: "READY STOCK", key: "total_stock", width: 15, uiId: "available_stock" },
         ];
 
-        // Dynamic Sales Headers (2-digit year)
+        // Dynamic Sales Headers
         meta.sales_periods?.forEach((p: any) => {
             const yearShort = String(p.year).slice(-2);
-            columns.push({
+            allColumns.push({
                 header: `S ${monthsShort[p.month - 1]?.toLocaleUpperCase()}${yearShort}`,
                 key: `sales_${p.key}`,
                 width: 15,
+                uiId: "sales_history",
             });
         });
 
-        // Dynamic Need Headers (2-digit year)
-        const needStartCol = columns.length + 1;
+        // Dynamic Need Headers
         meta.forecast_periods?.forEach((p: any) => {
             const yearShort = String(p.year).slice(-2);
-            columns.push({
+            allColumns.push({
                 header: `N ${monthsShort[p.month - 1]?.toLocaleUpperCase()}${yearShort}`,
                 key: `need_${p.key}`,
                 width: 15,
+                uiId: "needs_buy",
             });
         });
 
-        // Remaining Fixed Columns (TOTAL OPEN PO, REKOMENDASI, WORK ORDER QTY)
-        columns.push(
-            { header: "TOTAL OPEN PO", key: "open_po", width: 15 },
-            { header: "REKOMENDASI", key: "recommendation_quantity", width: 15 },
-            { header: "WORK ORDER", key: "work_order_quantity", width: 18 },
+        // Remaining Fixed Columns
+        allColumns.push(
+            { header: "TOTAL NEED", key: "total_needed", width: 15, uiId: "total_needs" },
+            {
+                header: "REKOMENDASI",
+                key: "recommendation_quantity",
+                width: 15,
+                uiId: "recommendation_quantity",
+            },
+            { header: "TOTAL OPEN PO", key: "open_po", width: 15, uiId: "total_open_po" },
+            { header: "WORK ORDER", key: "work_order_quantity", width: 15, uiId: "action" },
         );
 
-        sheet.columns = columns;
+        // Filter based on visibility
+        const filteredColumns = allColumns.filter((col) => {
+            if (!col.uiId) return true;
+            return isVisible(col.uiId);
+        });
+
+        // Apply custom order if provided
+        if (query.columnOrder) {
+            const orderArr = query.columnOrder.split(",");
+            filteredColumns.sort((a, b) => {
+                const uiIdA = a.uiId || "";
+                const uiIdB = b.uiId || "";
+                
+                const indexA = orderArr.indexOf(uiIdA);
+                const indexB = orderArr.indexOf(uiIdB);
+                
+                if (indexA !== -1 && indexB !== -1) {
+                    if (indexA === indexB) return 0; // Same group (like barcode & material)
+                    return indexA - indexB;
+                }
+                
+                if (indexA !== -1) return -1;
+                if (indexB !== -1) return 1;
+                return 0;
+            });
+        }
+
+        sheet.columns = filteredColumns;
+
+        const needStartCol = filteredColumns.findIndex((c) => c.key.startsWith("need_")) + 1;
 
         // Add Data
         data.forEach((row: any) => {
             const currentStock = Math.round(row.current_stock || 0);
             const openPo = Math.round(row.open_po || 0);
+
+            // Calculate total need based on horizon
+            const h = row.work_order_horizon || query.forecast_months || 0;
+            const totalNeeded = (row.needs || [])
+                .slice(0, h)
+                .reduce((sum: number, n: any) => sum + (n.quantity || 0), 0);
 
             const formattedRow: any = {
                 ...row,
@@ -763,6 +853,7 @@ export class RecomendationV2Service {
                 recommendation_quantity: Math.round(row.recommendation_quantity || 0),
                 open_po: openPo,
                 total_stock: currentStock + openPo,
+                total_needed: Math.round(totalNeeded),
                 // Only show Work Order Qty if it's already ordered (ACC)
                 work_order_quantity:
                     row.work_order_status === "ACC" ? row.work_order_quantity : null,
@@ -782,16 +873,19 @@ export class RecomendationV2Service {
 
             // Horizon Highlighting (Amber background like in frontend)
             const horizon = row.work_order_horizon || 0;
-            if (horizon > 0) {
+            if (horizon > 0 && needStartCol > 0) {
                 for (let i = 0; i < horizon; i++) {
-                    const cell = excelRow.getCell(needStartCol + i);
-                    if (cell) {
-                        cell.fill = {
-                            type: "pattern",
-                            pattern: "solid",
-                            fgColor: { argb: "FFFFFF00" }, // Solid Yellow for horizon
-                        };
-                        cell.font = { bold: true };
+                    const column = filteredColumns[needStartCol - 1 + i];
+                    if (column && column.key.startsWith("need_")) {
+                        const cell = excelRow.getCell(needStartCol + i);
+                        if (cell) {
+                            cell.fill = {
+                                type: "pattern",
+                                pattern: "solid",
+                                fgColor: { argb: "FFFFFF00" }, // Solid Yellow for horizon
+                            };
+                            cell.font = { bold: true };
+                        }
                     }
                 }
             }

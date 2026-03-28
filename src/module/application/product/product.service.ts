@@ -136,20 +136,31 @@ export class ProductService {
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet("Data Produk");
 
-        sheet.columns = [
-            { header: "No", key: "no", width: 5 },
-            { header: "Kode", key: "code", width: 15 },
-            { header: "Nama Produk", key: "name", width: 35 },
-            { header: "Tipe", key: "type", width: 15 },
-            { header: "Size", key: "size", width: 10 },
-            { header: "Unit", key: "unit", width: 10 },
-            { header: "Gender", key: "gender", width: 15 },
-            { header: "Lead Time", key: "lead_time", width: 12 },
-            { header: "Nilai Z", key: "z_value", width: 10 },
-            { header: "Distribusi %", key: "distribution", width: 15 },
-            { header: "Safety %", key: "safety", width: 15 },
-            { header: "Status", key: "status", width: 15 },
+        const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : [];
+        const hasVisibility = visibleCols.length > 0;
+
+        const allColumns = [
+            { header: "No", key: "no", width: 5, id: "no" },
+            { header: "Kode", key: "code", width: 15, id: "code" },
+            { header: "Nama Produk", key: "name", width: 40, id: "name" },
+            { header: "Tipe", key: "type", width: 20, id: "type" },
+            { header: "Size", key: "size", width: 10, id: "size" },
+            { header: "Unit", key: "unit", width: 10, id: "unit" },
+            { header: "Gender", key: "gender", width: 15, id: "gender" },
+            { header: "Lead Time", key: "lead_time", width: 12, id: "lead_time" },
+            { header: "Nilai Z", key: "z_value", width: 10, id: "z_value" },
+            { header: "Distribusi %", key: "distribution", width: 15, id: "distribution_percentage" },
+            { header: "Safety %", key: "safety", width: 15, id: "safety_percentage" },
+            { header: "Status", key: "status", width: 15, id: "status" },
         ];
+
+        // Filter columns if visibility is provided. 
+        // Always keep 'no', 'code', 'name' if not explicitly hidden or by default.
+        const filteredColumns = hasVisibility 
+            ? allColumns.filter(col => col.id === "no" || visibleCols.includes(col.id))
+            : allColumns;
+
+        sheet.columns = filteredColumns.map(({ header, key, width }) => ({ header, key, width }));
 
         data.forEach((item, index) => {
             sheet.addRow({
@@ -194,7 +205,7 @@ export class ProductService {
         const {
             page = 1,
             take = 10,
-            sortBy = "name",
+            sortBy = "forecast_default",
             sortOrder = "desc",
             gender,
             search,
@@ -240,30 +251,59 @@ export class ProductService {
             "distribution_percentage",
             "safety_percentage",
         ];
-        let orderBy = Prisma.sql`p.updated_at DESC`;
-
-        if (allowedSort.includes(sortBy)) {
-            const direction =
-                sortOrder.toUpperCase() === "ASC" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+        
+        let orderBy: any;
+        if (sortBy === "forecast_default") {
+            orderBy = Prisma.raw(`
+                CASE 
+                    WHEN pt.name ILIKE '%Display%' THEN 1
+                    ELSE 0
+                END ASC,
+                group_sort_priority DESC,
+                p.name ASC, 
+                CASE 
+                    WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+                    WHEN pt.name ILIKE '%Atomizer%' THEN 2
+                    ELSE 3
+                END ASC,
+                ps.size DESC NULLS LAST,
+                CASE 
+                    WHEN pt.name ILIKE '%EDP%' THEN 1
+                    WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
+                    ELSE 3
+                END ASC,
+                p.id ASC
+            `);
+        } else if (allowedSort.includes(sortBy)) {
+            const direction = sortOrder.toUpperCase() === "ASC" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
             if (sortBy === "type") {
                 orderBy = Prisma.sql`pt.name ${direction}`;
             } else if (sortBy === "size") {
                 orderBy = Prisma.sql`ps.size ${direction}`;
+            } else if (sortBy === "name" || sortBy === "code") {
+                orderBy = Prisma.raw(`p.${sortBy} ${sortOrder.toUpperCase()}`);
             } else {
                 orderBy = Prisma.raw(`p.${sortBy} ${sortOrder.toUpperCase()}`);
             }
+        } else {
+            orderBy = Prisma.sql`p.updated_at DESC`;
         }
+
+        const currentMonth = new Date().getMonth() + 1;
+        const currentYear = new Date().getFullYear();
 
         const dataTask = prisma.$queryRaw<any[]>`
             SELECT 
                 p.*,
                 json_build_object('id', pt.id, 'name', pt.name, 'slug', pt.slug) as product_type,
                 json_build_object('id', u.id, 'name', u.name, 'slug', u.slug) as unit,
-                json_build_object('id', ps.id, 'size', ps.size) as size
+                json_build_object('id', ps.id, 'size', ps.size) as size,
+                MAX(COALESCE(f_m1.final_forecast, 0)) OVER(PARTITION BY p.name) as group_sort_priority
             FROM products p
             LEFT JOIN product_types pt ON p.type_id = pt.id
             LEFT JOIN unit_of_materials u ON p.unit_id = u.id
             LEFT JOIN product_size ps ON p.size_id = ps.id
+            LEFT JOIN forecasts f_m1 ON f_m1.product_id = p.id AND f_m1.month = ${currentMonth} AND f_m1.year = ${currentYear}
             ${whereClause}
             ORDER BY ${orderBy}
             LIMIT ${limit} OFFSET ${skip}

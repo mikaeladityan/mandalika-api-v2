@@ -1,10 +1,10 @@
 import prisma from "../../../config/prisma.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
-import { QueryPurchaseDTO } from "./purchase.schema.js";
+import { QueryConsolidationDTO } from "./consolidation.schema.js";
 import ExcelJS from "exceljs";
 
-export class PurchaseService {
-    static async list(query: QueryPurchaseDTO) {
+export class ConsolidationService {
+    static async list(query: QueryConsolidationDTO) {
         const { search, page, take, month, year } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
@@ -36,11 +36,43 @@ export class PurchaseService {
             };
         }
 
-        const total = await prisma.materialRecommendationOrder.count({
+        const total = await prisma.materialPurchaseDraft.count({
             where: query_condition,
         });
 
-        const data = await prisma.materialRecommendationOrder.findMany({
+        let orderByClause: any = { updated_at: "desc" };
+
+        if (query.sortBy) {
+            const dir = query.order === "asc" ? "asc" : "desc";
+            switch (query.sortBy) {
+                case "material_name":
+                    orderByClause = { raw_material: { name: dir } };
+                    break;
+                case "barcode":
+                    orderByClause = { raw_material: { barcode: dir } };
+                    break;
+                case "supplier_name":
+                    orderByClause = { raw_material: { supplier: { name: dir } } };
+                    break;
+                case "quantity":
+                    orderByClause = { quantity: dir };
+                    break;
+                case "moq":
+                    orderByClause = { raw_material: { min_buy: dir } };
+                    break;
+                case "price":
+                    orderByClause = { raw_material: { price: dir } };
+                    break;
+                case "created_at":
+                    orderByClause = { created_at: dir };
+                    break;
+                default:
+                    // default order
+                    break;
+            }
+        }
+
+        const data = await prisma.materialPurchaseDraft.findMany({
             where: query_condition,
             include: {
                 raw_material: {
@@ -50,9 +82,7 @@ export class PurchaseService {
                     },
                 },
             },
-            orderBy: {
-                updated_at: "desc",
-            },
+            orderBy: orderByClause,
             skip,
             take: limit,
         });
@@ -75,7 +105,7 @@ export class PurchaseService {
         return { data: parsedData, len: total };
     }
 
-    static async summaryBySupplier(query: QueryPurchaseDTO) {
+    static async summaryBySupplier(query: QueryConsolidationDTO) {
         const { search, month, year } = query;
 
         const now = new Date();
@@ -106,7 +136,7 @@ export class PurchaseService {
             };
         }
 
-        const data = await prisma.materialRecommendationOrder.findMany({
+        const data = await prisma.materialPurchaseDraft.findMany({
             where: query_condition,
             include: {
                 raw_material: {
@@ -130,11 +160,17 @@ export class PurchaseService {
         data.forEach((item) => {
             const supplierId = item.raw_material?.supplier?.id || "N/A";
             const supplierName = item.raw_material?.supplier?.name || "No Supplier";
+            const supplierAddress = item.raw_material?.supplier?.addresses || "";
+            const supplierPhone = item.raw_material?.supplier?.phone || "";
+            const supplierCountry = item.raw_material?.supplier?.country || "";
 
             if (!grouping[supplierId]) {
                 grouping[supplierId] = {
                     supplier_id: supplierId,
                     supplier_name: supplierName,
+                    supplier_address: supplierAddress,
+                    supplier_phone: supplierPhone,
+                    supplier_country: supplierCountry,
                     total_amount: 0,
                     total_items: 0,
                     items: [],
@@ -161,7 +197,7 @@ export class PurchaseService {
         return Object.values(grouping);
     }
 
-    static async export(query: QueryPurchaseDTO) {
+    static async export(query: QueryConsolidationDTO) {
         const { data } = await this.list({ ...query, take: 1000000, page: 1 });
 
         // Filter: Only include DRAFT items, exclude ORDERED (ACC)
@@ -169,29 +205,65 @@ export class PurchaseService {
         const supplierName = (draftItems.length > 0 && query.supplier_id) ? draftItems[0]?.supplier_name : "";
 
         const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet(supplierName ? `Pesanan - ${supplierName}` : "Pengajuan Purchase");
+        const sheet = workbook.addWorksheet(supplierName ? `Pesanan - ${supplierName}` : "Konsolidasi Purchase");
 
-        sheet.columns = [
-            { header: "No", key: "no", width: 5 },
-            { header: "Barcode", key: "barcode", width: 15 },
-            { header: "Nama Material", key: "material_name", width: 35 },
-            { header: "Supplier", key: "supplier_name", width: 25 },
-            { header: "Quantity", key: "quantity", width: 12 },
-            { header: "MOQ", key: "moq", width: 10 },
-            { header: "UOM", key: "uom", width: 10 },
-            { header: "Harga Satuan", key: "price", width: 15 },
-            { header: "Total Harga", key: "total_price", width: 18 },
-            { header: "Status", key: "status", width: 12 },
-            { header: "Tanggal Pengajuan", key: "created_at", width: 25 },
-            { header: "PIC", key: "pic_id", width: 15 },
+        const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : null;
+
+        const isVisible = (uiId: string) => {
+            if (!visibleCols) return true;
+            return visibleCols.includes(uiId);
+        };
+
+        const allColumns: any[] = [
+            { header: "No", key: "no", width: 5, uiId: "no" },
+            { header: "Barcode", key: "barcode", width: 15, uiId: "material_name" },
+            { header: "Nama Material", key: "material_name", width: 35, uiId: "material_name" },
+            { header: "Supplier", key: "supplier_name", width: 25, uiId: "supplier_name" },
+            { header: "Quantity", key: "quantity", width: 12, uiId: "quantity" },
+            { header: "MOQ", key: "moq", width: 10, uiId: "moq" },
+            { header: "UOM", key: "uom", width: 10, uiId: "uom" },
+            { header: "Harga Satuan", key: "price", width: 15, uiId: "price" },
+            { header: "Total Harga", key: "total_price", width: 18, uiId: "subtotal" }, // 'subtotal' or whatever it is in frontend
+            { header: "Status", key: "status", width: 12, uiId: "status" },
+            { header: "Tanggal Pengajuan", key: "created_at", width: 25, uiId: "created_at" },
+            { header: "PIC", key: "pic_id", width: 15, uiId: "pic_id" },
         ];
+
+        // Filter based on visibility
+        const filteredColumns = allColumns.filter((col) => {
+            if (!col.uiId) return true;
+            return isVisible(col.uiId);
+        });
+
+        // Apply custom order if provided
+        if (query.columnOrder) {
+            const orderArr = query.columnOrder.split(",");
+            filteredColumns.sort((a, b) => {
+                const uiIdA = a.uiId || "";
+                const uiIdB = b.uiId || "";
+                
+                const indexA = orderArr.indexOf(uiIdA);
+                const indexB = orderArr.indexOf(uiIdB);
+                
+                if (indexA !== -1 && indexB !== -1) {
+                    if (indexA === indexB) return 0;
+                    return indexA - indexB;
+                }
+                
+                if (indexA !== -1) return -1;
+                if (indexB !== -1) return 1;
+                return 0;
+            });
+        }
+
+        sheet.columns = filteredColumns;
 
         let grandTotal = 0;
         draftItems.forEach((item, index) => {
             const totalPrice = (item.price || 0) * (item.quantity || 0);
             grandTotal += totalPrice;
 
-            sheet.addRow({
+            const rowData: Record<string, any> = {
                 no: index + 1,
                 barcode: item.barcode || "-",
                 material_name: item.material_name,
@@ -206,7 +278,9 @@ export class PurchaseService {
                     ? new Date(item.created_at).toLocaleString("id-ID")
                     : "-",
                 pic_id: item.pic_id || "System",
-            });
+            };
+            
+            sheet.addRow(rowData);
         });
 
         // Add Grand Total row for draft items

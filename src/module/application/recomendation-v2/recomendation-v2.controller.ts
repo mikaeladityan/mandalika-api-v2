@@ -10,7 +10,7 @@ import {
 
 export class RecomendationV2Controller {
     static async list(c: Context) {
-        const { page, take, search, month, year, type, sales_months, forecast_months } = c.req.query();
+        const { page, take, search, month, year, type, sales_months, forecast_months, sortBy, order } = c.req.query();
 
         const params: QueryRecomendationV2DTO = {
             page: page ? Number(page) : 1,
@@ -21,6 +21,8 @@ export class RecomendationV2Controller {
             type: type as QueryRecomendationV2DTO["type"],
             sales_months: sales_months ? Number(sales_months) : 3,
             forecast_months: forecast_months ? Number(forecast_months) : 3,
+            sortBy,
+            order: order as QueryRecomendationV2DTO["order"],
         };
 
         const result = await RecomendationV2Service.list(params);
@@ -28,7 +30,7 @@ export class RecomendationV2Controller {
     }
     
     static async export(c: Context) {
-        const { search, month, year, type, sales_months, forecast_months } = c.req.query();
+        const { search, month, year, type, sales_months, forecast_months, sortBy, order, visibleColumns, columnOrder } = c.req.query();
 
         const params: QueryRecomendationV2DTO = {
             page: 1,
@@ -39,6 +41,10 @@ export class RecomendationV2Controller {
             type: type as QueryRecomendationV2DTO["type"],
             sales_months: sales_months ? Number(sales_months) : 3,
             forecast_months: forecast_months ? Number(forecast_months) : 3,
+            sortBy,
+            order: order as QueryRecomendationV2DTO["order"],
+            visibleColumns,
+            columnOrder,
         };
 
         const buffer = await RecomendationV2Service.export(params);

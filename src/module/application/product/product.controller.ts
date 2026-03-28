@@ -99,7 +99,7 @@ export class ProductController {
     }
 
     static async export(c: Context) {
-        const { sortBy, sortOrder, gender, search, status, type_id, size_id } = c.req.query();
+        const { sortBy, sortOrder, gender, search, status, type_id, size_id, visibleColumns } = c.req.query();
 
         const params: QueryProductDTO = {
             search,
@@ -109,6 +109,7 @@ export class ProductController {
             type_id: type_id ? Number(type_id) : undefined,
             size_id: size_id ? Number(size_id) : undefined,
             gender: gender as QueryProductDTO["gender"],
+            visibleColumns,
         };
 
         const buffer = await ProductService.export(params);

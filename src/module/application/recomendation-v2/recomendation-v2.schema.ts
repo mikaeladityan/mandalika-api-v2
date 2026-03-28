@@ -9,6 +9,10 @@ export const QueryRecomendationV2Schema = z.object({
     sales_months: z.coerce.number().min(0).max(12).optional().default(3),
     forecast_months: z.coerce.number().min(0).max(12).optional().default(3),
     type: z.enum(["ffo", "lokal", "impor"]).optional(),
+    sortBy: z.string().optional(),
+    order: z.enum(["asc", "desc"]).optional(),
+    visibleColumns: z.string().optional(),
+    columnOrder: z.string().optional(),
 });
 
 export type QueryRecomendationV2DTO = z.infer<typeof QueryRecomendationV2Schema>;

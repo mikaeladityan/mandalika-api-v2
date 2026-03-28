@@ -74,6 +74,7 @@ export class ForecastService {
                 product_id: { in: products.map((p) => p.id) },
                 year: prevYear,
                 month: prevMonth,
+                type: "ALL",
             },
         });
         const inputMap = new Map<number, number>(
@@ -737,10 +738,19 @@ export class ForecastService {
             ${query.type_id ? Prisma.sql`AND p.type_id = ${query.type_id}` : Prisma.empty}
             ${query.size_id ? Prisma.sql`AND p.size_id = ${query.size_id}` : Prisma.empty}
             ORDER BY 
-                (CASE WHEN MAX(COALESCE(f_m1.final_forecast, 0)) OVER(PARTITION BY p.name) > 0 THEN 1 ELSE 0 END) DESC,
-                group_sort_priority DESC, 
+                group_sort_priority DESC,
                 p.name ASC, 
-                m1_final_forecast DESC, 
+                CASE 
+                    WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+                    WHEN pt.name ILIKE '%Atomizer%' THEN 2
+                    ELSE 3
+                END ASC,
+                ps.size DESC NULLS LAST,
+                CASE 
+                    WHEN pt.name ILIKE '%EDP%' THEN 1
+                    WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
+                    ELSE 3
+                END ASC,
                 p.id ASC
             LIMIT ${limit} OFFSET ${skip}
         `;
