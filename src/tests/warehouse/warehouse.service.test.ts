@@ -5,6 +5,7 @@ import { ApiError } from "../../lib/errors/api.error.js";
 
 const mockWarehouse = {
     id: 1,
+    code: "WH01",
     name: "Gudang Utama",
     type: "FINISH_GOODS",
     deleted_at: null,
@@ -23,6 +24,11 @@ const mockWarehouse = {
         created_at: new Date(),
         updated_at: new Date(),
     },
+    _count: {
+        product_inventories: 0,
+        raw_material_inventories: 0,
+        outlet_warehouses: 0,
+    },
 };
 
 describe("WarehouseService", () => {
@@ -34,6 +40,7 @@ describe("WarehouseService", () => {
 
     describe("create", () => {
         const mockBody = {
+            code: "WH02",
             name: "Gudang Baru",
             type: "FINISH_GOODS" as const,
             warehouse_address: {
@@ -49,18 +56,32 @@ describe("WarehouseService", () => {
             },
         };
 
+        it("should throw 409 if code already exists", async () => {
+            // @ts-ignore
+            prisma.warehouse.findUnique.mockResolvedValue(mockWarehouse);
+
+            await expect(WarehouseService.create({ ...mockBody, code: "WH01" })).rejects.toThrow(ApiError);
+            await expect(WarehouseService.create({ ...mockBody, code: "WH01" })).rejects.toThrow(
+                `Kode gudang "WH01" sudah digunakan`,
+            );
+        });
+
         it("should create warehouse successfully with address", async () => {
             // @ts-ignore
-            prisma.warehouse.create.mockResolvedValue({ ...mockWarehouse, name: "Gudang Baru" });
+            prisma.warehouse.findUnique.mockResolvedValue(null);
+            // @ts-ignore
+            prisma.warehouse.create.mockResolvedValue({ ...mockWarehouse, code: "WH02", name: "Gudang Baru" });
 
             const result = await WarehouseService.create(mockBody);
 
             expect(result).toBeDefined();
+            expect(result.code).toBe("WH02");
             expect(result.name).toBe("Gudang Baru");
             // @ts-ignore
             expect(prisma.warehouse.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
+                        code: "WH02",
                         name: "Gudang Baru",
                         type: "FINISH_GOODS",
                         warehouse_address: { create: mockBody.warehouse_address },
@@ -71,10 +92,13 @@ describe("WarehouseService", () => {
         });
 
         it("should create warehouse without address", async () => {
-            const bodyWithoutAddress = { name: "Gudang Tanpa Alamat", type: "RAW_MATERIAL" as const };
+            const bodyWithoutAddress = { code: "WH-NOADDR", name: "Gudang Tanpa Alamat", type: "RAW_MATERIAL" as const };
+            // @ts-ignore
+            prisma.warehouse.findUnique.mockResolvedValue(null);
             // @ts-ignore
             prisma.warehouse.create.mockResolvedValue({
                 id: 2,
+                code: "WH-NOADDR",
                 name: "Gudang Tanpa Alamat",
                 type: "RAW_MATERIAL",
                 deleted_at: null,
@@ -91,14 +115,38 @@ describe("WarehouseService", () => {
     // ─── UPDATE ───────────────────────────────────────────────────────────────
 
     describe("update", () => {
-        it("should update warehouse name successfully", async () => {
+        it("should throw 409 if changing to a code that already exists", async () => {
             // @ts-ignore
-            prisma.warehouse.findUnique.mockResolvedValue(mockWarehouse);
+            prisma.warehouse.findUnique.mockImplementation(async ({ where }) => {
+                if (where.id === 1) return mockWarehouse; // current warehouse
+                if (where.code === "WH-EXIST") return { id: 2, code: "WH-EXIST" }; // conflicting warehouse
+                return null;
+            });
+
+            await expect(WarehouseService.update(1, { code: "WH-EXIST" })).rejects.toThrow(ApiError);
+            await expect(WarehouseService.update(1, { code: "WH-EXIST" })).rejects.toThrow(
+                `Kode gudang "WH-EXIST" sudah digunakan`,
+            );
+        });
+
+        it("should update warehouse name and code successfully", async () => {
             // @ts-ignore
-            prisma.warehouse.update.mockResolvedValue({ ...mockWarehouse, name: "Gudang Updated" });
+            prisma.warehouse.findUnique.mockResolvedValue(mockWarehouse); // For id=1 and code uniqueness check it will resolve to the same mock which logic ignores as identical or can just mock null for code check if changed
+            
+            // To be precise
+            // @ts-ignore
+            prisma.warehouse.findUnique.mockImplementation(async ({ where }) => {
+                if (where.id === 1) return mockWarehouse;
+                if (where.code === "WH03") return null;
+                return null;
+            });
 
-            const result = await WarehouseService.update(1, { name: "Gudang Updated" });
+            // @ts-ignore
+            prisma.warehouse.update.mockResolvedValue({ ...mockWarehouse, code: "WH03", name: "Gudang Updated" });
 
+            const result = await WarehouseService.update(1, { code: "WH03", name: "Gudang Updated" });
+
+            expect(result.code).toBe("WH03");
             expect(result.name).toBe("Gudang Updated");
         });
 

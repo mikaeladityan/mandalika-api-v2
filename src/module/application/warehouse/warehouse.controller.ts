@@ -52,7 +52,8 @@ export class WarehouseController {
 
     static async deleted(c: Context) {
         const id = c.req.param("id");
-        await WarehouseService.deleted(Number(id));
+        const force = c.req.query("force") === "true";
+        await WarehouseService.deleted(Number(id), force);
         return ApiResponse.sendSuccess(c, undefined, 200);
     }
 

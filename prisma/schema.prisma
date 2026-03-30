@@ -278,12 +278,13 @@ model Supplier {
 
 model Warehouse {
   id                       Int                    @id @default(autoincrement())
+  code                     String?                @unique @db.VarChar(20)
   name                     String                 @db.VarChar(100)
   created_at               DateTime               @default(now())
   updated_at               DateTime               @updatedAt
   deleted_at               DateTime?
   type                     WarehouseType          @default(FINISH_GOODS)
-  outlets                  Outlet[]
+  outlet_warehouses        OutletWarehouse[]
   product_inventories      ProductInventory[]
   raw_material_inventories RawMaterialInventory[]
   transfers_as_source      StockTransfer[]        @relation("TransferFromWarehouse")
@@ -441,33 +442,46 @@ model Outlet {
   name                     String            @db.VarChar(100)
   code                     String            @unique @db.VarChar(20)
   phone                    String?           @db.VarChar(20)
-  is_active                Boolean           @default(true)
+  type                     OutletType        @default(RETAIL)
   pos_enabled              Boolean           @default(false)
-  warehouse_id             Int?
   created_at               DateTime          @default(now())
   updated_at               DateTime          @updatedAt
   deleted_at               DateTime?
   address                  OutletAddress?
   inventories              OutletInventory[]
-  warehouse                Warehouse?        @relation(fields: [warehouse_id], references: [id])
+  warehouses               OutletWarehouse[]
   transfers_as_source      StockTransfer[]   @relation("TransferFromOutlet")
   transfers_as_destination StockTransfer[]   @relation("TransferToOutlet")
 
   @@index([code])
-  @@index([is_active])
-  @@index([warehouse_id])
+  @@index([type])
   @@map("outlets")
+}
+
+model OutletWarehouse {
+  id           Int       @id @default(autoincrement())
+  outlet_id    Int
+  warehouse_id Int
+  priority     Int       @default(1)
+  created_at   DateTime  @default(now())
+  outlet       Outlet    @relation(fields: [outlet_id], references: [id], onDelete: Cascade)
+  warehouse    Warehouse @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
+
+  @@unique([outlet_id, warehouse_id])
+  @@index([outlet_id])
+  @@index([warehouse_id])
+  @@map("outlet_warehouses")
 }
 
 model OutletAddress {
   outlet_id       Int      @id
-  street          String
-  district        String   @db.VarChar(100)
-  sub_district    String   @db.VarChar(100)
-  city            String   @db.VarChar(100)
-  province        String   @db.VarChar(100)
-  country         String   @db.VarChar(100)
-  postal_code     String   @db.VarChar(6)
+  street          String?
+  district        String?   @db.VarChar(100)
+  sub_district    String?   @db.VarChar(100)
+  city            String?   @db.VarChar(100)
+  province        String?   @db.VarChar(100)
+  country         String?   @db.VarChar(100)
+  postal_code     String?   @db.VarChar(6)
   notes           String?
   url_google_maps String?
   created_at      DateTime @default(now())
@@ -601,6 +615,11 @@ enum IssuanceType {
 enum WarehouseType {
   FINISH_GOODS
   RAW_MATERIAL
+}
+
+enum OutletType {
+  RETAIL
+  MARKETPLACE
 }
 
 enum LEVEL_APP {

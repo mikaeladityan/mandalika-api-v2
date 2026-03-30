@@ -33,6 +33,7 @@ vi.mock("../../middleware/csrf.js", () => ({
 
 const mockWarehouse = {
     id: 1,
+    code: "WH01",
     name: "Gudang Utama",
     type: "FINISH_GOODS",
     deleted_at: null,
@@ -176,7 +177,7 @@ describe("WarehouseRoutes", () => {
             const res = await app.request("/api/app/warehouses", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: "Gudang Baru", type: "FINISH_GOODS" }),
+                body: JSON.stringify({ code: "WH01", name: "Gudang Baru", type: "FINISH_GOODS" }),
             });
             const body = await res.json();
 
@@ -190,6 +191,7 @@ describe("WarehouseRoutes", () => {
             prisma.warehouse.create.mockResolvedValue(mockWarehouse);
 
             const payload = {
+                code: "WH-LONG",
                 name: "Gudang Lengkap",
                 type: "RAW_MATERIAL",
                 warehouse_address: {

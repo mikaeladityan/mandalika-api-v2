@@ -385,6 +385,7 @@ vi.mock("../config/prisma.js", () => ({
             findFirst: vi.fn().mockResolvedValue({ month: 3, year: 2025 }),
             findMany: vi.fn().mockResolvedValue([]),
             count: vi.fn().mockResolvedValue(0),
+            deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
         safetyStock: {
             findMany: vi.fn().mockResolvedValue([]),
@@ -403,23 +404,18 @@ vi.mock("../config/prisma.js", () => ({
                     name: "Toko Utama",
                     code: where.code || "TOKO001",
                     phone: null,
-                    is_active: true,
-                    warehouse_id: 1,
-                    deleted_at: null,
-                    created_at: new Date(),
-                    updated_at: null,
-                    address: null,
                     warehouse: { id: 1, name: "Gudang Utama", type: "FINISH_GOODS" },
                     _count: { inventories: 0 },
                 };
             }),
+            updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
             findMany: vi.fn().mockResolvedValue([
                 {
                     id: 1,
                     name: "Toko Utama",
                     code: "TOKO001",
                     phone: null,
-                    is_active: true,
                     warehouse_id: 1,
                     deleted_at: null,
                     created_at: new Date(),
@@ -434,7 +430,6 @@ vi.mock("../config/prisma.js", () => ({
                 name: "Toko Utama",
                 code: "TOKO001",
                 phone: null,
-                is_active: true,
                 warehouse_id: 1,
                 deleted_at: null,
                 created_at: new Date(),
@@ -447,7 +442,6 @@ vi.mock("../config/prisma.js", () => ({
                 name: "Toko Updated",
                 code: "TOKO001",
                 phone: null,
-                is_active: true,
                 warehouse_id: 1,
                 deleted_at: null,
                 created_at: new Date(),
@@ -456,11 +450,15 @@ vi.mock("../config/prisma.js", () => ({
                 warehouse: { id: 1, name: "Gudang Utama", type: "FINISH_GOODS" },
             }),
             count: vi.fn().mockResolvedValue(1),
-            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         outletAddress: {
             deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
             delete: vi.fn().mockResolvedValue({ outlet_id: 1 }),
+        },
+        outletWarehouse: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+            findMany: vi.fn().mockResolvedValue([]),
         },
         outletInventory: {
             findUnique: vi.fn().mockImplementation(async (args) => {
@@ -546,8 +544,15 @@ vi.mock("../config/prisma.js", () => ({
                         created_at: new Date(),
                         updated_at: new Date(),
                     },
+                    _count: {
+                        product_inventories: 0,
+                        raw_material_inventories: 0,
+                        outlet_warehouses: 0,
+                    },
                 };
             }),
+            updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
             findMany: vi.fn().mockResolvedValue([
                 {
                     id: 1,
@@ -617,6 +622,7 @@ vi.mock("../config/prisma.js", () => ({
             findUnique: vi.fn().mockResolvedValue(null),
             count: vi.fn().mockResolvedValue(0),
             create: vi.fn().mockResolvedValue({}),
+            deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
         stockTransfer: {
             findMany: vi.fn().mockResolvedValue([]),
@@ -631,6 +637,7 @@ vi.mock("../config/prisma.js", () => ({
         productInventory: {
             findFirst: vi.fn().mockResolvedValue({ id: 1, quantity: 100 }),
             update: vi.fn().mockResolvedValue({ id: 1, quantity: 90 }),
+            deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
         account: {
             findUnique: vi.fn().mockImplementation(async (args) => {
@@ -741,6 +748,22 @@ vi.mock("../config/prisma.js", () => ({
                         .mockResolvedValue({ id: 1, name: "Fabric", slug: "fabric" }),
                     create: vi.fn().mockResolvedValue({ id: 1, name: "Fabric", slug: "fabric" }),
                 },
+                outletWarehouse: {
+                    deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+                    createMany: vi.fn().mockResolvedValue({ count: 1 }),
+                },
+                outlet: {
+                    update: vi.fn().mockResolvedValue({
+                        id: 1,
+                        name: "Toko Updated",
+                        code: "TOKO001",
+                    }),
+                    upsert: vi.fn().mockResolvedValue({
+                        id: 1,
+                        code: "TOKO001",
+                        name: "Toko UPSERT",
+                    }),
+                },
                 outletInventory: {
                     create: vi.fn().mockResolvedValue({ id: 1 }),
                     update: vi.fn().mockResolvedValue({ id: 1 }),
@@ -750,6 +773,7 @@ vi.mock("../config/prisma.js", () => ({
                 },
                 stockMovement: {
                     create: vi.fn().mockResolvedValue({ id: 1 }),
+                    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
                 },
                 stockTransfer: {
                     update: vi.fn().mockResolvedValue({ id: 1 }),

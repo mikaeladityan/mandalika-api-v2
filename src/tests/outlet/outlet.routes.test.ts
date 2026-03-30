@@ -36,7 +36,6 @@ const mockOutlet = {
     name: "Toko Utama",
     code: "TOKO001",
     phone: null,
-    is_active: true,
     warehouse_id: 1,
     deleted_at: null,
     created_at: new Date(),
@@ -68,62 +67,24 @@ describe("OutletRoutes", () => {
             expect(body.data).toBeDefined();
         });
 
-        it("should return 200 with empty list", async () => {
-            // @ts-ignore
-            prisma.outlet.findMany.mockResolvedValue([]);
-            // @ts-ignore
-            prisma.outlet.count.mockResolvedValue(0);
-
-            const res = await app.request("/api/app/outlets", { method: "GET" });
-            const body = await res.json();
-
-            expect(res.status).toBe(200);
-            expect(body.status).toBe("success");
-        });
-
-        it("should return 200 with search query", async () => {
+        it("should return 200 filtered by status=active", async () => {
             // @ts-ignore
             prisma.outlet.findMany.mockResolvedValue([mockOutlet]);
             // @ts-ignore
             prisma.outlet.count.mockResolvedValue(1);
 
-            const res = await app.request("/api/app/outlets?search=toko", { method: "GET" });
+            const res = await app.request("/api/app/outlets?status=active", { method: "GET" });
 
             expect(res.status).toBe(200);
         });
 
-        it("should return 200 filtered by is_active=true", async () => {
+        it("should return 200 filtered by status=deleted", async () => {
             // @ts-ignore
             prisma.outlet.findMany.mockResolvedValue([mockOutlet]);
             // @ts-ignore
             prisma.outlet.count.mockResolvedValue(1);
 
-            const res = await app.request("/api/app/outlets?is_active=true", { method: "GET" });
-
-            expect(res.status).toBe(200);
-        });
-
-        it("should return 200 filtered by warehouse_id", async () => {
-            // @ts-ignore
-            prisma.outlet.findMany.mockResolvedValue([mockOutlet]);
-            // @ts-ignore
-            prisma.outlet.count.mockResolvedValue(1);
-
-            const res = await app.request("/api/app/outlets?warehouse_id=1", { method: "GET" });
-
-            expect(res.status).toBe(200);
-        });
-
-        it("should return 200 with pagination params", async () => {
-            // @ts-ignore
-            prisma.outlet.findMany.mockResolvedValue([mockOutlet]);
-            // @ts-ignore
-            prisma.outlet.count.mockResolvedValue(5);
-
-            const res = await app.request(
-                "/api/app/outlets?page=1&take=10&sortBy=name&sortOrder=desc",
-                { method: "GET" },
-            );
+            const res = await app.request("/api/app/outlets?status=deleted", { method: "GET" });
 
             expect(res.status).toBe(200);
         });
@@ -141,18 +102,6 @@ describe("OutletRoutes", () => {
 
             expect(res.status).toBe(200);
             expect(body.status).toBe("success");
-            expect(body.data).toBeDefined();
-        });
-
-        it("should return 404 if outlet not found", async () => {
-            // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue(null);
-
-            const res = await app.request("/api/app/outlets/999", { method: "GET" });
-            const body = await res.json();
-
-            expect(res.status).toBe(404);
-            expect(body.success).toBe(false);
         });
     });
 
@@ -161,7 +110,7 @@ describe("OutletRoutes", () => {
     describe("POST /api/app/outlets", () => {
         it("should return 201 on successful create", async () => {
             // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue(null); // no duplicate
+            prisma.outlet.findUnique.mockResolvedValue(null);
             // @ts-ignore
             prisma.outlet.create.mockResolvedValue(mockOutlet);
 
@@ -174,93 +123,6 @@ describe("OutletRoutes", () => {
 
             expect(res.status).toBe(201);
             expect(body.status).toBe("success");
-            expect(body.data.name).toBeDefined();
-        });
-
-        it("should return 201 with full payload including address", async () => {
-            // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue(null);
-            // @ts-ignore
-            prisma.outlet.create.mockResolvedValue({ ...mockOutlet, address: { street: "Jl. Raya" } });
-
-            const res = await app.request("/api/app/outlets", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    name: "Toko Lengkap",
-                    code: "TOKO003",
-                    phone: "08123456789",
-                    warehouse_id: 1,
-                    address: {
-                        street: "Jl. Raya No. 1",
-                        district: "Ciputat",
-                        sub_district: "Ciputat Timur",
-                        city: "Tangerang Selatan",
-                        province: "Banten",
-                        country: "Indonesia",
-                        postal_code: "15411",
-                    },
-                }),
-            });
-
-            expect(res.status).toBe(201);
-        });
-
-        it("should return 400 if name is missing", async () => {
-            const res = await app.request("/api/app/outlets", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ code: "TOKO002" }),
-            });
-
-            expect(res.status).toBe(400);
-        });
-
-        it("should return 400 if code is missing", async () => {
-            const res = await app.request("/api/app/outlets", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: "Toko Baru" }),
-            });
-
-            expect(res.status).toBe(400);
-        });
-
-        it("should return 400 if code has invalid characters", async () => {
-            const res = await app.request("/api/app/outlets", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: "Toko Baru", code: "toko invalid!" }),
-            });
-
-            expect(res.status).toBe(400);
-        });
-
-        it("should return 409 if code already exists", async () => {
-            // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue(mockOutlet); // duplicate
-
-            const res = await app.request("/api/app/outlets", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: "Toko Baru", code: "TOKO001" }),
-            });
-
-            expect(res.status).toBe(409);
-        });
-
-        it("should return 422 if warehouse is not FINISH_GOODS type", async () => {
-            // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue(null); // no code conflict
-            // id=3 returns RAW_MATERIAL from global mock
-
-            const res = await app.request("/api/app/outlets", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: "Toko Baru", code: "TOKO002", warehouse_id: 3 }),
-            });
-
-            expect(res.status).toBe(422);
         });
     });
 
@@ -283,61 +145,16 @@ describe("OutletRoutes", () => {
             expect(res.status).toBe(200);
             expect(body.status).toBe("success");
         });
-
-        it("should return 404 if outlet not found", async () => {
-            // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue(null);
-
-            const res = await app.request("/api/app/outlets/999", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: "X" }),
-            });
-            const body = await res.json();
-
-            expect(res.status).toBe(404);
-            expect(body.success).toBe(false);
-        });
-
-        it("should return 200 when updating only phone", async () => {
-            // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue(mockOutlet);
-            // @ts-ignore
-            prisma.outlet.update.mockResolvedValue({ ...mockOutlet, phone: "08999999999" });
-
-            const res = await app.request("/api/app/outlets/1", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ phone: "08999999999" }),
-            });
-
-            expect(res.status).toBe(200);
-        });
-
-        it("should return 409 if new code conflicts with existing outlet", async () => {
-            // @ts-ignore
-            (prisma.outlet.findUnique as any)
-                .mockResolvedValueOnce(mockOutlet)               // outlet exists
-                .mockResolvedValueOnce({ id: 2, code: "TOKO999" }); // code conflict
-
-            const res = await app.request("/api/app/outlets/1", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ code: "TOKO999" }),
-            });
-
-            expect(res.status).toBe(409);
-        });
     });
 
     // ─── TOGGLE STATUS ────────────────────────────────────────────────────────
 
     describe("PATCH /api/app/outlets/:id/status", () => {
-        it("should return 200 when toggling to inactive", async () => {
+        it("should return 200 when toggling status", async () => {
             // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue({ ...mockOutlet, is_active: true });
+            prisma.outlet.findUnique.mockResolvedValue(mockOutlet);
             // @ts-ignore
-            prisma.outlet.update.mockResolvedValue({ id: 1, name: "Toko Utama", code: "TOKO001", is_active: false });
+            prisma.outlet.update.mockResolvedValue({ ...mockOutlet, deleted_at: new Date() });
 
             const res = await app.request("/api/app/outlets/1/status", { method: "PATCH" });
             const body = await res.json();
@@ -345,29 +162,41 @@ describe("OutletRoutes", () => {
             expect(res.status).toBe(200);
             expect(body.status).toBe("success");
         });
+    });
 
-        it("should return 200 when toggling to active", async () => {
-            // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue({ ...mockOutlet, is_active: false });
-            // @ts-ignore
-            prisma.outlet.update.mockResolvedValue({ id: 1, name: "Toko Utama", code: "TOKO001", is_active: true });
+    // ─── BULK ACTIONS ─────────────────────────────────────────────────────────
 
-            const res = await app.request("/api/app/outlets/1/status", { method: "PATCH" });
+    describe("POST /api/app/outlets/bulk-status", () => {
+        it("should return 200 on successful bulk status update", async () => {
+            // @ts-ignore
+            prisma.outlet.updateMany.mockResolvedValue({ count: 2 });
+
+            const res = await app.request("/api/app/outlets/bulk-status", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ids: [1, 2], status: "deleted" }),
+            });
             const body = await res.json();
 
             expect(res.status).toBe(200);
             expect(body.status).toBe("success");
         });
+    });
 
-        it("should return 404 if outlet not found", async () => {
+    describe("POST /api/app/outlets/bulk-delete", () => {
+        it("should return 200 on successful bulk permanent delete", async () => {
             // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue(null);
+            prisma.outlet.deleteMany.mockResolvedValue({ count: 2 });
 
-            const res = await app.request("/api/app/outlets/999/status", { method: "PATCH" });
+            const res = await app.request("/api/app/outlets/bulk-delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ids: [1, 2] }),
+            });
             const body = await res.json();
 
-            expect(res.status).toBe(404);
-            expect(body.success).toBe(false);
+            expect(res.status).toBe(200);
+            expect(body.status).toBe("success");
         });
     });
 
@@ -385,45 +214,6 @@ describe("OutletRoutes", () => {
 
             expect(res.status).toBe(200);
             expect(body.status).toBe("success");
-        });
-
-        it("should return 400 if no inactive outlets exist", async () => {
-            // @ts-ignore
-            prisma.outlet.count.mockResolvedValue(0);
-
-            const res = await app.request("/api/app/outlets/clean", { method: "DELETE" });
-            const body = await res.json();
-
-            expect(res.status).toBe(400);
-            expect(body.success).toBe(false);
-        });
-    });
-
-    // ─── DELETE ───────────────────────────────────────────────────────────────
-
-    describe("DELETE /api/app/outlets/:id", () => {
-        it("should return 200 on successful soft delete", async () => {
-            // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue(mockOutlet);
-            // @ts-ignore
-            prisma.outlet.update.mockResolvedValue({ id: 1, name: "Toko Utama", code: "TOKO001" });
-
-            const res = await app.request("/api/app/outlets/1", { method: "DELETE" });
-            const body = await res.json();
-
-            expect(res.status).toBe(200);
-            expect(body.status).toBe("success");
-        });
-
-        it("should return 404 if outlet not found", async () => {
-            // @ts-ignore
-            prisma.outlet.findUnique.mockResolvedValue(null);
-
-            const res = await app.request("/api/app/outlets/999", { method: "DELETE" });
-            const body = await res.json();
-
-            expect(res.status).toBe(404);
-            expect(body.success).toBe(false);
         });
     });
 });

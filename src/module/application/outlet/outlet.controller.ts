@@ -1,10 +1,9 @@
 import { Context } from "hono";
 import { OutletService } from "./outlet.service.js";
 import { ApiResponse } from "../../../lib/api.response.js";
-import { QueryOutletSchema } from "./outlet.schema.js";
+import { BulkDeleteSchema, BulkStatusSchema, QueryOutletSchema } from "./outlet.schema.js";
 
 export class OutletController {
-
     static async create(c: Context) {
         const body = c.get("body");
         const result = await OutletService.create(body);
@@ -32,12 +31,6 @@ export class OutletController {
         return ApiResponse.sendSuccess(c, result, 200);
     }
 
-    static async delete(c: Context) {
-        const id = Number(c.req.param("id"));
-        const result = await OutletService.delete(id);
-        return ApiResponse.sendSuccess(c, result, 200);
-    }
-
     static async list(c: Context) {
         const query = QueryOutletSchema.parse(c.req.query());
         const result = await OutletService.list(query);
@@ -52,6 +45,20 @@ export class OutletController {
 
     static async clean(c: Context) {
         const result = await OutletService.clean();
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async bulkStatus(c: Context) {
+        const body = c.get("body");
+        const { ids, status } = BulkStatusSchema.parse(body);
+        const result = await OutletService.bulkStatus(ids, status);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async bulkDelete(c: Context) {
+        const body = c.get("body");
+        const { ids } = BulkDeleteSchema.parse(body);
+        const result = await OutletService.bulkDelete(ids);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 }

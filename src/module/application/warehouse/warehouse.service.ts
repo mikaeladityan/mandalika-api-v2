@@ -24,8 +24,14 @@ export class WarehouseService {
     }
 
     static async create(body: RequestWarehouseDTO) {
+        if (body.code) {
+            const existing = await prisma.warehouse.findUnique({ where: { code: body.code } });
+            if (existing) throw new ApiError(409, `Kode gudang "${body.code}" sudah digunakan`);
+        }
+
         return await prisma.warehouse.create({
             data: {
+                code: body.code,
                 name: body.name,
                 type: body.type,
                 warehouse_address: {
@@ -40,9 +46,15 @@ export class WarehouseService {
         const warehouse = await prisma.warehouse.findUnique({ where: { id, deleted_at: null } });
         if (!warehouse) throw new ApiError(404, "Gudang tidak ditemukan");
 
+        if (body.code && body.code !== warehouse.code) {
+            const existing = await prisma.warehouse.findUnique({ where: { code: body.code } });
+            if (existing) throw new ApiError(409, `Kode gudang "${body.code}" sudah digunakan`);
+        }
+
         return await prisma.warehouse.update({
             where: { id },
             data: {
+                code: body.code,
                 name: body.name,
                 type: body.type,
                 warehouse_address: body.warehouse_address
@@ -120,11 +132,65 @@ export class WarehouseService {
         });
     }
 
-    static async deleted(id: number) {
-        const warehouse = await prisma.warehouse.findUnique({ where: { id } });
+    static async deleted(id: number, force: boolean = false) {
+        const warehouse = await prisma.warehouse.findUnique({
+            where: { id },
+            include: {
+                _count: {
+                    select: {
+                        outlet_warehouses: true,
+                        product_inventories: true,
+                        raw_material_inventories: true,
+                    },
+                },
+            },
+        });
+
         if (!warehouse) throw new ApiError(404, "Data gudang tidak ditemukan");
 
+        if (!force) {
+            // 1. Check Outlet Links
+            if (warehouse._count.outlet_warehouses > 0) {
+                throw new ApiError(
+                    400,
+                    "Gudang tidak dapat dihapus karena masih terhubung dengan Outlet",
+                );
+            }
+
+            // 2. Check Inventory History
+            if (
+                warehouse._count.product_inventories > 0 ||
+                warehouse._count.raw_material_inventories > 0
+            ) {
+                throw new ApiError(
+                    400,
+                    "Gudang tidak dapat dihapus karena memiliki riwayat stok (Saran: Gunakan Non-aktif/Soft Delete)",
+                );
+            }
+
+            // 3. Check Stock Movements (Polymorphic-like relation)
+            const movementCount = await prisma.stockMovement.count({
+                where: {
+                    location_type: "WAREHOUSE",
+                    location_id: id,
+                },
+            });
+
+            if (movementCount > 0) {
+                throw new ApiError(
+                    400,
+                    "Gudang tidak dapat dihapus karena memiliki riwayat pergerakan stok (Movement Log)",
+                );
+            }
+        }
+
         await prisma.$transaction([
+            prisma.stockMovement.deleteMany({
+                where: {
+                    location_type: "WAREHOUSE",
+                    location_id: id,
+                },
+            }),
             prisma.warehouseAddress.delete({ where: { warehouse_id: id } }),
             prisma.warehouse.delete({ where: { id } }),
         ]);
@@ -134,7 +200,7 @@ export class WarehouseService {
         const warehouse = await prisma.warehouse.findUnique({
             where: { id: warehouse_id, deleted_at: null },
         });
-        
+
         if (!warehouse) {
             throw new ApiError(404, "Gudang tidak ditemukan");
         }
