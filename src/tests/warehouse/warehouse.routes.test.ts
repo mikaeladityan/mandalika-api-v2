@@ -52,6 +52,11 @@ const mockWarehouse = {
         created_at: new Date(),
         updated_at: new Date(),
     },
+    _count: {
+        product_inventories: 0,
+        raw_material_inventories: 0,
+        outlet_warehouses: 0,
+    },
 };
 
 describe("WarehouseRoutes", () => {
