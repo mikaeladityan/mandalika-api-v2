@@ -9,6 +9,7 @@ import {
 } from "../../../../generated/prisma/enums.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
+import ExcelJS from "exceljs";
 
 function generateGRNumber() {
     const date = new Date();
@@ -208,5 +209,135 @@ export class GoodsReceiptService {
                 status: GoodsReceiptStatus.CANCELLED,
             },
         });
+    }
+
+    static async export(query: QueryGoodsReceiptDTO) {
+        const { data } = await this.list({ ...query, take: 1000000, page: 1 });
+
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet("Data Goods Receipt");
+
+        sheet.columns = [
+            { header: "No", key: "no", width: 5 },
+            { header: "No. GR", key: "gr_number", width: 20 },
+            { header: "Tanggal", key: "date", width: 15 },
+            { header: "Gudang", key: "warehouse", width: 25 },
+            { header: "Tipe", key: "type", width: 15 },
+            { header: "Total SKU", key: "total_items", width: 12 },
+            { header: "Status", key: "status", width: 15 },
+            { header: "Dibuat Oleh", key: "created_by", width: 20 },
+            { header: "Catatan", key: "notes", width: 30 },
+        ];
+
+        data.forEach((item, index) => {
+            sheet.addRow({
+                no: index + 1,
+                gr_number: item.gr_number,
+                date: item.date ? new Date(item.date).toLocaleDateString("id-ID") : "-",
+                warehouse: item.warehouse.name,
+                type: item.type,
+                total_items: item._count?.items || 0,
+                status: item.status,
+                created_by: item.created_by,
+                notes: item.notes || "-",
+            });
+        });
+
+        // Styling
+        sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+        sheet.getRow(1).fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FF0070C0" },
+        };
+        sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+
+        return await workbook.xlsx.writeBuffer();
+    }
+
+    static async exportDetail(id: number) {
+        const gr = await prisma.goodsReceipt.findUnique({
+            where: { id },
+            include: {
+                items: { include: { product: true } },
+                warehouse: true,
+            },
+        });
+
+        if (!gr) throw new ApiError(404, "Goods Receipt not found");
+
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet(`GR ${gr.gr_number}`);
+
+        // --- Layout ---
+        // Header
+        sheet.mergeCells("A1:D1");
+        sheet.getCell("A1").value = "PERFORMENCE ERP - GOODS RECEIPT";
+        sheet.getCell("A1").font = { bold: true, size: 16 };
+        sheet.getCell("A1").alignment = { horizontal: "center" };
+
+        sheet.addRow([]); // Blank Row
+
+        sheet.addRow(["No. Dokumen", gr.gr_number]);
+        sheet.addRow(["Tanggal", gr.date ? new Date(gr.date).toLocaleDateString("id-ID") : "-"]);
+        sheet.addRow(["Gudang", gr.warehouse.name]);
+        sheet.addRow(["Status", gr.status]);
+        sheet.addRow(["Dibuat Oleh", gr.created_by]);
+
+        sheet.addRow([]); // Blank Row
+
+        // Table Header
+        const tableHeaderRow = ["No", "SKU / Code", "Nama Produk", "Kuantitas"];
+        sheet.addRow(tableHeaderRow);
+        const headerRowNumber = sheet.rowCount;
+
+        // Table Data
+        gr.items.forEach((item, index) => {
+            sheet.addRow([
+                index + 1,
+                item.product.code,
+                item.product.name,
+                item.quantity_actual,
+            ]);
+        });
+
+        // --- Styling ---
+        // Column Widths
+        sheet.getColumn(1).width = 5;
+        sheet.getColumn(2).width = 20;
+        sheet.getColumn(3).width = 40;
+        sheet.getColumn(4).width = 15;
+
+        // Table Header Styling
+        const headerRow = sheet.getRow(headerRowNumber);
+        headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        headerRow.eachCell((cell) => {
+            cell.fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FF0070C0" },
+            };
+            cell.alignment = { horizontal: "center", vertical: "middle" };
+            cell.border = {
+                top: { style: "thin" },
+                left: { style: "thin" },
+                bottom: { style: "thin" },
+                right: { style: "thin" },
+            };
+        });
+
+        // Table Content Styling (Borders)
+        for (let i = headerRowNumber + 1; i <= sheet.rowCount; i++) {
+            sheet.getRow(i).eachCell((cell) => {
+                cell.border = {
+                    top: { style: "thin" },
+                    left: { style: "thin" },
+                    bottom: { style: "thin" },
+                    right: { style: "thin" },
+                };
+            });
+        }
+
+        return await workbook.xlsx.writeBuffer();
     }
 }

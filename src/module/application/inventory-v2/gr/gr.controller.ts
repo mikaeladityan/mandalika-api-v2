@@ -37,4 +37,27 @@ export class GoodsReceiptController {
         const result = await GoodsReceiptService.cancel(id);
         return ApiResponse.sendSuccess(c, result);
     }
+
+    static async export(c: Context) {
+        const query = c.req.query();
+        const validated = QueryGoodsReceiptSchema.parse(query);
+        const buffer = await GoodsReceiptService.export(validated);
+
+        c.header(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        );
+        c.header("Content-Disposition", `attachment; filename="data-barang-masuk.xlsx"`);
+        return c.body(buffer as any);
+    }
+
+    static async exportDetail(c: Context) {
+        const id = Number(c.req.param("id"));
+        const gr = await GoodsReceiptService.detail(id);
+        const buffer = await GoodsReceiptService.exportDetail(id);
+
+        c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        c.header("Content-Disposition", `attachment; filename="GR-${gr.gr_number}.xlsx"`);
+        return c.body(buffer as any);
+    }
 }
