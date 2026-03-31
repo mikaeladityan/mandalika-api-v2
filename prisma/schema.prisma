@@ -545,13 +545,16 @@ model StockTransfer {
   status            TransferStatus       @default(PENDING)
   notes             String?
   shipment_notes    String?
-  fulfillment_notes String?
+  fulfillment_notes  String?
   created_by        String               @db.VarChar(100)
   approved_by       String?              @db.VarChar(100)
+  date              DateTime?
   approved_at       DateTime?
   shipped_at        DateTime?
   received_at       DateTime?
-  fulfilled_at      DateTime?
+  fulfilled_at       DateTime?
+  cancelled_at      DateTime?
+  cancelled_by      String?              @db.VarChar(100)
   created_at        DateTime             @default(now())
   updated_at        DateTime             @updatedAt
   barcode           String               @unique @db.VarChar(20)

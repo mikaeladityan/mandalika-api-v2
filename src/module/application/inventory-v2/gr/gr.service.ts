@@ -1,6 +1,6 @@
 import { Prisma } from "../../../../generated/prisma/client.js";
 import prisma from "../../../../config/prisma.js";
-import { CreateGoodsReceiptDTO, QueryGoodsReceiptDTO } from "./gr.schema.js";
+import { RequestGoodsReceiptDTO, QueryGoodsReceiptDTO, ResponseGoodsReceiptDTO } from "./gr.schema.js";
 import {
     GoodsReceiptStatus,
     MovementType,
@@ -22,7 +22,7 @@ function generateGRNumber() {
 }
 
 export class GoodsReceiptService {
-    static async create(payload: CreateGoodsReceiptDTO, userId: string = "system") {
+    static async create(payload: RequestGoodsReceiptDTO, userId: string = "system") {
         return await prisma.$transaction(async (tx) => {
             const gr_number = generateGRNumber();
 
@@ -44,7 +44,7 @@ export class GoodsReceiptService {
                         })),
                     },
                 },
-                include: { items: true },
+                include: { items: { include: { product: true } }, warehouse: true },
             });
             return gr;
         });
@@ -57,9 +57,9 @@ export class GoodsReceiptService {
                 include: { items: true },
             });
 
-            if (!gr) throw new ApiError(404, "Goods receipt not found");
+            if (!gr) throw new ApiError(404, "Data Goods Receipt tidak ditemukan");
             if (gr.status !== GoodsReceiptStatus.PENDING) {
-                throw new ApiError(400, `Cannot post goods receipt in ${gr.status} state`);
+                throw new ApiError(400, `Tidak dapat melakukan POST pada Goods Receipt berstatus ${gr.status}`);
             }
 
             // Update status
@@ -69,7 +69,7 @@ export class GoodsReceiptService {
                     status: GoodsReceiptStatus.COMPLETED,
                     posted_at: new Date(),
                 },
-                include: { items: true },
+                include: { items: { include: { product: true } }, warehouse: true },
             });
 
             // Add to warehouse inventory
@@ -96,17 +96,15 @@ export class GoodsReceiptService {
             });
 
             let qty_before = 0;
-            let targetPiId: number;
 
             if (pi) {
                 qty_before = Number(pi.quantity);
-                const updatedPi = await tx.productInventory.update({
+                await tx.productInventory.update({
                     where: { id: pi.id },
                     data: { quantity: qty_before + addAmount },
                 });
-                targetPiId = updatedPi.id;
             } else {
-                const newPi = await tx.productInventory.create({
+                await tx.productInventory.create({
                     data: {
                         product_id: item.product_id,
                         warehouse_id,
@@ -116,7 +114,6 @@ export class GoodsReceiptService {
                         year: currentDate.getFullYear(),
                     },
                 });
-                targetPiId = newPi.id;
             }
             const qty_after = qty_before + addAmount;
 
@@ -188,19 +185,17 @@ export class GoodsReceiptService {
             },
         });
 
-        if (!result) throw new ApiError(404, "Goods receipt not found");
+        if (!result) throw new ApiError(404, "Data Goods Receipt tidak ditemukan");
         return result;
     }
 
     static async cancel(id: number) {
         const gr = await prisma.goodsReceipt.findUnique({ where: { id } });
 
-        if (!gr) {
-            throw new Error("Goods Receipt tidak ditemukan.");
-        }
+        if (!gr) throw new ApiError(404, "Data Goods Receipt tidak ditemukan");
 
         if (gr.status !== GoodsReceiptStatus.PENDING) {
-            throw new Error("Hanya Goods Receipt berstatus PENDING yang dapat dibatalkan.");
+            throw new ApiError(400, "Hanya Goods Receipt berstatus PENDING yang dapat dibatalkan.");
         }
 
         return prisma.goodsReceipt.update({
@@ -208,6 +203,7 @@ export class GoodsReceiptService {
             data: {
                 status: GoodsReceiptStatus.CANCELLED,
             },
+            include: { warehouse: true }
         });
     }
 
@@ -236,7 +232,7 @@ export class GoodsReceiptService {
                 date: item.date ? new Date(item.date).toLocaleDateString("id-ID") : "-",
                 warehouse: item.warehouse.name,
                 type: item.type,
-                total_items: item._count?.items || 0,
+                total_items: Number(item._count?.items || 0),
                 status: item.status,
                 created_by: item.created_by,
                 notes: item.notes || "-",
@@ -259,12 +255,18 @@ export class GoodsReceiptService {
         const gr = await prisma.goodsReceipt.findUnique({
             where: { id },
             include: {
-                items: { include: { product: true } },
+                items: {
+                    include: {
+                        product: {
+                            include: { product_type: true, size: true, unit: true },
+                        },
+                    },
+                },
                 warehouse: true,
             },
         });
 
-        if (!gr) throw new ApiError(404, "Goods Receipt not found");
+        if (!gr) throw new ApiError(404, "Data Goods Receipt tidak ditemukan");
 
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet(`GR ${gr.gr_number}`);
@@ -293,50 +295,22 @@ export class GoodsReceiptService {
 
         // Table Data
         gr.items.forEach((item, index) => {
-            sheet.addRow([
-                index + 1,
-                item.product.code,
-                item.product.name,
-                item.quantity_actual,
-            ]);
+            const p = item.product;
+            const fullProductName = `${p.name} ${p.product_type?.name || ""} ${p.size?.size || ""}${p.unit?.name || ""} (${p.gender})`
+                .replace(/\s+/g, " ")
+                .trim();
+
+            sheet.addRow([index + 1, p.code, fullProductName, Number(item.quantity_actual)]);
         });
 
         // --- Styling ---
-        // Column Widths
-        sheet.getColumn(1).width = 5;
-        sheet.getColumn(2).width = 20;
-        sheet.getColumn(3).width = 40;
-        sheet.getColumn(4).width = 15;
-
-        // Table Header Styling
         const headerRow = sheet.getRow(headerRowNumber);
         headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
         headerRow.eachCell((cell) => {
-            cell.fill = {
-                type: "pattern",
-                pattern: "solid",
-                fgColor: { argb: "FF0070C0" },
-            };
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0070C0" } };
             cell.alignment = { horizontal: "center", vertical: "middle" };
-            cell.border = {
-                top: { style: "thin" },
-                left: { style: "thin" },
-                bottom: { style: "thin" },
-                right: { style: "thin" },
-            };
+            cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
         });
-
-        // Table Content Styling (Borders)
-        for (let i = headerRowNumber + 1; i <= sheet.rowCount; i++) {
-            sheet.getRow(i).eachCell((cell) => {
-                cell.border = {
-                    top: { style: "thin" },
-                    left: { style: "thin" },
-                    bottom: { style: "thin" },
-                    right: { style: "thin" },
-                };
-            });
-        }
 
         return await workbook.xlsx.writeBuffer();
     }
