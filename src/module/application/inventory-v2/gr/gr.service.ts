@@ -191,7 +191,7 @@ export class GoodsReceiptService {
         return result;
     }
 
-    static async cancel(id: number, userId: string) {
+    static async cancel(id: number) {
         const gr = await prisma.goodsReceipt.findUnique({ where: { id } });
 
         if (!gr) {
@@ -204,7 +204,7 @@ export class GoodsReceiptService {
 
         return prisma.goodsReceipt.update({
             where: { id },
-            data: { 
+            data: {
                 status: GoodsReceiptStatus.CANCELLED,
             },
         });

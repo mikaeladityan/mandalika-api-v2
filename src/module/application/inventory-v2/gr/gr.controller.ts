@@ -34,8 +34,7 @@ export class GoodsReceiptController {
 
     static async cancel(c: Context) {
         const id = Number(c.req.param("id"));
-        const userId = c.get("user")?.email || "system";
-        const result = await GoodsReceiptService.cancel(id, userId);
+        const result = await GoodsReceiptService.cancel(id);
         return ApiResponse.sendSuccess(c, result);
     }
 }
