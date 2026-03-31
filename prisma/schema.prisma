@@ -137,6 +137,7 @@ model Product {
   recipes                 Recipes[]
   safety_stock            SafetyStock[]
   stock_transfer_items    StockTransferItem[]
+  goods_receipt_items    GoodsReceiptItem[]
 
   @@index([code])
   @@index([type_id])
@@ -289,6 +290,7 @@ model Warehouse {
   raw_material_inventories RawMaterialInventory[]
   transfers_as_source      StockTransfer[]        @relation("TransferFromWarehouse")
   transfers_as_destination StockTransfer[]        @relation("TransferToWarehouse")
+  goods_receipts           GoodsReceipt[]
   warehouse_address        WarehouseAddress?
 
   @@index([name])
@@ -604,6 +606,42 @@ model StockTransferPhoto {
   @@map("stock_transfer_photos")
 }
 
+model GoodsReceipt {
+  id              Int                @id @default(autoincrement())
+  gr_number       String             @unique @db.VarChar(50)
+  type            GoodsReceiptType   @default(MANUAL)
+  status          GoodsReceiptStatus @default(PENDING)
+  date            DateTime           @default(now())
+  warehouse_id    Int
+  notes           String?
+  created_by      String             @db.VarChar(100)
+  posted_at       DateTime?
+  created_at      DateTime           @default(now())
+  updated_at      DateTime           @updatedAt
+  items           GoodsReceiptItem[]
+  warehouse       Warehouse          @relation(fields: [warehouse_id], references: [id])
+
+  @@index([gr_number])
+  @@index([status])
+  @@index([warehouse_id])
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptItem {
+  id               Int          @id @default(autoincrement())
+  gr_id            Int
+  product_id       Int
+  quantity_planned Decimal      @db.Decimal(18, 2)
+  quantity_actual  Decimal      @db.Decimal(18, 2)
+  notes            String?
+  goods_receipt    GoodsReceipt @relation(fields: [gr_id], references: [id], onDelete: Cascade)
+  product          Product      @relation(fields: [product_id], references: [id])
+
+  @@index([gr_id])
+  @@index([product_id])
+  @@map("goods_receipt_items")
+}
+
 enum IssuanceType {
   ALL
   OFFLINE
@@ -757,6 +795,7 @@ enum MovementRefType {
   STOCK_ADJUSTMENT
   ISSUANCE_TRANSACTION
   MANUAL
+  GOODS_RECEIPT
 }
 
 enum TransferPhotoStage {
@@ -764,3 +803,15 @@ enum TransferPhotoStage {
   RECEIVED
   FULFILLMENT
 }
+
+enum GoodsReceiptStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum GoodsReceiptType {
+  QC_FG
+  MANUAL
+}
+

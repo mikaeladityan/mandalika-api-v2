@@ -634,6 +634,28 @@ vi.mock("../config/prisma.js", () => ({
         stockTransferItem: {
             update: vi.fn().mockResolvedValue({}),
         },
+        goodsReceipt: {
+            findUnique: vi.fn().mockImplementation(async (args) => {
+                const { where } = args;
+                if (where.id === 999) return null;
+                return {
+                    id: where.id || 1,
+                    gr_number: "GR-202603-001",
+                    status: "PENDING",
+                    type: "MANUAL",
+                    warehouse_id: 1,
+                    items: [],
+                };
+            }),
+            findMany: vi.fn().mockResolvedValue([]),
+            count: vi.fn().mockResolvedValue(0),
+            create: vi.fn().mockResolvedValue({ id: 1, items: [] }),
+            update: vi.fn().mockResolvedValue({ id: 1, status: "COMPLETED" }),
+        },
+        goodsReceiptItem: {
+            create: vi.fn().mockResolvedValue({}),
+            update: vi.fn().mockResolvedValue({}),
+        },
         productInventory: {
             findFirst: vi.fn().mockResolvedValue({ id: 1, quantity: 100 }),
             update: vi.fn().mockResolvedValue({ id: 1, quantity: 90 }),
@@ -769,7 +791,9 @@ vi.mock("../config/prisma.js", () => ({
                     update: vi.fn().mockResolvedValue({ id: 1 }),
                 },
                 productInventory: {
-                    update: vi.fn().mockResolvedValue({ id: 1 }),
+                    findFirst: vi.fn().mockResolvedValue({ id: 1, quantity: 100 }),
+                    update: vi.fn().mockResolvedValue({ id: 1, quantity: 90 }),
+                    create: vi.fn().mockResolvedValue({ id: 1, quantity: 100 }),
                 },
                 stockMovement: {
                     create: vi.fn().mockResolvedValue({ id: 1 }),
@@ -785,6 +809,27 @@ vi.mock("../config/prisma.js", () => ({
                     updateMany: vi.fn().mockResolvedValue({ count: 0 }),
                     deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
                     createMany: vi.fn().mockResolvedValue({ count: 2 }),
+                },
+                goodsReceipt: {
+                    findUnique: vi.fn().mockImplementation(async (args) => {
+                        const { where } = args;
+                        if (where.id === 999) return null;
+                        return {
+                            id: where.id || 1,
+                            gr_number: "GR-202603-001",
+                            status: "PENDING",
+                            type: "MANUAL",
+                            warehouse_id: 1,
+                            items: [
+                                { product_id: 1, quantity_actual: 50 }
+                            ],
+                        };
+                    }),
+                    create: vi.fn().mockResolvedValue({ id: 1, gr_number: "GR-001", items: [] }),
+                    update: vi.fn().mockResolvedValue({ id: 1, status: "COMPLETED", items: [] }),
+                },
+                goodsReceiptItem: {
+                    create: vi.fn().mockResolvedValue({}),
                 },
                 $executeRawUnsafe: vi.fn().mockResolvedValue(1),
             });
