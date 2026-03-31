@@ -35,7 +35,7 @@ describe("DORoutes - Integrated Workflow", () => {
         const res = await app.request("/do", {
             method: "POST",
             body: JSON.stringify({ 
-                barcode: "DO-UNIQUE",
+                date: "2026-03-31",
                 from_warehouse_id: 1, 
                 to_outlet_id: 2,
                 items: [{ product_id: 1, quantity_requested: 50 }] 
