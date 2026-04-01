@@ -165,7 +165,13 @@ export class GoodsReceiptService {
                 take: limit,
                 orderBy: { [sortBy as any]: sortOrder },
                 include: {
-                    items: { include: { product: true } },
+                    items: {
+                        include: {
+                            product: {
+                                include: { product_type: true, size: true, unit: true }
+                            }
+                        }
+                    },
                     warehouse: true,
                     _count: { select: { items: true } },
                 },
@@ -180,7 +186,13 @@ export class GoodsReceiptService {
         const result = await prisma.goodsReceipt.findUnique({
             where: { id },
             include: {
-                items: { include: { product: true } },
+                items: {
+                    include: {
+                        product: {
+                            include: { product_type: true, size: true, unit: true }
+                        }
+                    }
+                },
                 warehouse: true,
             },
         });

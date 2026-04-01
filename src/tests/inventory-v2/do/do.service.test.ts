@@ -68,8 +68,15 @@ describe("DOService - Extended Testing", () => {
     });
 
     describe("updateStatus Lifecycle", () => {
-        it("should handle SHIPMENT transition", async () => {
+        it("should handle APPROVED transition from PENDING", async () => {
             (prisma.stockTransfer.findUnique as any).mockResolvedValueOnce(mockDO);
+            (prisma.stockTransfer.update as any).mockResolvedValueOnce({ ...mockDO, status: TransferStatus.APPROVED });
+            const result = await DOService.updateStatus(1, { status: TransferStatus.APPROVED }, "tester");
+            expect(result.status).toBe(TransferStatus.APPROVED);
+        });
+
+        it("should handle SHIPMENT transition from APPROVED", async () => {
+            (prisma.stockTransfer.findUnique as any).mockResolvedValueOnce({ ...mockDO, status: TransferStatus.APPROVED });
             (prisma.productInventory.findFirst as any).mockResolvedValueOnce({ id: 1, quantity: 100 });
             (prisma.stockTransferItem.update as any).mockResolvedValue({});
             (prisma.stockTransfer.update as any).mockResolvedValueOnce({ ...mockDO, status: TransferStatus.SHIPMENT });
@@ -78,13 +85,25 @@ describe("DOService - Extended Testing", () => {
             expect(result.status).toBe(TransferStatus.SHIPMENT);
         });
 
-        it("should handle RECEIVED transition (direct to COMPLETED)", async () => {
+        it("should handle RECEIVED transition from SHIPMENT", async () => {
             (prisma.stockTransfer.findUnique as any).mockResolvedValueOnce({ ...mockDO, status: TransferStatus.SHIPMENT });
+            (prisma.stockTransferItem.update as any).mockResolvedValue({});
+            (prisma.stockTransfer.update as any).mockResolvedValueOnce({ ...mockDO, status: TransferStatus.RECEIVED });
+
+            const result = await DOService.updateStatus(1, { status: TransferStatus.RECEIVED }, "tester");
+            expect(result.status).toBe(TransferStatus.RECEIVED);
+        });
+
+        it("should handle FULFILLMENT transition (COMPLETED if perfect)", async () => {
+            (prisma.stockTransfer.findUnique as any).mockResolvedValueOnce({ ...mockDO, status: TransferStatus.RECEIVED });
             (prisma.outletInventory.findUnique as any).mockResolvedValueOnce(null);
             (prisma.stockTransferItem.update as any).mockResolvedValue({});
             (prisma.stockTransfer.update as any).mockResolvedValueOnce({ ...mockDO, status: TransferStatus.COMPLETED });
 
-            const result = await DOService.updateStatus(1, { status: TransferStatus.RECEIVED }, "tester");
+            const result = await DOService.updateStatus(1, { 
+                status: TransferStatus.FULFILLMENT,
+                items: [{ id: 10, quantity_fulfilled: 10, quantity_missing: 0, quantity_rejected: 0 }]
+            }, "tester");
             expect(result.status).toBe(TransferStatus.COMPLETED);
         });
 

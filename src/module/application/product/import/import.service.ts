@@ -123,10 +123,17 @@ export class ProductImportService {
     private static async bulkInsert(data: ProductImportPreviewDTO[]) {
         if (!data.length) return;
 
+        // Dedup data by code to avoid "affect row a second time" error
+        const dedupped = new Map<string, ProductImportPreviewDTO>();
+        for (const d of data) {
+            if (d.code?.trim()) dedupped.set(d.code.trim(), d);
+        }
+        const finalData = Array.from(dedupped.values());
+
         // Extract unique master data for dependency tables
-        const types = [...new Set(data.map((d) => d.type).filter(Boolean))] as string[];
-        const units = [...new Set(data.map((d) => d.unit).filter(Boolean))] as string[];
-        const sizes = [...new Set(data.map((d) => d.size).filter((s) => s > 0))] as number[];
+        const types = [...new Set(finalData.map((d) => d.type).filter(Boolean))] as string[];
+        const units = [...new Set(finalData.map((d) => d.unit).filter(Boolean))] as string[];
+        const sizes = [...new Set(finalData.map((d) => d.size).filter((s) => s > 0))] as number[];
 
         await prisma.$transaction(async (tx) => {
             // Upsert dependency tables
@@ -159,14 +166,14 @@ export class ProductImportService {
 
             // Map data to arrays for parallel unnesting
             const cols = {
-                codes: data.map((d) => d.code),
-                names: data.map((d) => d.name),
-                genders: data.map((d) => d.gender || GENDER.UNISEX),
-                prodSizes: data.map((d) => d.size || null),
-                typeSlugs: data.map((d) => d.type || null),
-                unitSlugs: data.map((d) => d.unit || null),
-                distributionPercs: data.map((d) => d.distribution_percentage || 0),
-                safetyPercs: data.map((d) => d.safety_percentage || 0),
+                codes: finalData.map((d) => d.code),
+                names: finalData.map((d) => d.name),
+                genders: finalData.map((d) => d.gender || GENDER.UNISEX),
+                prodSizes: finalData.map((d) => d.size || null),
+                typeSlugs: finalData.map((d) => d.type || null),
+                unitSlugs: finalData.map((d) => d.unit || null),
+                distributionPercs: finalData.map((d) => d.distribution_percentage || 0),
+                safetyPercs: finalData.map((d) => d.safety_percentage || 0),
             };
 
             // Main product upsert using multi-array unnest for maximum performance and alignment safety

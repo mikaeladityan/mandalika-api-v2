@@ -9,24 +9,21 @@ export class ApiResponse {
                 status: "success",
                 data,
             },
-            statusCode
+            statusCode,
         );
     }
 
-    // static sendError(
-    // 	c: Context,
-    // 	error: Error | { statusCode?: ContentfulStatusCode; message?: string }
-    // ) {
-    // 	const statusCode =
-    // 		"statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : 500;
-    // 	const message = error.message || "Internal Server Error";
-
-    // 	return c.json(
-    // 		{
-    // 			status: "error",
-    // 			message,
-    // 		},
-    // 		statusCode
-    // 	);
-    // }
+    static sendError(
+        c: Context,
+        statusCode: number = 500,
+        message: string = "Internal Server Error",
+    ) {
+        return c.json(
+            {
+                status: "error",
+                message,
+            },
+            statusCode as any,
+        );
+    }
 }

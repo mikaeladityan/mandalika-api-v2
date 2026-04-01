@@ -138,6 +138,7 @@ model Product {
   safety_stock            SafetyStock[]
   stock_transfer_items    StockTransferItem[]
   goods_receipt_items    GoodsReceiptItem[]
+  returns                 StockReturnItem[]
 
   @@index([code])
   @@index([type_id])
@@ -290,6 +291,8 @@ model Warehouse {
   raw_material_inventories RawMaterialInventory[]
   transfers_as_source      StockTransfer[]        @relation("TransferFromWarehouse")
   transfers_as_destination StockTransfer[]        @relation("TransferToWarehouse")
+  returns_as_source        StockReturn[]          @relation("ReturnFromWarehouse")
+  returns_as_destination   StockReturn[]          @relation("ReturnToWarehouse")
   goods_receipts           GoodsReceipt[]
   warehouse_address        WarehouseAddress?
 
@@ -448,12 +451,14 @@ model Outlet {
   pos_enabled              Boolean           @default(false)
   created_at               DateTime          @default(now())
   updated_at               DateTime          @updatedAt
+  transfers_as_source      StockTransfer[]   @relation("TransferFromOutlet")
+  transfers_as_destination StockTransfer[]   @relation("TransferToOutlet")
+  returns_as_source        StockReturn[]     @relation("ReturnFromOutlet")
+  returns_as_destination   StockReturn[]     @relation("ReturnToOutlet")
   deleted_at               DateTime?
   address                  OutletAddress?
   inventories              OutletInventory[]
   warehouses               OutletWarehouse[]
-  transfers_as_source      StockTransfer[]   @relation("TransferFromOutlet")
-  transfers_as_destination StockTransfer[]   @relation("TransferToOutlet")
 
   @@index([code])
   @@index([type])
@@ -565,6 +570,7 @@ model StockTransfer {
   from_warehouse    Warehouse?           @relation("TransferFromWarehouse", fields: [from_warehouse_id], references: [id])
   to_outlet         Outlet?              @relation("TransferToOutlet", fields: [to_outlet_id], references: [id])
   to_warehouse      Warehouse?           @relation("TransferToWarehouse", fields: [to_warehouse_id], references: [id])
+  returns           StockReturn[]
 
   @@index([barcode])
   @@index([status])
@@ -607,6 +613,53 @@ model StockTransferPhoto {
 
   @@index([transfer_id, stage])
   @@map("stock_transfer_photos")
+}
+
+model StockReturn {
+  id                 Int                  @id @default(autoincrement())
+  return_number      String               @unique @db.VarChar(20)
+  from_type          TransferLocationType
+  from_warehouse_id  Int?
+  from_outlet_id     Int?
+  to_type            TransferLocationType
+  to_warehouse_id    Int?
+  to_outlet_id       Int?
+  status             ReturnStatus         @default(DRAFT)
+  notes              String?
+  source_transfer_id Int?
+  created_by         String               @db.VarChar(100)
+  created_at         DateTime             @default(now())
+  updated_at         DateTime             @updatedAt
+  shipped_at         DateTime?
+  received_at        DateTime?
+  items              StockReturnItem[]
+  from_outlet        Outlet?              @relation("ReturnFromOutlet", fields: [from_outlet_id], references: [id])
+  from_warehouse     Warehouse?           @relation("ReturnFromWarehouse", fields: [from_warehouse_id], references: [id])
+  to_outlet          Outlet?              @relation("ReturnToOutlet", fields: [to_outlet_id], references: [id])
+  to_warehouse       Warehouse?           @relation("ReturnToWarehouse", fields: [to_warehouse_id], references: [id])
+  source_transfer    StockTransfer?       @relation(fields: [source_transfer_id], references: [id])
+
+  @@index([return_number])
+  @@index([status])
+  @@index([from_type, from_warehouse_id])
+  @@index([from_type, from_outlet_id])
+  @@index([to_type, to_warehouse_id])
+  @@index([to_type, to_outlet_id])
+  @@map("stock_returns")
+}
+
+model StockReturnItem {
+  id         Int         @id @default(autoincrement())
+  return_id  Int
+  product_id Int
+  quantity   Decimal     @db.Decimal(18, 2)
+  notes      String?
+  product    Product     @relation(fields: [product_id], references: [id])
+  return     StockReturn @relation(fields: [return_id], references: [id], onDelete: Cascade)
+
+  @@index([return_id])
+  @@index([product_id])
+  @@map("stock_return_items")
 }
 
 model GoodsReceipt {
@@ -790,6 +843,8 @@ enum MovementType {
   OPNAME
   INITIAL
   POS_SALE
+  RETURN_IN
+  RETURN_OUT
 }
 
 enum MovementRefType {
@@ -799,6 +854,7 @@ enum MovementRefType {
   ISSUANCE_TRANSACTION
   MANUAL
   GOODS_RECEIPT
+  STOCK_RETURN
 }
 
 enum TransferPhotoStage {
@@ -816,5 +872,13 @@ enum GoodsReceiptStatus {
 enum GoodsReceiptType {
   QC_FG
   MANUAL
+}
+
+enum ReturnStatus {
+  DRAFT
+  SHIPPING
+  RECEIVED
+  COMPLETED
+  CANCELLED
 }
 

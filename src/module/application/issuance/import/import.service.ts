@@ -111,9 +111,16 @@ export class IssuanceImportService {
     private static async bulkInsert(data: IssuanceImportPreviewDTO[], month: number, year: number, type: any = "ALL") {
         if (!data.length) return;
 
+        // Dedup data by code to avoid "affect row a second time" error
+        const dedupped = new Map<string, IssuanceImportPreviewDTO>();
+        for (const d of data) {
+            if (d.code?.trim()) dedupped.set(d.code.trim(), d);
+        }
+        const finalData = Array.from(dedupped.values());
+
         const codes: string[] = [];
         const quantities: number[] = [];
-        for (const d of data) {
+        for (const d of finalData) {
             const quantity = this.parseIntegerQuantity(d.amount);
             if (Number.isInteger(quantity)) {
                 codes.push(d.code);
@@ -121,11 +128,11 @@ export class IssuanceImportService {
             }
         }
 
-        if (codes.length !== data.length) {
+        if (codes.length !== finalData.length) {
             logger.warn("Some issuance rows were dropped due to invalid quantity", {
-                total: data.length,
+                total: finalData.length,
                 valid: codes.length,
-                dropped: data.length - codes.length,
+                dropped: finalData.length - codes.length,
             });
         }
 

@@ -1,21 +1,21 @@
 import { z } from "zod";
 import { TransferStatus } from "../../../../generated/prisma/enums.js";
 
-export const RequestDeliveryOrderItemSchema = z.object({
+export const RequestTransferGudangItemSchema = z.object({
     product_id: z.coerce.number({ error: "ID Produk harus berupa angka" }),
     quantity_requested: z.coerce.number().min(0.01, "Kuantitas permintaan minimal 0.01"),
     notes: z.string().optional(),
 });
 
-export const RequestDeliveryOrderSchema = z.object({
+export const RequestTransferGudangSchema = z.object({
     date: z.string().min(1, "Tanggal wajib diisi"),
     from_warehouse_id: z.coerce.number({ error: "Gudang asal harus dipilih" }),
-    to_outlet_id: z.coerce.number({ error: "Outlet tujuan harus dipilih" }),
+    to_warehouse_id: z.coerce.number({ error: "Gudang tujuan harus dipilih" }),
     notes: z.string().optional(),
-    items: z.array(RequestDeliveryOrderItemSchema).min(1, "Minimal harus ada 1 item"),
+    items: z.array(RequestTransferGudangItemSchema).min(1, "Minimal harus ada 1 item"),
 });
 
-export const UpdateDeliveryOrderStatusSchema = z.object({
+export const UpdateTransferGudangStatusSchema = z.object({
     status: z.nativeEnum(TransferStatus),
     notes: z.string().optional(),
     items: z
@@ -30,9 +30,10 @@ export const UpdateDeliveryOrderStatusSchema = z.object({
             }),
         )
         .optional(),
+    photos: z.array(z.string()).optional(),
 });
 
-export const ResponseDeliveryOrderSchema = RequestDeliveryOrderSchema.extend({
+export const ResponseTransferGudangSchema = RequestTransferGudangSchema.extend({
     id: z.number(),
     transfer_number: z.string(),
     status: z.nativeEnum(TransferStatus),
@@ -49,7 +50,7 @@ export const ResponseDeliveryOrderSchema = RequestDeliveryOrderSchema.extend({
             name: z.string(),
         })
         .optional(),
-    to_outlet: z
+    to_warehouse: z
         .object({
             id: z.number(),
             name: z.string(),
@@ -57,7 +58,7 @@ export const ResponseDeliveryOrderSchema = RequestDeliveryOrderSchema.extend({
         .optional(),
 });
 
-export const QueryDeliveryOrderSchema = z.object({
+export const QueryTransferGudangSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),
     take: z.coerce.number().int().positive().max(100).default(10).optional(),
     sortBy: z.enum(["created_at", "transfer_number"]).default("created_at").optional(),
@@ -65,10 +66,10 @@ export const QueryDeliveryOrderSchema = z.object({
     search: z.string().optional(),
     status: z.nativeEnum(TransferStatus).optional(),
     from_warehouse_id: z.coerce.number().optional(),
-    to_outlet_id: z.coerce.number().optional(),
+    to_warehouse_id: z.coerce.number().optional(),
 });
 
-export type RequestDeliveryOrderDTO = z.infer<typeof RequestDeliveryOrderSchema>;
-export type UpdateDeliveryOrderStatusDTO = z.infer<typeof UpdateDeliveryOrderStatusSchema>;
-export type ResponseDeliveryOrderDTO = z.infer<typeof ResponseDeliveryOrderSchema>;
-export type QueryDeliveryOrderDTO = z.infer<typeof QueryDeliveryOrderSchema>;
+export type RequestTransferGudangDTO = z.infer<typeof RequestTransferGudangSchema>;
+export type UpdateTransferGudangStatusDTO = z.infer<typeof UpdateTransferGudangStatusSchema>;
+export type ResponseTransferGudangDTO = z.infer<typeof ResponseTransferGudangSchema>;
+export type QueryTransferGudangDTO = z.infer<typeof QueryTransferGudangSchema>;

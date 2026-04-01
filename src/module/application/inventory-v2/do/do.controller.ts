@@ -98,7 +98,23 @@ export class DOController {
         const buffer = await DOService.exportDetail(id);
 
         c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        c.header("Content-Disposition", `attachment; filename="DO_Detail_${id}.xlsx"`);
+        c.header("Content-Disposition", `attachment; filename="DO_Detail_${id}_${new Date().getTime()}.xlsx"`);
+
+        return c.body(buffer as any);
+    }
+
+    static async listDiscrepancies(c: Context) {
+        const query = c.req.query();
+        const result = await DOService.listDiscrepancies(query);
+        return ApiResponse.sendSuccess(c, result);
+    }
+
+    static async exportDiscrepancies(c: Context) {
+        const query = c.req.query();
+        const buffer = await DOService.exportDiscrepancies(query);
+
+        c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        c.header("Content-Disposition", `attachment; filename="Audit_Discrepancy_${Date.now()}.xlsx"`);
 
         return c.body(buffer as any);
     }

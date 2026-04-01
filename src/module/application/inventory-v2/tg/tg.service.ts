@@ -1,10 +1,10 @@
 import { Prisma } from "../../../../generated/prisma/client.js";
 import prisma from "../../../../config/prisma.js";
 import {
-    RequestDeliveryOrderDTO,
-    QueryDeliveryOrderDTO,
-    UpdateDeliveryOrderStatusDTO,
-} from "./do.schema.js";
+    RequestTransferGudangDTO,
+    QueryTransferGudangDTO,
+    UpdateTransferGudangStatusDTO,
+} from "./tg.schema.js";
 import {
     TransferStatus,
     TransferLocationType,
@@ -12,15 +12,16 @@ import {
     MovementEntityType,
     MovementRefType,
     MovementLocationType,
+    TransferPhotoStage,
 } from "../../../../generated/prisma/enums.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";
 import { ReturnService } from "../return/return.service.js";
 
-function generateDONumber() {
+function generateTGNumber() {
     const date = new Date();
-    const prefix = "DO";
+    const prefix = "TG";
     const ym = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}`;
     const random = Math.floor(Math.random() * 10000)
         .toString()
@@ -28,25 +29,29 @@ function generateDONumber() {
     return `${prefix}-${ym}-${random}`;
 }
 
-function generateDOBarcode() {
+function generateTGBarcode() {
     const random = Math.floor(Math.random() * 1000000000000)
         .toString()
         .padStart(12, "0");
-    return `DO${random}`;
+    return `TG${random}`;
 }
 
-export class DOService {
-    static async create(payload: RequestDeliveryOrderDTO, userId: string = "system") {
+export class TGService {
+    static async create(payload: RequestTransferGudangDTO, userId: string = "system") {
         return await prisma.$transaction(async (tx) => {
-            const transfer_number = generateDONumber();
-            const barcode = generateDOBarcode();
+            const transfer_number = generateTGNumber();
+            const barcode = generateTGBarcode();
 
             const orderDate = payload.date ? new Date(payload.date) : new Date();
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
             if (orderDate < today) {
-                throw new ApiError(400, "Tanggal DO tidak boleh di masa lalu.");
+                throw new ApiError(400, "Tanggal TG tidak boleh di masa lalu.");
+            }
+
+            if (payload.from_warehouse_id === payload.to_warehouse_id) {
+                throw new ApiError(400, "Gudang asal dan tujuan tidak boleh sama.");
             }
 
             const transfer = await tx.stockTransfer.create({
@@ -55,8 +60,8 @@ export class DOService {
                     barcode,
                     from_type: TransferLocationType.WAREHOUSE,
                     from_warehouse_id: payload.from_warehouse_id,
-                    to_type: TransferLocationType.OUTLET,
-                    to_outlet_id: payload.to_outlet_id,
+                    to_type: TransferLocationType.WAREHOUSE,
+                    to_warehouse_id: payload.to_warehouse_id,
                     status: TransferStatus.PENDING,
                     notes: payload.notes,
                     date: orderDate,
@@ -78,14 +83,14 @@ export class DOService {
                         }
                     },
                     from_warehouse: true,
-                    to_outlet: true,
+                    to_warehouse: true,
                 },
             });
             return transfer;
         });
     }
 
-    static async list(query: QueryDeliveryOrderDTO) {
+    static async list(query: QueryTransferGudangDTO) {
         const {
             page = 1,
             take = 10,
@@ -94,14 +99,14 @@ export class DOService {
             search,
             status,
             from_warehouse_id,
-            to_outlet_id,
+            to_warehouse_id,
         } = query;
 
         const { skip, take: limit } = GetPagination(page, take);
 
         const where: Prisma.StockTransferWhereInput = {
             from_type: TransferLocationType.WAREHOUSE,
-            to_type: TransferLocationType.OUTLET,
+            to_type: TransferLocationType.WAREHOUSE,
             ...(search && {
                 OR: [
                     { transfer_number: { contains: search, mode: "insensitive" } },
@@ -110,7 +115,7 @@ export class DOService {
             }),
             ...(status && { status }),
             ...(from_warehouse_id && { from_warehouse_id }),
-            ...(to_outlet_id && { to_outlet_id }),
+            ...(to_warehouse_id && { to_warehouse_id }),
         };
 
         const [data, len] = await Promise.all([
@@ -128,7 +133,7 @@ export class DOService {
                         }
                     },
                     from_warehouse: true,
-                    to_outlet: true,
+                    to_warehouse: true,
                 },
             }),
             prisma.stockTransfer.count({ where }),
@@ -149,18 +154,18 @@ export class DOService {
                     }
                 },
                 from_warehouse: true,
-                to_outlet: true,
+                to_warehouse: true,
                 photos: true,
             },
         });
 
-        if (!result) throw new ApiError(404, "Data Delivery Order tidak ditemukan");
-        // Ensure it's actually a DO
+        if (!result) throw new ApiError(404, "Data Transfer Gudang tidak ditemukan");
+        
         if (
             result.from_type !== TransferLocationType.WAREHOUSE ||
-            result.to_type !== TransferLocationType.OUTLET
+            result.to_type !== TransferLocationType.WAREHOUSE
         ) {
-            throw new ApiError(403, "Akses ditolak: Data ini bukan merupakan Delivery Order.");
+            throw new ApiError(403, "Akses ditolak: Data ini bukan merupakan Transfer Gudang.");
         }
 
         return result;
@@ -168,7 +173,7 @@ export class DOService {
 
     static async updateStatus(
         id: number,
-        payload: UpdateDeliveryOrderStatusDTO,
+        payload: UpdateTransferGudangStatusDTO,
         userId: string = "system",
     ) {
         return await prisma.$transaction(async (tx) => {
@@ -185,12 +190,12 @@ export class DOService {
                 },
             });
 
-            if (!transfer) throw new ApiError(404, "Data Delivery Order tidak ditemukan");
+            if (!transfer) throw new ApiError(404, "Data Transfer Gudang tidak ditemukan");
             if (
                 transfer.from_type !== TransferLocationType.WAREHOUSE ||
-                transfer.to_type !== TransferLocationType.OUTLET
+                transfer.to_type !== TransferLocationType.WAREHOUSE
             ) {
-                throw new ApiError(400, "Tipe data tidak valid untuk pembaruan status DO.");
+                throw new ApiError(400, "Tipe data tidak valid untuk pembaruan status TG.");
             }
 
             if (
@@ -208,7 +213,7 @@ export class DOService {
 
             if (finalStatus === TransferStatus.APPROVED) {
                 if (transfer.status !== TransferStatus.PENDING) {
-                    throw new ApiError(400, "Hanya DO berstatus PENDING yang dapat disetujui (APPROVED).");
+                    throw new ApiError(400, "Hanya TG berstatus PENDING yang dapat disetujui (APPROVED).");
                 }
                 updateData.approved_at = new Date();
                 updateData.approved_by = userId;
@@ -216,18 +221,17 @@ export class DOService {
 
             if (finalStatus === TransferStatus.CANCELLED) {
                 if (
-                    transfer.status === TransferStatus.PARTIAL ||
                     transfer.status === TransferStatus.REJECTED ||
                     transfer.status === TransferStatus.MISSING
                 ) {
                     throw new ApiError(
                         400,
-                        `Tidak dapat membatalkan DO yang sudah pada tahap ${transfer.status}.`,
+                        `Tidak dapat membatalkan TG yang sudah pada tahap ${transfer.status}.`,
                     );
                 }
 
+
                 if ((transfer.status === TransferStatus.SHIPMENT || transfer.status === TransferStatus.RECEIVED) && transfer.from_warehouse_id) {
-                    // Revert stock to warehouse
                     await this.revertWarehouseInventory(
                         tx,
                         transfer.from_warehouse_id,
@@ -236,13 +240,13 @@ export class DOService {
                         userId,
                     );
                 }
-                // updateData.cancelled_at = new Date();
-                // updateData.cancelled_by = userId;
+                updateData.cancelled_at = new Date();
+                updateData.cancelled_by = userId;
             }
 
             if (finalStatus === TransferStatus.SHIPMENT) {
                 if (transfer.status !== TransferStatus.APPROVED) {
-                    throw new ApiError(400, "DO harus disetujui (APPROVED) sebelum dikirim (SHIPMENT).");
+                    throw new ApiError(400, "TG harus disetujui (APPROVED) sebelum dikirim (SHIPMENT).");
                 }
                 updateData.shipped_at = new Date();
                 updateData.shipment_notes = payload.notes;
@@ -267,11 +271,22 @@ export class DOService {
                         userId,
                     );
                 }
+
+                if (payload.photos && payload.photos.length > 0) {
+                    await tx.stockTransferPhoto.createMany({
+                        data: payload.photos.map((url: string) => ({
+                            transfer_id: id,
+                            url,
+                            stage: TransferPhotoStage.SHIPMENT,
+                            uploaded_by: userId,
+                        })),
+                    });
+                }
             }
 
             if (finalStatus === TransferStatus.RECEIVED) {
                 if (transfer.status !== TransferStatus.SHIPMENT) {
-                    throw new ApiError(400, "Hanya DO berstatus SHIPMENT yang dapat diterima (RECEIVED).");
+                    throw new ApiError(400, "Hanya TG berstatus SHIPMENT yang dapat diterima (RECEIVED).");
                 }
                 updateData.received_at = new Date();
                 updateData.received_notes = payload.notes;
@@ -286,7 +301,17 @@ export class DOService {
                         }
                     }
                 }
-                // We DON'T auto-complete here. Fulfillment step is next for verification.
+
+                if (payload.photos && payload.photos.length > 0) {
+                    await tx.stockTransferPhoto.createMany({
+                        data: payload.photos.map((url: string) => ({
+                            transfer_id: id,
+                            url,
+                            stage: TransferPhotoStage.RECEIVED,
+                            uploaded_by: userId,
+                        })),
+                    });
+                }
             }
 
             if (finalStatus === TransferStatus.FULFILLMENT) {
@@ -297,18 +322,13 @@ export class DOService {
                 updateData.fulfillment_notes = payload.notes;
 
                 if (!payload.items || payload.items.length !== transfer.items.length) {
-                    throw new ApiError(400, "Semua item dalam DO harus diverifikasi pada tahap FULFILLMENT.");
+                    throw new ApiError(400, "Semua item dalam TG harus diverifikasi pada tahap FULFILLMENT.");
                 }
-
-                let allPerfect = true;
-                let anyFulfilled = false;
-                let anyRejected = false;
-                let anyMissing = false;
 
                 const receivedMap = new Map();
                 for (const reqItem of payload.items) {
                     const dbItem = transfer.items.find((i: any) => i.id === reqItem.id);
-                    if (!dbItem) throw new ApiError(400, `Item ID ${reqItem.id} tidak valid untuk DO ini.`);
+                    if (!dbItem) throw new ApiError(400, `Item ID ${reqItem.id} tidak valid untuk TG ini.`);
 
                     const fulfilled = Number(reqItem.quantity_fulfilled || 0);
                     const missing = Number(reqItem.quantity_missing || 0);
@@ -330,11 +350,6 @@ export class DOService {
                         );
                     }
 
-                    if (fulfilled > 0) anyFulfilled = true;
-                    if (missing > 0) anyMissing = true;
-                    if (rejected > 0) anyRejected = true;
-                    if (fulfilled !== expectedAmount) allPerfect = false;
-
                     await tx.stockTransferItem.update({
                         where: { id: reqItem.id },
                         data: {
@@ -354,20 +369,20 @@ export class DOService {
                     }))
                     .filter((i) => i.quantity_fulfilled > 0);
 
-                if (fulfilledItemsList.length > 0 && transfer.to_outlet_id) {
-                    await this.addOutletInventory(
+                if (fulfilledItemsList.length > 0 && transfer.to_warehouse_id) {
+                    await this.addWarehouseInventory(
                         tx,
-                        transfer.to_outlet_id,
+                        transfer.to_warehouse_id,
                         fulfilledItemsList,
                         transfer.id,
                         userId,
                     );
                 }
 
-                // Regardless of missing or rejected items, the document process is now COMPLETED
                 updateData.status = TransferStatus.COMPLETED;
 
                 // Handle Rejections -> Create Draft Return
+                const anyRejected = payload.items.some((i: any) => Number(i.quantity_rejected || 0) > 0);
                 if (anyRejected) {
                     const latestTransfer = await tx.stockTransfer.findUnique({
                         where: { id },
@@ -375,7 +390,6 @@ export class DOService {
                     });
                     
                     if (latestTransfer) {
-                        // Default to Pusat SBY (GFG-SBY) as requested
                         const pusatSBY = await tx.warehouse.findFirst({
                             where: { code: "GFG-SBY" }
                         });
@@ -392,7 +406,7 @@ export class DOService {
                 }
             }
 
-            const updatedDO = await tx.stockTransfer.update({
+            const updatedTG = await tx.stockTransfer.update({
                 where: { id },
                 data: updateData,
                 include: {
@@ -404,136 +418,12 @@ export class DOService {
                         }
                     },
                     from_warehouse: true,
-                    to_outlet: true,
+                    to_warehouse: true,
                 },
             });
 
-            return updatedDO;
+            return updatedTG;
         });
-    }
-
-    static async export(query: QueryDeliveryOrderDTO) {
-        const { data } = await this.list({ ...query, take: 1000000, page: 1 });
-
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet("Data Delivery Order");
-
-        sheet.columns = [
-            { header: "No", key: "no", width: 5 },
-            { header: "No. DO", key: "transfer_number", width: 20 },
-            { header: "Barcode", key: "barcode", width: 20 },
-            { header: "Tanggal", key: "date", width: 15 },
-            { header: "Gudang (Asal)", key: "from_warehouse", width: 25 },
-            { header: "Outlet (Tujuan)", key: "to_outlet", width: 25 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Dibuat Oleh", key: "created_by", width: 20 },
-            { header: "Catatan", key: "notes", width: 30 },
-        ];
-
-        data.forEach((item, index) => {
-            sheet.addRow({
-                no: index + 1,
-                transfer_number: item.transfer_number,
-                barcode: item.barcode,
-                date: item.created_at ? new Date(item.created_at).toLocaleDateString("id-ID") : "-",
-                from_warehouse: item.from_warehouse?.name || "-",
-                to_outlet: item.to_outlet?.name || "-",
-                status: item.status,
-                created_by: item.created_by,
-                notes: item.notes || "-",
-            });
-        });
-
-        // Styling
-        sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-        sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0070C0" } };
-        sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
-
-        return await workbook.xlsx.writeBuffer();
-    }
-
-    static async exportDetail(id: number) {
-        const doRecord = await prisma.stockTransfer.findUnique({
-            where: { id },
-            include: {
-                items: {
-                    include: {
-                        product: {
-                            include: { product_type: true, size: true, unit: true },
-                        },
-                    },
-                },
-                from_warehouse: true,
-                to_outlet: true,
-            },
-        });
-
-        if (!doRecord) throw new ApiError(404, "Data Delivery Order tidak ditemukan");
-
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet(`DO ${doRecord.transfer_number}`);
-
-        sheet.mergeCells("A1:D1");
-        sheet.getCell("A1").value = "PERFORMENCE ERP - DELIVERY ORDER";
-        sheet.getCell("A1").font = { bold: true, size: 16 };
-        sheet.getCell("A1").alignment = { horizontal: "center" };
-
-        sheet.addRow([]);
-        sheet.addRow(["No. Dokumen", doRecord.transfer_number]);
-        sheet.addRow(["Barcode", doRecord.barcode]);
-        sheet.addRow([
-            "Tanggal",
-            doRecord.created_at ? new Date(doRecord.created_at).toLocaleDateString("id-ID") : "-",
-        ]);
-        sheet.addRow(["Gudang Asal", doRecord.from_warehouse?.name || "-"]);
-        sheet.addRow(["Outlet Tujuan", doRecord.to_outlet?.name || "-"]);
-        sheet.addRow(["Status", doRecord.status]);
-        sheet.addRow(["Dibuat Oleh", doRecord.created_by]);
-
-        sheet.addRow([]);
-
-        const tableHeaderRow = [
-            "No",
-            "SKU / Code",
-            "Nama Produk",
-            "Qty (Requested)",
-            "Qty (Packed)",
-            "Qty (Fulfilled)",
-        ];
-        sheet.addRow(tableHeaderRow);
-        const headerRowNumber = sheet.rowCount;
-
-        doRecord.items.forEach((item, index) => {
-            const p = item.product;
-            const fullProductName =
-                `${p.name} ${p.product_type?.name.toLocaleUpperCase() || ""} ${p.size?.size || ""}${p.unit?.name.toLocaleUpperCase() || ""} (${p.gender})`
-                    .replace(/\s+/g, " ")
-                    .trim();
-
-            sheet.addRow([
-                index + 1,
-                p.code,
-                fullProductName,
-                Number(item.quantity_requested),
-                Number(item.quantity_packed || 0),
-                Number(item.quantity_fulfilled || 0),
-            ]);
-        });
-
-        const headerRow = sheet.getRow(headerRowNumber);
-        headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-        headerRow.eachCell((cell) => {
-            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0070C0" } };
-            cell.alignment = { horizontal: "center", vertical: "middle" };
-            cell.border = {
-                top: { style: "thin" },
-                left: { style: "thin" },
-                bottom: { style: "thin" },
-                right: { style: "thin" },
-            };
-        });
-
-        return await workbook.xlsx.writeBuffer();
     }
 
     private static async deductWarehouseInventory(
@@ -602,7 +492,6 @@ export class DOService {
             });
 
             if (!pi) {
-                // If inventory record doesn't even exist, something is wrong, but let's be safe
                 pi = await tx.productInventory.create({
                     data: {
                         product_id: item.product_id,
@@ -626,44 +515,46 @@ export class DOService {
                     entity_id: item.product_id,
                     location_type: MovementLocationType.WAREHOUSE,
                     location_id: warehouse_id,
-                    movement_type: MovementType.TRANSFER_IN, // Returning stock
+                    movement_type: MovementType.TRANSFER_IN,
                     quantity: revertAmount,
                     qty_before,
                     qty_after,
                     reference_id: transfer_id,
                     reference_type: MovementRefType.STOCK_TRANSFER,
                     created_by: userId,
-                    notes: "Batal (Cancellation)",
+                    notes: "Batal Transfer Gudang",
                 },
             });
         }
     }
 
-    private static async addOutletInventory(
+    private static async addWarehouseInventory(
         tx: any,
-        outlet_id: number,
+        warehouse_id: number,
         items: any[],
         transfer_id: number,
         userId: string,
     ) {
         for (const item of items) {
             const addAmount = Number(item.quantity_fulfilled);
-            let oi = await tx.outletInventory.findUnique({
-                where: { outlet_id_product_id: { outlet_id, product_id: item.product_id } },
+            
+            let pi = await tx.productInventory.findFirst({
+                where: { product_id: item.product_id, warehouse_id },
+                orderBy: { created_at: "desc" },
             });
 
-            let qty_before = oi ? Number(oi.quantity) : 0;
-
-            if (oi) {
-                await tx.outletInventory.update({
-                    where: { id: oi.id },
+            let qty_before = 0;
+            if (pi) {
+                qty_before = Number(pi.quantity);
+                await tx.productInventory.update({
+                    where: { id: pi.id },
                     data: { quantity: qty_before + addAmount },
                 });
             } else {
-                await tx.outletInventory.create({
+                await tx.productInventory.create({
                     data: {
-                        outlet_id,
                         product_id: item.product_id,
+                        warehouse_id,
                         quantity: addAmount,
                     },
                 });
@@ -675,8 +566,8 @@ export class DOService {
                 data: {
                     entity_type: MovementEntityType.PRODUCT,
                     entity_id: item.product_id,
-                    location_type: MovementLocationType.OUTLET,
-                    location_id: outlet_id,
+                    location_type: MovementLocationType.WAREHOUSE,
+                    location_id: warehouse_id,
                     movement_type: MovementType.TRANSFER_IN,
                     quantity: addAmount,
                     qty_before,
@@ -689,114 +580,54 @@ export class DOService {
         }
     }
 
-    static async getStock(warehouse_id?: number, outlet_id?: number, product_id?: number) {
-        if (warehouse_id) {
-            const pi = await prisma.productInventory.findFirst({
-                where: { product_id, warehouse_id },
-                orderBy: [{ year: "desc" }, { month: "desc" }, { date: "desc" }, { id: "desc" }],
-            });
-            return Number(pi?.quantity || 0);
-        }
-
-        if (outlet_id) {
-            const oi = await prisma.outletInventory.findUnique({
-                where: { outlet_id_product_id: { outlet_id, product_id: Number(product_id) } },
-            });
-            return Number(oi?.quantity || 0);
-        }
-
-        return 0;
-    }
-
-    static async listDiscrepancies(query: any) {
-        const { page = 1, take = 25, search } = query;
-        const { skip, take: limit } = GetPagination(page, take);
-
-        const where: Prisma.StockTransferItemWhereInput = {
-            OR: [
-                { quantity_missing: { gt: 0 } },
-                { quantity_rejected: { gt: 0 } },
-            ],
-            transfer: {
-                status: { in: [TransferStatus.COMPLETED, TransferStatus.PARTIAL, TransferStatus.MISSING, TransferStatus.REJECTED] }
+    static async getStock(warehouse_id: number, product_id: number) {
+        const inventory = await prisma.productInventory.findFirst({
+            where: {
+                warehouse_id,
+                product_id,
             },
-            ...(search && {
-                OR: [
-                    { transfer: { transfer_number: { contains: search, mode: "insensitive" } } },
-                    { product: { name: { contains: search, mode: "insensitive" } } },
-                    { product: { code: { contains: search, mode: "insensitive" } } },
-                ]
-            })
-        };
+            orderBy: { created_at: "desc" },
+        });
 
-        const [data, len] = await Promise.all([
-            prisma.stockTransferItem.findMany({
-                where,
-                skip,
-                take: limit,
-                orderBy: { transfer: { created_at: "desc" } },
-                include: {
-                    product: {
-                        include: { product_type: true, size: true, unit: true }
-                    },
-                    transfer: {
-                        include: {
-                            from_warehouse: true,
-                            to_warehouse: true,
-                            to_outlet: true
-                        }
-                    }
-                }
-            }),
-            prisma.stockTransferItem.count({ where })
-        ]);
-
-        return { data, len };
+        return Number(inventory?.quantity || 0);
     }
 
-    static async exportDiscrepancies(query: any) {
-        const { data } = await this.listDiscrepancies({ ...query, take: 1000000, page: 1 });
+    static async export(query: QueryTransferGudangDTO) {
+        const { data } = await this.list({ ...query, take: 1000000, page: 1 });
 
         const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet("Audit Selisih (Discrepancy)");
+        const sheet = workbook.addWorksheet("Data Transfer Gudang");
 
         sheet.columns = [
             { header: "No", key: "no", width: 5 },
-            { header: "No. Dokumen", key: "transfer_number", width: 20 },
+            { header: "No. TG", key: "transfer_number", width: 20 },
+            { header: "Barcode", key: "barcode", width: 20 },
             { header: "Tanggal", key: "date", width: 15 },
-            { header: "Rute (Asal -> Tujuan)", key: "route", width: 40 },
-            { header: "SKU / Code", key: "code", width: 15 },
-            { header: "Nama Produk", key: "product_name", width: 30 },
-            { header: "Pek (Requested)", key: "qty_req", width: 15 },
-            { header: "Missing", key: "qty_missing", width: 12 },
-            { header: "Rejected", key: "qty_rejected", width: 12 },
+            { header: "Gudang (Asal)", key: "from_warehouse", width: 25 },
+            { header: "Gudang (Tujuan)", key: "to_warehouse", width: 25 },
+            { header: "Status", key: "status", width: 15 },
+            { header: "Dibuat Oleh", key: "created_by", width: 20 },
             { header: "Catatan", key: "notes", width: 30 },
         ];
 
         data.forEach((item, index) => {
-            const t = item.transfer;
-            const p = item.product;
-            const route = `${t.from_warehouse?.name || "-"} -> ${t.to_outlet?.name || t.to_warehouse?.name || "-"}`;
-
             sheet.addRow({
                 no: index + 1,
-                transfer_number: t.transfer_number,
-                date: t.created_at ? new Date(t.created_at).toLocaleDateString("id-ID") : "-",
-                route,
-                code: p.code,
-                product_name: p.name,
-                qty_req: Number(item.quantity_requested),
-                qty_missing: Number(item.quantity_missing || 0),
-                qty_rejected: Number(item.quantity_rejected || 0),
+                transfer_number: item.transfer_number,
+                barcode: item.barcode,
+                date: item.created_at ? new Date(item.created_at).toLocaleDateString("id-ID") : "-",
+                from_warehouse: item.from_warehouse?.name || "-",
+                to_warehouse: item.to_warehouse?.name || "-",
+                status: item.status,
+                created_by: item.created_by,
                 notes: item.notes || "-",
             });
         });
 
         sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-        sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC00000" } }; // RED for Audit
+        sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0070C0" } };
         sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
 
         return await workbook.xlsx.writeBuffer();
     }
 }
-
