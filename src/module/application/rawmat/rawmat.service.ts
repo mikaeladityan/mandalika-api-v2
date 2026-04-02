@@ -15,6 +15,7 @@ import {
 } from "../../../generated/prisma/client.js";
 import { normalizeSlug } from "../../../lib/index.js";
 import { MaterialType } from "../../../generated/prisma/enums.js";
+import ExcelJS from "exceljs";
 
 type RawRow = {
     id: number;
@@ -299,6 +300,68 @@ export class RawMaterialService {
             where: { id, deleted_at: { not: null } },
             data: { deleted_at: null },
         });
+    }
+
+    static async export(query: QueryRawMaterialDTO) {
+        const { data } = await this.list({ ...query, take: 1000000, page: 1 });
+
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet("Data Raw Materials");
+
+        const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : [];
+        const hasVisibility = visibleCols.length > 0;
+
+        const allColumns = [
+            { header: "No", key: "no", width: 5, id: "no" },
+            { header: "Barcode", key: "barcode", width: 20, id: "barcode" },
+            { header: "Nama Material", key: "name", width: 40, id: "name" },
+            { header: "Kategori", key: "category", width: 25, id: "category" },
+            { header: "Supplier", key: "supplier", width: 25, id: "supplier" },
+            { header: "Satuan", key: "unit", width: 15, id: "unit" },
+            { header: "Tipe", key: "type", width: 15, id: "type" },
+            { header: "Harga", key: "price", width: 15, id: "price" },
+            { header: "Min. Beli", key: "min_buy", width: 12, id: "min_buy" },
+            { header: "Min. Stok", key: "min_stock", width: 12, id: "min_stock" },
+            { header: "Lead Time", key: "lead_time", width: 12, id: "lead_time" },
+            { header: "Dibuat", key: "created_at", width: 15, id: "created_at" },
+            { header: "Update", key: "updated_at", width: 15, id: "updated_at" },
+        ];
+
+        const filteredColumns = hasVisibility
+            ? allColumns.filter((col) => col.id === "no" || visibleCols.includes(col.id))
+            : allColumns;
+
+        sheet.columns = filteredColumns.map(({ header, key, width }) => ({ header, key, width }));
+
+        data.forEach((item, index) => {
+            sheet.addRow({
+                no: index + 1,
+                barcode: item.barcode || "-",
+                name: item.name,
+                category: item.raw_mat_category?.name || "-",
+                supplier: item.supplier?.name || "-",
+                unit: item.unit_raw_material.name,
+                type: item.type || "-",
+                price: item.price,
+                min_buy: item.min_buy || 0,
+                min_stock: item.min_stock || 0,
+                lead_time: item.lead_time || 0,
+                created_at: item.created_at,
+                updated_at: item.updated_at,
+            });
+        });
+
+        // Styling
+        sheet.getRow(1).font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } };
+        sheet.getRow(1).height = 25;
+        sheet.getRow(1).fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FF0070C0" },
+        };
+        sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+
+        return await workbook.xlsx.writeBuffer();
     }
 
     static async clean() {

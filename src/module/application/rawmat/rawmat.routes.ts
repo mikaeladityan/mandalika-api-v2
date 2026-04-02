@@ -15,6 +15,7 @@ RawMaterialRoutes.route("/categories", RawMatCategoryRoutes);
 RawMaterialRoutes.route("/import", RawmatImportRoutes);
 RawMaterialRoutes.route("/stocks", RawMaterialStockRoutes);
 
+RawMaterialRoutes.get("/export", RawMaterialController.export);
 RawMaterialRoutes.get("/count-utils", RawMaterialController.countUtils);
 RawMaterialRoutes.delete("/clean", RawMaterialController.clean);
 

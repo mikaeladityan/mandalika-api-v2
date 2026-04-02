@@ -773,7 +773,7 @@ export class RecomendationV2Service {
         meta.sales_periods?.forEach((p: any) => {
             const yearShort = String(p.year).slice(-2);
             allColumns.push({
-                header: `S ${monthsShort[p.month - 1]?.toLocaleUpperCase()}${yearShort}`,
+                header: `SALES ${monthsShort[p.month - 1]?.toLocaleUpperCase()}${yearShort}`,
                 key: `sales_${p.key}`,
                 width: 15,
                 uiId: "sales_history",
@@ -784,7 +784,7 @@ export class RecomendationV2Service {
         meta.forecast_periods?.forEach((p: any) => {
             const yearShort = String(p.year).slice(-2);
             allColumns.push({
-                header: `N ${monthsShort[p.month - 1]?.toLocaleUpperCase()}${yearShort}`,
+                header: `NEED BUY ${monthsShort[p.month - 1]?.toLocaleUpperCase()}${yearShort}`,
                 key: `need_${p.key}`,
                 width: 15,
                 uiId: "needs_buy",
@@ -816,15 +816,15 @@ export class RecomendationV2Service {
             filteredColumns.sort((a, b) => {
                 const uiIdA = a.uiId || "";
                 const uiIdB = b.uiId || "";
-                
+
                 const indexA = orderArr.indexOf(uiIdA);
                 const indexB = orderArr.indexOf(uiIdB);
-                
+
                 if (indexA !== -1 && indexB !== -1) {
                     if (indexA === indexB) return 0; // Same group (like barcode & material)
                     return indexA - indexB;
                 }
-                
+
                 if (indexA !== -1) return -1;
                 if (indexB !== -1) return 1;
                 return 0;

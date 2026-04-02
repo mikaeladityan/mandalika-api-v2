@@ -74,6 +74,7 @@ export const QueryRawMaterialSchema = z.object({
     category_id: z.coerce.number().optional(),
     supplier_id: z.coerce.number().optional(),
     unit_id: z.coerce.number().optional(),
+    visibleColumns: z.string().optional(),
 });
 
 export type RequestRawMaterialDTO = z.input<typeof RequestRawMaterialSchema>;

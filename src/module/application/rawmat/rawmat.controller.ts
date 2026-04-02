@@ -139,6 +139,39 @@ export class RawMaterialController {
         return ApiResponse.sendSuccess(c, result, 200);
     }
 
+    static async export(c: Context) {
+        const {
+            search,
+            status,
+            category_id,
+            supplier_id,
+            unit_id,
+            sortBy,
+            sortOrder,
+            visibleColumns,
+        } = c.req.query();
+
+        const params: QueryRawMaterialDTO = {
+            search,
+            status: status as QueryRawMaterialDTO["status"],
+            category_id: category_id ? Number(category_id) : undefined,
+            supplier_id: supplier_id ? Number(supplier_id) : undefined,
+            unit_id: unit_id ? Number(unit_id) : undefined,
+            sortBy: sortBy as QueryRawMaterialDTO["sortBy"],
+            sortOrder: sortOrder as QueryRawMaterialDTO["sortOrder"],
+            visibleColumns,
+        };
+
+        const buffer = await RawMaterialService.export(params);
+
+        c.header(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        );
+        c.header("Content-Disposition", `attachment; filename="data-raw-materials.xlsx"`);
+        return c.body(buffer as any);
+    }
+
     static async countUtils(c: Context) {
         const result = await RawMaterialService.countUtils();
         return ApiResponse.sendSuccess(c, result, 200);
