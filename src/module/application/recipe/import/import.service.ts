@@ -56,19 +56,35 @@ export class RecipeImportService {
         });
     }
 
-    static async preview(rows: any[]): Promise<ResponseRecipeImportDTO> {
+    static async preview(rows: Record<string, any>[]): Promise<ResponseRecipeImportDTO> {
+        const parsedResults = rows.map((row) => RecipeImportRowSchema.safeParse(row));
         const parsedRows: RecipeImportPreviewDTO[] = await Promise.all(
-            rows.map(async (row) => {
-                const parsed = RecipeImportRowSchema.safeParse(row);
+            rows.map(async (row, index) => {
+                const parsed = parsedResults[index];
+
+                if (!parsed) {
+                    return {
+                        product_id: null,
+                        raw_mat_id: null,
+                        product_code: String(row["PRODUCT CODE"] || ""),
+                        product_name: "",
+                        product_type: "",
+                        material_code: String(row["MATERIAL CODE"] || ""),
+                        material_name: "",
+                        product_size: "",
+                        qty: 0,
+                        errors: ["Internal parsing error"],
+                    };
+                }
 
                 if (!parsed.success) {
                     return {
                         product_id: null,
                         raw_mat_id: null,
-                        product_code: row["PRODUCT CODE"] ?? "",
+                        product_code: String(row["PRODUCT CODE"] || ""),
                         product_name: "",
                         product_type: "",
-                        material_code: row["MATERIAL CODE"] ?? "",
+                        material_code: String(row["MATERIAL CODE"] || ""),
                         material_name: "",
                         product_size: "",
                         qty: 0,

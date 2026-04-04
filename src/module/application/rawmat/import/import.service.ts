@@ -20,37 +20,53 @@ type ImportCachePayload = {
 const PREFIX = "rawmat:import:";
 
 export class RawmatImportService {
-    static async preview(rows: any[]): Promise<ResponseRawmatImportDTO> {
-        const parsedRows: RawmatImportPreviewDTO[] = rows.map((row) => {
-            const parsed = RawmatImportRowSchema.safeParse(row);
-
-            if (!parsed.success) {
+    static async preview(rows: Record<string, any>[]): Promise<ResponseRawmatImportDTO> {
+        const parsedResults = rows.map((row) => RawmatImportRowSchema.safeParse(row));
+        const parsedRows: RawmatImportPreviewDTO[] = rows.map((row, index) => {
+            const parsed = parsedResults[index];
+            if (!parsed) {
                 return {
-                    barcode: "",
-                    name: "",
+                    barcode: String(row.BARCODE || ""),
+                    name: String(row["MATERIAL NAME"] || ""),
                     price: 0,
                     min_buy: 0,
                     min_stock: 0,
                     unit: "",
                     category: "",
                     supplier: "",
-                    country: "LOCAL",
+                    country: "",
                     lead_time: 0,
-                    errors: parsed.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
+                    errors: ["Internal parsing error"],
+                };
+            }
+
+            if (!parsed.success) {
+                return {
+                    barcode: String(row.BARCODE || ""),
+                    name: String(row["MATERIAL NAME"] || ""),
+                    price: 0,
+                    min_buy: 0,
+                    min_stock: 0,
+                    unit: "",
+                    category: "",
+                    supplier: "",
+                    country: "",
+                    lead_time: 0,
+                    errors: parsed.error.issues.map((e) => e.message),
                 };
             }
 
             const data = parsed.data;
             return {
-                barcode: data["BARCODE"],
-                name: data["MATERIAL NAME"],
-                price: Number(data["PRICE"]) || 0,
-                min_buy: data["MOQ"] ?? 0,
+                barcode: data.BARCODE.trim(),
+                name: String(data["MATERIAL NAME"] || "").trim(),
+                price: data.PRICE ?? 0,
+                min_buy: data.MOQ ?? 0,
                 min_stock: data["MIN STOK"] ?? 0,
-                unit: data["UOM"] || "",
-                category: data["CATEGORY"],
-                supplier: data["SUPPLIER"] || "",
-                country: data["LOCAL/IMPORT"] || "LOCAL",
+                unit: (data.UOM || "UNIT").toUpperCase().trim(),
+                category: data.CATEGORY.toUpperCase().trim(),
+                supplier: (data.SUPPLIER || "UNKNOWN").toUpperCase().trim(),
+                country: (data["LOCAL/IMPORT"] || "LOCAL").toUpperCase().trim(),
                 lead_time: data["LEAD TIME"] ?? 0,
                 errors: [],
             };
