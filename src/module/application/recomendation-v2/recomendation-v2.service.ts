@@ -362,7 +362,7 @@ export class RecomendationV2Service {
                 LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = rm.id
                 WHERE ${typeFilter}
                   AND rm.deleted_at IS NULL
-                  AND rm.barcode IS DISTINCT FROM 'FO-ALK'
+                --   AND rm.barcode IS DISTINCT FROM 'FO-ALK'
                   ${searchFilter}
             ) AS base
             ORDER BY 
@@ -392,7 +392,7 @@ export class RecomendationV2Service {
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
-              AND rm.barcode IS DISTINCT FROM 'FO-ALK'
+            --   AND rm.barcode IS DISTINCT FROM 'FO-ALK'
               ${searchFilter}
         `;
 
@@ -728,7 +728,7 @@ export class RecomendationV2Service {
             LEFT JOIN fg_agg fg ON fg.raw_mat_id = rm.id
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
-              AND rm.barcode IS DISTINCT FROM 'FO-ALK'
+            --   AND rm.barcode IS DISTINCT FROM 'FO-ALK'
             ON CONFLICT (raw_mat_id, month, year) DO UPDATE SET
                 horizon = EXCLUDED.horizon,
                 quantity = EXCLUDED.quantity,
@@ -858,20 +858,25 @@ export class RecomendationV2Service {
             const currentStock = Math.round(row.current_stock || 0);
             const openPo = Math.round(row.open_po || 0);
 
-            // Calculate total need based on horizon
-            const h = row.work_order_horizon || query.forecast_months || 0;
-            const totalNeeded = (row.needs || [])
-                .slice(0, h)
-                .reduce((sum: number, n: any) => sum + (n.quantity || 0), 0);
+            // Calculate total need based on horizon (Only if set by PIC)
+            const h = row.work_order_horizon || 0;
+            const hasNeeds = row.needs && row.needs.length > 0;
+            const totalNeeded =
+                h > 0 && hasNeeds
+                    ? (row.needs || [])
+                          .slice(0, h)
+                          .reduce((sum: number, n: any) => sum + (n.quantity || 0), 0)
+                    : null;
 
             const formattedRow: any = {
                 ...row,
                 current_stock: currentStock,
                 safety_stock_x_resep: Math.round(row.safety_stock_x_resep || 0),
-                recommendation_quantity: Math.round(row.recommendation_quantity || 0),
+                recommendation_quantity:
+                    h > 0 ? Math.round(row.recommendation_quantity || 0) : null,
                 open_po: openPo,
                 total_stock: currentStock + openPo,
-                total_needed: Math.round(totalNeeded),
+                total_needed: totalNeeded !== null ? Math.round(totalNeeded) : null,
                 // Only show Work Order Qty if it's already ordered (ACC)
                 work_order_quantity:
                     row.work_order_status === "ACC" ? row.work_order_quantity : null,

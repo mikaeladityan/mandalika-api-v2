@@ -173,16 +173,21 @@ export class IssuanceService {
                         )
                     ) FILTER (WHERE sa.year IS NOT NULL),
                     '[]'::json
-                )                                AS issuances_data
-            FROM products p
-            LEFT JOIN product_types pt   ON p.type_id  = pt.id
-            LEFT JOIN unit_of_materials u ON p.unit_id  = u.id
-            LEFT JOIN product_size ps    ON p.size_id  = ps.id
-            LEFT JOIN product_issuances sa
-                ON  sa.product_id = p.id
-                AND (sa.year * 12 + sa.month) >= ${startVal}
-                AND (sa.year * 12 + sa.month) <= ${endVal}
-                ${saTypeFilter}
+            LEFT JOIN (
+                SELECT 
+                    product_id, 
+                    year, 
+                    month,
+                    COALESCE(
+                        NULLIF(SUM(CASE WHEN type != 'ALL' THEN quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN type = 'ALL' THEN quantity ELSE 0 END)
+                    ) as quantity
+                FROM product_issuances
+                WHERE (year * 12 + month) >= ${startVal}
+                  AND (year * 12 + month) <= ${endVal}
+                  ${type ? Prisma.sql`AND type = CAST(${type} AS "IssuanceType")` : Prisma.empty}
+                GROUP BY product_id, year, month
+            ) sa ON sa.product_id = p.id
             ${whereSql}
             GROUP BY p.id, p.code, p.name, ps.size, u.name, pt.id, pt.name, pt.slug
             ${orderBySql}
@@ -243,37 +248,44 @@ export class IssuanceService {
     ): Promise<ResponseIssuanceDTO> {
         if (!year || !month) throw new ApiError(400, "Tahun dan bulan wajib diisi");
 
-        const issuance = await prisma.productIssuance.findUnique({
-            where: {
-                product_id_year_month_type: {
-                    product_id,
-                    year,
-                    month,
-                    type: type ?? IssuanceType.ALL,
-                },
-            },
-            include: {
-                product: {
-                    select: {
-                        id: true,
-                        code: true,
-                        name: true,
-                        product_type: { select: { name: true, id: true, slug: true } },
-                    },
-                },
-            },
+        // Prioritized logic: Sum of specific types OR 'ALL' type
+        const issuanceRows = await prisma.$queryRaw<any[]>(Prisma.sql`
+            SELECT 
+                COALESCE(SUM(CASE WHEN type != 'ALL' THEN quantity ELSE 0 END), 0) as others_sum,
+                COALESCE(SUM(CASE WHEN type = 'ALL' THEN quantity ELSE 0 END), 0) as all_val,
+                MAX(id) as last_id
+            FROM product_issuances
+            WHERE product_id = ${product_id} AND year = ${year} AND month = ${month}
+            ${type ? Prisma.sql`AND type = CAST(${type} AS "IssuanceType")` : Prisma.empty}
+        `);
+
+        if (!issuanceRows[0] || (issuanceRows[0].others_sum === 0 && issuanceRows[0].all_val === 0)) {
+            throw new ApiError(404, "Data pengeluaran tidak ditemukan");
+        }
+
+        const stats = issuanceRows[0];
+        const finalQuantity = stats.others_sum > 0 ? stats.others_sum : stats.all_val;
+
+        // Fetch basic info from product
+        const product = await prisma.product.findUniqueOrThrow({
+            where: { id: product_id },
+            include: { product_type: true }
         });
 
-        if (!issuance) throw new ApiError(404, "Data pengeluaran tidak ditemukan");
-
         return {
-            ...issuance,
-            quantity: Number(issuance.quantity),
+            id: stats.last_id,
+            product_id,
+            year,
+            month,
+            type: type ?? (stats.others_sum > 0 ? IssuanceType.ALL : IssuanceType.ALL), // Placeholder or specific mapping
+            quantity: Number(finalQuantity),
+            created_at: new Date(), // Mocked for summary, as it's consolidated
+            updated_at: new Date(),
             product: {
-                id: issuance.product.id,
-                name: issuance.product.name,
-                code: issuance.product.code,
-                product_type: issuance.product.product_type ?? null,
+                id: product.id,
+                name: product.name,
+                code: product.code,
+                product_type: product.product_type ?? null,
             },
         };
     }
@@ -344,7 +356,10 @@ export class IssuanceService {
                 COALESCE(SUM(CASE WHEN sa.type = 'ONLINE' THEN sa.quantity ELSE 0 END), 0)::float AS online,
                 COALESCE(SUM(CASE WHEN sa.type = 'SPIN_WHEEL' THEN sa.quantity ELSE 0 END), 0)::float AS spin_wheel,
                 COALESCE(SUM(CASE WHEN sa.type = 'GARANSI_OUT' THEN sa.quantity ELSE 0 END), 0)::float AS garansi_out,
-                COALESCE(SUM(sa.quantity), 0)::float AS total_qty
+                COALESCE(
+                    NULLIF(SUM(CASE WHEN sa.type != 'ALL' THEN sa.quantity ELSE 0 END), 0),
+                    SUM(CASE WHEN sa.type = 'ALL' THEN sa.quantity ELSE 0 END)
+                )::float AS total_qty
             FROM products p
             LEFT JOIN product_types pt ON p.type_id = pt.id
             LEFT JOIN product_size ps ON p.size_id = ps.id

@@ -69,19 +69,23 @@ export class ForecastService {
         // 3. Load actual sales for the base month (M-1 of start_month)
         const prevMonth = start_month === 1 ? 12 : start_month - 1;
         const prevYear = start_month === 1 ? start_year - 1 : start_year;
-        const salesData = await prisma.productIssuance.groupBy({
-            by: ["product_id"],
-            where: {
-                product_id: { in: products.map((p) => p.id) },
-                year: prevYear,
-                month: prevMonth,
-            },
-            _sum: {
-                quantity: true,
-            },
-        });
+        
+        const salesData = await prisma.$queryRaw<any[]>(Prisma.sql`
+            SELECT 
+                product_id,
+                COALESCE(
+                    NULLIF(SUM(CASE WHEN type != 'ALL' THEN quantity ELSE 0 END), 0),
+                    SUM(CASE WHEN type = 'ALL' THEN quantity ELSE 0 END)
+                ) as total_quantity
+            FROM product_issuances
+            WHERE product_id IN (${Prisma.join(products.map(p => p.id))})
+              AND year = ${prevYear}
+              AND month = ${prevMonth}
+            GROUP BY product_id
+        `);
+
         const inputMap = new Map<number, number>(
-            salesData.map((s) => [s.product_id, Number(s._sum.quantity ?? 0)]),
+            salesData.map((s) => [s.product_id, Number(s.total_quantity ?? 0)]),
         );
 
         // 4. Calculate sequentially through the horizon
