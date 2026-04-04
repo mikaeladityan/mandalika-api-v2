@@ -69,16 +69,19 @@ export class ForecastService {
         // 3. Load actual sales for the base month (M-1 of start_month)
         const prevMonth = start_month === 1 ? 12 : start_month - 1;
         const prevYear = start_month === 1 ? start_year - 1 : start_year;
-        const salesData = await prisma.productIssuance.findMany({
+        const salesData = await prisma.productIssuance.groupBy({
+            by: ["product_id"],
             where: {
                 product_id: { in: products.map((p) => p.id) },
                 year: prevYear,
                 month: prevMonth,
-                type: "ALL",
+            },
+            _sum: {
+                quantity: true,
             },
         });
         const inputMap = new Map<number, number>(
-            salesData.map((s) => [s.product_id, Number(s.quantity)]),
+            salesData.map((s) => [s.product_id, Number(s._sum.quantity ?? 0)]),
         );
 
         // 4. Calculate sequentially through the horizon
@@ -407,10 +410,11 @@ export class ForecastService {
             // Fallback to recent sales
             const prevMonth = m === 1 ? 12 : m - 1;
             const prevYear = m === 1 ? y - 1 : y;
-            const sales = await prisma.productIssuance.findFirst({
-                where: { product_id, month: prevMonth, year: prevYear, type: "ALL" },
+            const sales = await prisma.productIssuance.aggregate({
+                where: { product_id, month: prevMonth, year: prevYear },
+                _sum: { quantity: true },
             });
-            return Number(sales?.quantity ?? 0);
+            return Number(sales?._sum.quantity ?? 0);
         };
 
         const currentBase = await getBase(month, year);

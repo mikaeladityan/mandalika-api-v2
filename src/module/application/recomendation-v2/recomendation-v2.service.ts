@@ -207,9 +207,47 @@ export class RecomendationV2Service {
                     GROUP BY rm.id
                 )
 
+                FROM "raw_materials" rm
+                LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
+                LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
+                LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+                LEFT JOIN "material_purchase_drafts" mro 
+                    ON mro.raw_mat_id = rm.id 
+                    AND mro.month = ${currentMonth} 
+                    AND mro.year = ${currentYear}
+                -- Re-calculate total_forecast_needed based ONLY on mro.horizon if it exists
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(f.final_forecast * rec.quantity * 
+                        CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                    ), 0) AS total_needed
+                    FROM "recipes" rec
+                    JOIN "forecasts" f ON f.product_id = rec.product_id
+                    JOIN "products" p ON p.id = f.product_id
+                    LEFT JOIN "product_size" ps ON ps.id = p.size_id
+                    WHERE rec.raw_mat_id = rm.id
+                      AND mro.horizon IS NOT NULL
+                      AND (f.year * 12 + f.month) >= (f.year * 12 + f.month) -- redundant but for clarity
+                      AND (f.year * 12 + f.month) >= ${fcStart}
+                      AND (f.year * 12 + f.month) <= (${currentYear} * 12 + ${currentMonth} + COALESCE(mro.horizon, 0) - 1)
+                ) h_fc ON TRUE
+                LEFT JOIN rm_forecast_agg fa ON fa.raw_mat_id = rm.id
+                LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = rm.id
+                WHERE ${typeFilter}
+                  AND rm.deleted_at IS NULL
+                  AND rm.barcode IS DISTINCT FROM 'FO-ALK'
+                  ${searchFilter}
+            ) AS base
+            -- Recalculate recommendation in outer select to use the dynamic horizon
             SELECT 
-                base.*,
-                rank() OVER (ORDER BY forecast_needed DESC, material_name ASC) as ranking
+                *,
+                rank() OVER (ORDER BY forecast_needed DESC, material_name ASC) as ranking,
+                CASE 
+                    WHEN work_order_horizon IS NULL THEN 0
+                    ELSE GREATEST(0,
+                        (total_forecast_horizon_dynamic + safety_stock_x_resep)
+                        - (current_stock + open_po)
+                    )
+                END AS recommendation_val
             FROM (
                 SELECT
                     rm.id AS material_id,
@@ -219,6 +257,7 @@ export class RecomendationV2Service {
                     urm.name AS uom,
                     rm.min_buy AS moq,
                     rm.lead_time AS lead_time,
+                    mro.horizon AS work_order_horizon,
 
                     -- Physical Stock
                     COALESCE((
@@ -241,8 +280,8 @@ export class RecomendationV2Service {
                         SELECT COALESCE(json_agg(
                              json_build_object(
                                  'month', p_data.m,
-                                 'year', p_data.y,
-                                 'quantity', p_data.qty
+                                  'year', p_data.y,
+                                  'quantity', p_data.qty
                              )
                         ), '[]'::json)
                         FROM (
@@ -259,7 +298,10 @@ export class RecomendationV2Service {
                     COALESCE(fa.m1_forecast_needed, 0) AS forecast_needed,
                     COALESCE(sa.dynamic_ss_x_resep, 0) AS safety_stock_x_resep,
                     COALESCE(sa.stock_fg_x_resep, 0) AS stock_fg_x_resep,
-                    COALESCE(fa.total_forecast_needed, 0) AS total_forecast_horizon,
+                    
+                    -- Sum from current month up to the set horizon
+                    COALESCE(h_fc.total_needed, 0) AS total_forecast_horizon_dynamic,
+                    COALESCE(fa.total_forecast_needed, 0) AS total_forecast_horizon_max,
 
                     -- Historical Sales Data
                     (
@@ -309,30 +351,19 @@ export class RecomendationV2Service {
                         ) mr
                     ) AS needs_data,
 
-                    -- Final Recommendation Calculation
-                    -- (Total Forecast Horizon + Dynamic Safety Stock) - (Stock + Total Open PO)
-                    GREATEST(0,
-                        (COALESCE(fa.total_forecast_needed, 0) + COALESCE(sa.dynamic_ss_x_resep, 0))
-                        -
-                        (
-                            COALESCE((SELECT SUM(rmi.quantity) FROM "raw_material_inventories" rmi WHERE rmi.raw_material_id = rm.id AND rmi.month = ${invMonth} AND rmi.year = ${invYear}), 0) +
-                            COALESCE((SELECT SUM(po.quantity) FROM "raw_material_open_pos" po WHERE po.raw_material_id = rm.id AND po.status = 'OPEN'), 0)
-                        )
-                    ) AS recommendation_val,
-
                     -- Work Order Info
                     (
                         SELECT json_build_object(
-                            'id', mro.id,
-                            'status', mro.status,
-                            'pic_id', mro.pic_id,
-                            'quantity', mro.quantity,
-                            'horizon', mro.horizon
+                            'id', mro_sub.id,
+                            'status', mro_sub.status,
+                            'pic_id', mro_sub.pic_id,
+                            'quantity', mro_sub.quantity,
+                            'horizon', mro_sub.horizon
                         )
-                        FROM "material_purchase_drafts" mro
-                        WHERE mro.raw_mat_id = rm.id
-                          AND mro.month = ${currentMonth}
-                          AND mro.year = ${currentYear}
+                        FROM "material_purchase_drafts" mro_sub
+                        WHERE mro_sub.raw_mat_id = rm.id
+                          AND mro_sub.month = ${currentMonth}
+                          AND mro_sub.year = ${currentYear}
                         LIMIT 1
                     ) AS work_order_data
 
@@ -340,6 +371,23 @@ export class RecomendationV2Service {
                 LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
                 LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
                 LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+                LEFT JOIN "material_purchase_drafts" mro 
+                    ON mro.raw_mat_id = rm.id 
+                    AND mro.month = ${currentMonth} 
+                    AND mro.year = ${currentYear}
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(f.final_forecast * rec.quantity * 
+                        CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                    ), 0) AS total_needed
+                    FROM "recipes" rec
+                    JOIN "forecasts" f ON f.product_id = rec.product_id
+                    JOIN "products" p ON p.id = f.product_id
+                    LEFT JOIN "product_size" ps ON ps.id = p.size_id
+                    WHERE rec.raw_mat_id = rm.id
+                      AND mro.horizon IS NOT NULL
+                      AND (f.year * 12 + f.month) >= ${currentYear * 12 + currentMonth}
+                      AND (f.year * 12 + f.month) <= (${currentYear} * 12 + ${currentMonth} + COALESCE(mro.horizon, 0) - 1)
+                ) h_fc ON TRUE
                 LEFT JOIN rm_forecast_agg fa ON fa.raw_mat_id = rm.id
                 LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = rm.id
                 WHERE ${typeFilter}

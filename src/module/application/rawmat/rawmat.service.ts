@@ -334,6 +334,7 @@ export class RawMaterialService {
         sheet.columns = filteredColumns.map(({ header, key, width }) => ({ header, key, width }));
 
         data.forEach((item, index) => {
+            const typeLabel = item.type === "FO" ? "FO" : item.type === "PCKG" ? "PCKG" : "-";
             sheet.addRow({
                 no: index + 1,
                 barcode: item.barcode || "-",
@@ -341,7 +342,7 @@ export class RawMaterialService {
                 category: item.raw_mat_category?.name || "-",
                 supplier: item.supplier?.name || "-",
                 unit: item.unit_raw_material.name,
-                type: item.type || "-",
+                type: typeLabel,
                 price: item.price,
                 min_buy: item.min_buy || 0,
                 min_stock: item.min_stock || 0,

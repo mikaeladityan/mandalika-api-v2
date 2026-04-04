@@ -329,8 +329,8 @@ export class IssuanceService {
         else if (actualSortBy === "online") orderBySql = Prisma.sql`ORDER BY online ${actualSortOrder}`;
         else if (actualSortBy === "spin_wheel") orderBySql = Prisma.sql`ORDER BY spin_wheel ${actualSortOrder}`;
         else if (actualSortBy === "garansi_out") orderBySql = Prisma.sql`ORDER BY garansi_out ${actualSortOrder}`;
-        else if (actualSortBy === "all_qty") orderBySql = Prisma.sql`ORDER BY all_qty ${actualSortOrder}`;
-        else if (actualSortBy === "total_qty") orderBySql = Prisma.sql`ORDER BY total_qty ${actualSortOrder}`;
+        else if (actualSortBy === "all_qty" || actualSortBy === "total_qty") 
+            orderBySql = Prisma.sql`ORDER BY total_qty ${actualSortOrder}`;
 
         const rows = await prisma.$queryRaw<any[]>(Prisma.sql`
             SELECT
@@ -344,13 +344,7 @@ export class IssuanceService {
                 COALESCE(SUM(CASE WHEN sa.type = 'ONLINE' THEN sa.quantity ELSE 0 END), 0)::float AS online,
                 COALESCE(SUM(CASE WHEN sa.type = 'SPIN_WHEEL' THEN sa.quantity ELSE 0 END), 0)::float AS spin_wheel,
                 COALESCE(SUM(CASE WHEN sa.type = 'GARANSI_OUT' THEN sa.quantity ELSE 0 END), 0)::float AS garansi_out,
-                COALESCE(SUM(CASE WHEN sa.type = 'ALL' THEN sa.quantity ELSE 0 END), 0)::float AS all_qty,
-                (
-                    COALESCE(SUM(CASE WHEN sa.type = 'OFFLINE' THEN sa.quantity ELSE 0 END), 0) +
-                    COALESCE(SUM(CASE WHEN sa.type = 'ONLINE' THEN sa.quantity ELSE 0 END), 0) +
-                    COALESCE(SUM(CASE WHEN sa.type = 'SPIN_WHEEL' THEN sa.quantity ELSE 0 END), 0) +
-                    COALESCE(SUM(CASE WHEN sa.type = 'GARANSI_OUT' THEN sa.quantity ELSE 0 END), 0)
-                )::float AS total_qty
+                COALESCE(SUM(sa.quantity), 0)::float AS total_qty
             FROM products p
             LEFT JOIN product_types pt ON p.type_id = pt.id
             LEFT JOIN product_size ps ON p.size_id = ps.id
@@ -376,7 +370,7 @@ export class IssuanceService {
                 online: row.online,
                 spin_wheel: row.spin_wheel,
                 garansi_out: row.garansi_out,
-                all_qty: row.all_qty,
+                all_qty: row.total_qty,
                 total_qty: row.total_qty,
             })),
             len: total
