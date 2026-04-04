@@ -19,7 +19,7 @@ export const ProductImportRowSchema = z.object({
     "PRODUCT NAME": z.string().min(1),
     TYPE: z.string().min(1),
     GENDER: z.string().optional().default(""),
-    SIZE: z.preprocess(sanitizeNumber, z.coerce.number().int().positive()),
+    SIZE: z.preprocess(sanitizeNumber, z.coerce.number().positive()),
     UOM: z.string().min(1),
     EDAR: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
     SAFETY: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),

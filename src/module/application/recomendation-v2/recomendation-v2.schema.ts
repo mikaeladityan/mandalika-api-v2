@@ -31,6 +31,15 @@ export const RequestSaveWorkOrderSchema = z.object({
 
 export type RequestSaveWorkOrderDTO = z.infer<typeof RequestSaveWorkOrderSchema>;
 
+export const RequestSaveOpenPoSchema = z.object({
+    raw_mat_id: z.coerce.number(),
+    month: z.coerce.number().min(1).max(12),
+    year: z.coerce.number().min(2000),
+    quantity: z.coerce.number().min(0),
+});
+
+export type RequestSaveOpenPoDTO = z.infer<typeof RequestSaveOpenPoSchema>;
+
 export const RequestBulkSaveHorizonSchema = z.object({
     month: z.coerce.number().min(1).max(12),
     year: z.coerce.number().min(2000),

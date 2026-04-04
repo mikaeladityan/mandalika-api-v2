@@ -5,9 +5,10 @@ import {
     RequestApproveWorkOrderDTO,
     RequestSaveWorkOrderDTO,
     RequestBulkSaveHorizonDTO,
+    RequestSaveOpenPoDTO,
 } from "./recomendation-v2.schema.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
-import ExcelJS from "exceljs";
+import * as ExcelJS from "exceljs";
 
 export class RecomendationV2Service {
     static async list(query: QueryRecomendationV2DTO) {
@@ -26,6 +27,9 @@ export class RecomendationV2Service {
         const now = new Date();
         const currentMonth = month ?? now.getMonth() + 1;
         const currentYear = year ?? now.getFullYear();
+
+        const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+        const prevYear = currentMonth === 1 ? currentYear - 1 : currentYear;
 
         const salesPeriods: { month: number; year: number; key: string }[] = [];
         for (let i = sales_months; i >= 1; i--) {
@@ -205,12 +209,34 @@ export class RecomendationV2Service {
                          GROUP BY product_id
                     ) pi_agg ON pi_agg.product_id = p.id
                     GROUP BY rm.id
+                ),
+                rm_current_sales_agg AS (
+                    SELECT
+                        rec.raw_mat_id,
+                        SUM(pi.quantity * rec.quantity * CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END) as current_month_sales
+                    FROM "product_issuances" pi
+                    JOIN "recipes" rec ON rec.product_id = pi.product_id AND rec.is_active = true
+                    JOIN "raw_materials" rm ON rm.id = rec.raw_mat_id
+                    LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
+                    JOIN "products" p ON p.id = pi.product_id
+                    LEFT JOIN "product_size" ps ON ps.id = p.size_id
+                    WHERE pi.month = ${prevMonth} AND pi.year = ${prevYear}
+                      AND (
+                          ( (pi.year * 12 + pi.month) > 24314 AND pi.type != 'ALL') OR
+                          ( (pi.year * 12 + pi.month) <= 24314 AND pi.type = 'ALL')
+                      )
+                    GROUP BY rec.raw_mat_id
                 )
 
             -- Main query joins CTEs and calculates dynamic recommendations
             SELECT 
                 *,
-                rank() OVER (ORDER BY forecast_needed DESC, material_name ASC) as ranking,
+                rank() OVER (
+                    ORDER BY 
+                        CASE WHEN barcode = 'FO-ALK' THEN 1 ELSE 0 END ASC,
+                        current_month_sales DESC, 
+                        material_name ASC
+                ) as ranking,
                 CASE 
                     WHEN work_order_horizon IS NULL THEN 0
                     ELSE GREATEST(0,
@@ -272,6 +298,7 @@ export class RecomendationV2Service {
                     -- Sum from current month up to the set horizon
                     COALESCE(h_fc.total_needed, 0) AS total_forecast_horizon_dynamic,
                     COALESCE(fa.total_forecast_needed, 0) AS total_forecast_horizon_max,
+                    COALESCE(cms.current_month_sales, 0) as current_month_sales,
 
                     -- Historical Sales Data
                     (
@@ -367,6 +394,7 @@ export class RecomendationV2Service {
                       AND (f.year * 12 + f.month) >= ${currentYear * 12 + currentMonth}
                       AND (f.year * 12 + f.month) <= (${currentYear} * 12 + ${currentMonth} + COALESCE(mro.horizon, 0) - 1)
                 ) h_fc ON TRUE
+                LEFT JOIN rm_current_sales_agg cms ON cms.raw_mat_id = rm.id
                 LEFT JOIN rm_forecast_agg fa ON fa.raw_mat_id = rm.id
                 LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = rm.id
                 WHERE ${typeFilter}
@@ -375,6 +403,7 @@ export class RecomendationV2Service {
                   ${searchFilter}
             ) AS base
             ORDER BY 
+                CASE WHEN barcode = 'FO-ALK' THEN 1 ELSE 0 END ASC,
                 ${
                     query.sortBy
                         ? query.sortBy === "material_name"
@@ -387,8 +416,8 @@ export class RecomendationV2Service {
                                   ? Prisma.sql`forecast_needed ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
                                   : query.sortBy === "recommendation_quantity"
                                     ? Prisma.sql`recommendation_val ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
-                                    : Prisma.sql`forecast_needed DESC, material_name ASC`
-                        : Prisma.sql`forecast_needed DESC, material_name ASC`
+                                    : Prisma.sql`current_month_sales DESC, material_name ASC`
+                        : Prisma.sql`current_month_sales DESC, material_name ASC`
                 }
             LIMIT ${limit} OFFSET ${skip}
         `;
@@ -514,8 +543,52 @@ export class RecomendationV2Service {
                 current_stock,
                 stock_fg_x_resep,
                 safety_stock_x_resep,
+                status: "DRAFT",
             },
         });
+    }
+
+    static async saveOpenPo(body: RequestSaveOpenPoDTO) {
+        const { raw_mat_id, month, year, quantity } = body;
+        const targetPoNumber = `MANUAL-${raw_mat_id}-${year}-${month}`;
+
+        // Find existing manual PO for this period
+        const existing = await prisma.rawMaterialOpenPo.findFirst({
+            where: {
+                raw_material_id: raw_mat_id,
+                po_number: targetPoNumber,
+            },
+        });
+
+        if (quantity === 0) {
+            if (existing) {
+                await prisma.rawMaterialOpenPo.delete({ where: { id: existing.id } });
+            }
+            return { message: "Manual Open PO removed" };
+        }
+
+        // Set order date to the first day of the specified month/year
+        const orderDate = new Date(year, month - 1, 1);
+
+        if (existing) {
+            return await prisma.rawMaterialOpenPo.update({
+                where: { id: existing.id },
+                data: {
+                    quantity,
+                    order_date: orderDate,
+                },
+            });
+        } else {
+            return await prisma.rawMaterialOpenPo.create({
+                data: {
+                    raw_material_id: raw_mat_id,
+                    po_number: targetPoNumber,
+                    quantity,
+                    order_date: orderDate,
+                    status: "OPEN",
+                },
+            });
+        }
     }
 
     static async approveWorkOrder(body: RequestApproveWorkOrderDTO, userId: string) {

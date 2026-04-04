@@ -5,7 +5,8 @@ import {
     QueryRecomendationV2DTO, 
     RequestApproveWorkOrderSchema, 
     RequestSaveWorkOrderSchema,
-    RequestBulkSaveHorizonSchema
+    RequestBulkSaveHorizonSchema,
+    RequestSaveOpenPoSchema,
 } from "./recomendation-v2.schema.js";
 
 export class RecomendationV2Controller {
@@ -80,6 +81,13 @@ export class RecomendationV2Controller {
         const body = await c.req.json();
         const validBody = RequestBulkSaveHorizonSchema.parse(body);
         const result = await RecomendationV2Service.bulkSaveHorizon(validBody);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async saveOpenPo(c: Context) {
+        const body = await c.req.json();
+        const validBody = RequestSaveOpenPoSchema.parse(body);
+        const result = await RecomendationV2Service.saveOpenPo(validBody);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 }
