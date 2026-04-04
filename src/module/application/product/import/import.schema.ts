@@ -1,15 +1,24 @@
 import z from "zod";
 import { GENDER } from "../../../../generated/prisma/enums.js";
 
+const sanitizeNumber = (val: unknown) => {
+    if (val === "" || val === null || val === undefined) return 0;
+    if (typeof val === "string") {
+        const cleaned = val.replace(/[^\d]/g, "");
+        return cleaned === "" ? 0 : Number(cleaned);
+    }
+    return Number(val);
+};
+
 export const ProductImportRowSchema = z.object({
     "PRODUCT CODE": z.string().min(1),
     "PRODUCT NAME": z.string().min(1),
     TYPE: z.string().min(1),
     GENDER: z.string().optional().default(""),
-    SIZE: z.coerce.number().int().positive(),
+    SIZE: z.preprocess(sanitizeNumber, z.coerce.number().int().positive()),
     UOM: z.string().min(1),
-    EDAR: z.coerce.number().min(0).optional().default(0),
-    SAFETY: z.coerce.number().min(0).optional().default(0),
+    EDAR: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
+    SAFETY: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
 });
 
 export type ProductImportRow = z.infer<typeof ProductImportRowSchema>;

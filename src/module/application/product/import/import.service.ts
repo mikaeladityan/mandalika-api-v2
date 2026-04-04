@@ -30,13 +30,27 @@ export class ProductImportService {
     }
 
     static async preview(rows: Record<string, any>[]): Promise<ResponseProductImportDTO> {
-        const parsedRows: ProductImportPreviewDTO[] = rows.map((row) => {
-            const parsed = ProductImportRowSchema.safeParse(row);
+        const parsedResults = rows.map((row) => ProductImportRowSchema.safeParse(row));
+        const parsedRows: ProductImportPreviewDTO[] = rows.map((row, index) => {
+            const parsed = parsedResults[index];
+            if (!parsed) {
+                return {
+                    code: String(row["PRODUCT CODE"] || ""),
+                    name: String(row["PRODUCT NAME"] || ""),
+                    gender: GENDER.UNISEX,
+                    size: 0,
+                    type: null,
+                    unit: null,
+                    distribution_percentage: 0,
+                    safety_percentage: 0,
+                    errors: ["Internal parsing error"],
+                };
+            }
 
             if (!parsed.success) {
                 return {
-                    code: row["PRODUCT CODE"] || "",
-                    name: row["PRODUCT NAME"] || "",
+                    code: String(row["PRODUCT CODE"] || ""),
+                    name: String(row["PRODUCT NAME"] || ""),
                     gender: GENDER.UNISEX,
                     size: 0,
                     type: null,

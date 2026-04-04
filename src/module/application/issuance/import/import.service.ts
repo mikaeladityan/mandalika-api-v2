@@ -36,29 +36,51 @@ export class IssuanceImportService {
         const productMap = new Map(products.map((p) => [p.code, p]));
 
         // 3. Build result rows
-        const parsedRows: IssuanceImportPreviewDTO[] = parsed.map((result) => {
+        const parsedRows: IssuanceImportPreviewDTO[] = rows.map((row, index) => {
+            const result = parsed[index];
+            if (!result) {
+                return {
+                    code: String(row["PRODUCT CODE"] || row["code"] || ""),
+                    product_name: String(row["PRODUCT NAME"] || row["product_name"] || ""),
+                    amount: (row["TOTAL"] || row["amount"] || 0) as number,
+                    type: null,
+                    errors: ["Internal parsing error"],
+                };
+            }
+
+            const rawCode = String(row["PRODUCT CODE"] || row["code"] || "");
+            const rawAmount = row["TOTAL"] || row["amount"] || 0;
+            const rawName = String(row["PRODUCT NAME"] || row["product_name"] || "");
+
             if (!result.success) {
                 return {
-                    code: "",
-                    product_name: "",
-                    amount: 0,
+                    code: rawCode,
+                    product_name: rawName,
+                    amount: rawAmount as number,
                     type: null,
                     errors: result.error.issues.map((e) => e.message),
                 };
             }
+
             const data = result.data;
             const product = productMap.get(data["PRODUCT CODE"]);
+            const errors: string[] = [];
+
+            if (!product) {
+                errors.push(`Produk dengan kode "${data["PRODUCT CODE"]}" tidak ditemukan`);
+            }
+
             return {
                 code: data["PRODUCT CODE"],
-                product_name: product?.name ?? "",
+                product_name: product?.name || rawName,
                 amount: data["TOTAL"],
                 type: product?.product_type?.name ?? "",
-                errors: [],
+                errors,
             };
         });
 
         const total = parsedRows.length;
-        const invalid = parsedRows.filter((r) => r.errors.length).length;
+        const invalid = parsedRows.filter((r) => r.errors.length > 0).length;
         const valid = total - invalid;
 
         const import_id = randomUUID();

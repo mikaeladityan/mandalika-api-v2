@@ -4,7 +4,15 @@ import { IssuanceType } from "../../../../generated/prisma/enums.js";
 export const IssuanceImportRowSchema = z.object({
     "PRODUCT CODE": z.string().min(1),
     "TOTAL": z.preprocess(
-        (val) => (val === "" || val === null || val === undefined ? 0 : val),
+        (val) => {
+            if (val === "" || val === null || val === undefined) return 0;
+            if (typeof val === "string") {
+                // Strip all non-digit characters (including commas and dots)
+                const cleaned = val.replace(/[^\d]/g, "");
+                return cleaned === "" ? 0 : Number(cleaned);
+            }
+            return val;
+        },
         z.coerce.number().default(0),
     ),
 });

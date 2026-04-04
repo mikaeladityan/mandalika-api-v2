@@ -207,37 +207,7 @@ export class RecomendationV2Service {
                     GROUP BY rm.id
                 )
 
-                FROM "raw_materials" rm
-                LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
-                LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-                LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
-                LEFT JOIN "material_purchase_drafts" mro 
-                    ON mro.raw_mat_id = rm.id 
-                    AND mro.month = ${currentMonth} 
-                    AND mro.year = ${currentYear}
-                -- Re-calculate total_forecast_needed based ONLY on mro.horizon if it exists
-                LEFT JOIN LATERAL (
-                    SELECT COALESCE(SUM(f.final_forecast * rec.quantity * 
-                        CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
-                    ), 0) AS total_needed
-                    FROM "recipes" rec
-                    JOIN "forecasts" f ON f.product_id = rec.product_id
-                    JOIN "products" p ON p.id = f.product_id
-                    LEFT JOIN "product_size" ps ON ps.id = p.size_id
-                    WHERE rec.raw_mat_id = rm.id
-                      AND mro.horizon IS NOT NULL
-                      AND (f.year * 12 + f.month) >= (f.year * 12 + f.month) -- redundant but for clarity
-                      AND (f.year * 12 + f.month) >= ${fcStart}
-                      AND (f.year * 12 + f.month) <= (${currentYear} * 12 + ${currentMonth} + COALESCE(mro.horizon, 0) - 1)
-                ) h_fc ON TRUE
-                LEFT JOIN rm_forecast_agg fa ON fa.raw_mat_id = rm.id
-                LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = rm.id
-                WHERE ${typeFilter}
-                  AND rm.deleted_at IS NULL
-                  AND rm.barcode IS DISTINCT FROM 'FO-ALK'
-                  ${searchFilter}
-            ) AS base
-            -- Recalculate recommendation in outer select to use the dynamic horizon
+            -- Main query joins CTEs and calculates dynamic recommendations
             SELECT 
                 *,
                 rank() OVER (ORDER BY forecast_needed DESC, material_name ASC) as ranking,
