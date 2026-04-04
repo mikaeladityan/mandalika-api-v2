@@ -6,11 +6,15 @@ async function seed() {
     try {
         const delForecast = await prisma.forecast.deleteMany({});
         const delPercentage = await prisma.forecastPercentage.deleteMany({});
+        const delPo = await prisma.rawMaterialOpenPo.deleteMany({});
+        const delDraft = await prisma.materialPurchaseDraft.deleteMany({});
 
         console.log(`✅ Deleted ${delForecast.count} forecast records.`);
         console.log(`✅ Deleted ${delPercentage.count} forecast percentage records.`);
+        console.log(`✅ Deleted ${delPo.count} open po records.`);
+        console.log(`✅ Deleted ${delDraft.count} work order/purchase draft records.`);
 
-        console.log("🌱 Forecast cleanup completed.");
+        console.log("🌱 Cleanup completed.");
     } catch (error) {
         console.error("❌ Cleanup failed:", error);
         throw error;

@@ -21,6 +21,7 @@ export class RecomendationV2Service {
             type,
             sales_months = 3,
             forecast_months = 3,
+            po_months = 3,
         } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
@@ -54,7 +55,7 @@ export class RecomendationV2Service {
         }
 
         const poPeriods: { month: number; year: number; key: string }[] = [];
-        for (let i = -1; i <= 1; i++) {
+        for (let i = -1; i <= po_months; i++) {
             let m = currentMonth + i;
             let y = currentYear;
             while (m <= 0) {
@@ -264,14 +265,14 @@ export class RecomendationV2Service {
                           AND rmi.year = ${invYear}
                     ), 0) AS current_stock,
 
-                    -- Open PO
+                    -- Open PO (Total unreceived)
                     COALESCE((
                         SELECT SUM(po.quantity)
                         FROM "raw_material_open_pos" po
-                        WHERE po.raw_material_id = rm.id AND po.status = 'OPEN'
+                        WHERE po.raw_material_id = rm.id AND po.status != 'RECEIVED'
                     ), 0) AS open_po,
 
-                    -- Open PO per month (M-1, M, M+1)
+                    -- Open PO per month (M-1, M, M+1...M+Horizon)
                     (
                         SELECT COALESCE(json_agg(
                              json_build_object(
@@ -282,11 +283,19 @@ export class RecomendationV2Service {
                         ), '[]'::json)
                         FROM (
                             SELECT 
-                                EXTRACT(MONTH FROM po.order_date)::int as m, 
-                                EXTRACT(YEAR FROM po.order_date)::int as y, 
+                                CASE 
+                                    WHEN (EXTRACT(YEAR FROM po.order_date)::int * 12 + EXTRACT(MONTH FROM po.order_date)::int) < (${poPeriods[0]?.year ?? currentYear} * 12 + ${poPeriods[0]?.month ?? currentMonth}) 
+                                    THEN ${poPeriods[0]?.month ?? currentMonth}
+                                    ELSE EXTRACT(MONTH FROM po.order_date)::int 
+                                END as m,
+                                CASE 
+                                    WHEN (EXTRACT(YEAR FROM po.order_date)::int * 12 + EXTRACT(MONTH FROM po.order_date)::int) < (${poPeriods[0]?.year ?? currentYear} * 12 + ${poPeriods[0]?.month ?? currentMonth}) 
+                                    THEN ${poPeriods[0]?.year ?? currentYear}
+                                    ELSE EXTRACT(YEAR FROM po.order_date)::int 
+                                END as y,
                                 SUM(po.quantity) as qty
                             FROM "raw_material_open_pos" po
-                            WHERE po.raw_material_id = rm.id AND po.status = 'OPEN'
+                            WHERE po.raw_material_id = rm.id AND po.status != 'RECEIVED'
                             GROUP BY 1, 2
                         ) p_data
                     ) AS po_data,
@@ -551,6 +560,7 @@ export class RecomendationV2Service {
     static async saveOpenPo(body: RequestSaveOpenPoDTO) {
         const { raw_mat_id, month, year, quantity } = body;
         const targetPoNumber = `MANUAL-${raw_mat_id}-${year}-${month}`;
+        const orderDate = new Date(Date.UTC(year, month - 1, 1));
 
         // Find existing manual PO for this period
         const existing = await prisma.rawMaterialOpenPo.findFirst({
@@ -560,15 +570,12 @@ export class RecomendationV2Service {
             },
         });
 
-        if (quantity === 0) {
+        if (quantity === 0 || isNaN(quantity)) {
             if (existing) {
                 await prisma.rawMaterialOpenPo.delete({ where: { id: existing.id } });
             }
             return { message: "Manual Open PO removed" };
         }
-
-        // Set order date to the first day of the specified month/year
-        const orderDate = new Date(year, month - 1, 1);
 
         if (existing) {
             return await prisma.rawMaterialOpenPo.update({
@@ -576,6 +583,7 @@ export class RecomendationV2Service {
                 data: {
                     quantity,
                     order_date: orderDate,
+                    updated_at: new Date(),
                 },
             });
         } else {
@@ -601,11 +609,15 @@ export class RecomendationV2Service {
                 throw new Error("Only DRAFT work orders can be approved.");
             }
 
+            // Use month/year from draft for the PO date
+            const poDate = new Date(Date.UTC(rec.year, rec.month - 1, 1));
+
             const newPo = await tx.rawMaterialOpenPo.create({
                 data: {
                     raw_material_id: rec.raw_mat_id,
                     quantity: rec.quantity,
                     status: "OPEN",
+                    order_date: poDate,
                 },
             });
 
