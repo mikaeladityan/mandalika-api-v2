@@ -172,6 +172,7 @@ export class IssuanceService {
                             'quantity', sa.quantity
                         )
                     ) FILTER (WHERE sa.year IS NOT NULL),
+                    '[]'::json
                 )                                AS issuances_data
             FROM products p
             LEFT JOIN product_types pt ON p.type_id = pt.id
