@@ -3,9 +3,13 @@ import { GENDER } from "../../../../generated/prisma/enums.js";
 
 const sanitizeNumber = (val: unknown) => {
     if (val === "" || val === null || val === undefined) return 0;
+    if (typeof val === "number") return val;
     if (typeof val === "string") {
-        const cleaned = val.replace(/[^\d]/g, "");
-        return cleaned === "" ? 0 : Number(cleaned);
+        // Remove common symbols like %, comma (thousands separator), and spaces
+        // But keep digits and the first decimal point
+        const cleaned = val.replace(/[%,\s]/g, "").trim();
+        const num = Number(cleaned);
+        return isNaN(num) ? 0 : num;
     }
     return Number(val);
 };
