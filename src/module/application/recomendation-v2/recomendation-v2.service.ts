@@ -54,8 +54,45 @@ export class RecomendationV2Service {
             forecastPeriods.push({ month: m, year: y, key: `${m}-${y}` });
         }
 
+        // Dynamic back horizon for Open PO
+        let backMonths = -1; // Default M-1
+        
+        let dynamicTypeFilter = Prisma.sql`1=1`;
+        if (type === 'ffo') {
+            dynamicTypeFilter = Prisma.sql`rmc.slug ILIKE '%fragrance-oil%' OR rmc.slug ILIKE '%ffo%'`;
+        } else if (type === 'lokal') {
+            dynamicTypeFilter = Prisma.sql`s.country ILIKE '%indonesia%' OR s.country ILIKE '%indo%'`;
+        } else if (type === 'impor') {
+            dynamicTypeFilter = Prisma.sql`s.country NOT ILIKE '%indonesia%' AND s.country NOT ILIKE '%indo%'`;
+        }
+
+        let dynamicSearchFilter = Prisma.sql``;
+        if (search) {
+            dynamicSearchFilter = Prisma.sql`AND (rm.name ILIKE ${'%' + search + '%'} OR rm.barcode ILIKE ${'%' + search + '%'})`;
+        }
+
+        const earliestPo = await prisma.$queryRaw<any[]>`
+            SELECT MIN(po.order_date) as earliest
+            FROM "raw_material_open_pos" po
+            JOIN "raw_materials" rm ON rm.id = po.raw_material_id
+            LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
+            LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+            WHERE po.status != 'RECEIVED'
+              AND po.status != 'CANCELLED'
+              AND ${dynamicTypeFilter}
+              ${dynamicSearchFilter}
+        `;
+
+        if (earliestPo[0]?.earliest) {
+            const d = new Date(earliestPo[0].earliest);
+            const mDiff = (currentYear * 12 + currentMonth) - (d.getFullYear() * 12 + d.getMonth() + 1);
+            if (mDiff > 1) {
+                backMonths = Math.max(-12, -mDiff); // Cap at 1 year back
+            }
+        }
+
         const poPeriods: { month: number; year: number; key: string }[] = [];
-        for (let i = -1; i <= po_months; i++) {
+        for (let i = backMonths; i <= po_months; i++) {
             let m = currentMonth + i;
             let y = currentYear;
             while (m <= 0) {
@@ -283,16 +320,8 @@ export class RecomendationV2Service {
                         ), '[]'::json)
                         FROM (
                             SELECT 
-                                CASE 
-                                    WHEN (EXTRACT(YEAR FROM po.order_date)::int * 12 + EXTRACT(MONTH FROM po.order_date)::int) < (${poPeriods[0]?.year ?? currentYear} * 12 + ${poPeriods[0]?.month ?? currentMonth}) 
-                                    THEN ${poPeriods[0]?.month ?? currentMonth}
-                                    ELSE EXTRACT(MONTH FROM po.order_date)::int 
-                                END as m,
-                                CASE 
-                                    WHEN (EXTRACT(YEAR FROM po.order_date)::int * 12 + EXTRACT(MONTH FROM po.order_date)::int) < (${poPeriods[0]?.year ?? currentYear} * 12 + ${poPeriods[0]?.month ?? currentMonth}) 
-                                    THEN ${poPeriods[0]?.year ?? currentYear}
-                                    ELSE EXTRACT(YEAR FROM po.order_date)::int 
-                                END as y,
+                                EXTRACT(MONTH FROM po.order_date)::int as m,
+                                EXTRACT(YEAR FROM po.order_date)::int as y,
                                 SUM(po.quantity) as qty
                             FROM "raw_material_open_pos" po
                             WHERE po.raw_material_id = rm.id AND po.status != 'RECEIVED'
