@@ -177,7 +177,7 @@ export class IssuanceService {
             FROM products p
             LEFT JOIN product_types pt ON p.type_id = pt.id
             LEFT JOIN product_size ps ON p.size_id = ps.id
-            LEFT JOIN units u ON p.unit_id = u.id
+            LEFT JOIN unit_of_materials u ON p.unit_id = u.id
             LEFT JOIN (
                 SELECT 
                     product_id, 
