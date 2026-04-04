@@ -112,6 +112,14 @@ export class IssuanceImportService {
         await ImportCacheService.save(CACHE_PREFIX, import_id, { ...cache, status: "executing" });
 
         try {
+            const forceAll = (year * 12 + month) <= 24314;
+            if (forceAll && type !== "ALL") {
+                throw new ApiError(
+                    400,
+                    `Untuk periode ${month}/${year} dan sebelumnya, sistem hanya menerima tipe pengeluaran 'ALL'`,
+                );
+            }
+
             await this.bulkInsert(validRows, month, year, type);
             await ImportCacheService.remove(CACHE_PREFIX, import_id);
 

@@ -109,13 +109,21 @@ export class BOMService {
         `);
 
         // 5. Batch Fetch Sales & Forecasts
+        const salesPeriodVals = salesRange.map(s => s.year * 12 + s.month);
+        
         const [salesData, forecastData] = await Promise.all([
-            prisma.productIssuance.findMany({
-                where: {
-                    product_id: { in: productIds },
-                    OR: salesRange.map((s) => ({ month: s.month, year: s.year })),
-                },
-            }),
+            prisma.$queryRaw<any[]>(Prisma.sql`
+                SELECT 
+                    product_id, year, month,
+                    COALESCE(
+                        NULLIF(SUM(CASE WHEN (year * 12 + month) > 24314 AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (year * 12 + month) <= 24314 AND type = 'ALL' THEN quantity ELSE 0 END)
+                    ) as quantity
+                FROM product_issuances
+                WHERE product_id IN (${Prisma.join(productIds)})
+                  AND (year * 12 + month) IN (${Prisma.join(salesPeriodVals)})
+                GROUP BY product_id, year, month
+            `),
             prisma.forecast.findMany({
                 where: {
                     product_id: { in: productIds },

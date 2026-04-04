@@ -74,8 +74,8 @@ export class ForecastService {
             SELECT 
                 product_id,
                 COALESCE(
-                    NULLIF(SUM(CASE WHEN type != 'ALL' THEN quantity ELSE 0 END), 0),
-                    SUM(CASE WHEN type = 'ALL' THEN quantity ELSE 0 END)
+                    NULLIF(SUM(CASE WHEN (year * 12 + month) > 24314 AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                    SUM(CASE WHEN (year * 12 + month) <= 24314 AND type = 'ALL' THEN quantity ELSE 0 END)
                 ) as total_quantity
             FROM product_issuances
             WHERE product_id IN (${Prisma.join(products.map(p => p.id))})
@@ -414,11 +414,16 @@ export class ForecastService {
             // Fallback to recent sales
             const prevMonth = m === 1 ? 12 : m - 1;
             const prevYear = m === 1 ? y - 1 : y;
-            const sales = await prisma.productIssuance.aggregate({
-                where: { product_id, month: prevMonth, year: prevYear },
-                _sum: { quantity: true },
-            });
-            return Number(sales?._sum.quantity ?? 0);
+            const sales = await prisma.$queryRaw<any[]>(Prisma.sql`
+                SELECT 
+                    COALESCE(
+                        NULLIF(SUM(CASE WHEN (year * 12 + month) > 24314 AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (year * 12 + month) <= 24314 AND type = 'ALL' THEN quantity ELSE 0 END)
+                    ) as quantity
+                FROM product_issuances
+                WHERE product_id = ${product_id} AND month = ${prevMonth} AND year = ${prevYear}
+            `);
+            return Number(sales[0]?.quantity ?? 0);
         };
 
         const currentBase = await getBase(month, year);

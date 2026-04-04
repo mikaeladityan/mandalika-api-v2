@@ -283,17 +283,26 @@ export class RecomendationV2Service {
                              )
                         ), '[]'::json)
                         FROM (
-                            SELECT sa.month, sa.year, SUM(sa.quantity * rec.quantity * 
+                            SELECT ag_sub.month, ag_sub.year, SUM(ag_sub.total_month_qty * rec.quantity * 
                                 CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
                             ) as qty
-                            FROM "product_issuances" sa
-                            JOIN "recipes" rec ON rec.product_id = sa.product_id AND rec.is_active = true
-                            JOIN "products" p ON p.id = sa.product_id
+                            FROM (
+                                SELECT 
+                                    product_id, year, month,
+                                    COALESCE(
+                                        NULLIF(SUM(CASE WHEN (year * 12 + month) > 24314 AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                                        SUM(CASE WHEN (year * 12 + month) <= 24314 AND type = 'ALL' THEN quantity ELSE 0 END)
+                                    ) as total_month_qty
+                                FROM "product_issuances"
+                                WHERE (year * 12 + month) >= ${slStartY * 12 + slStartM}
+                                  AND (year * 12 + month) <= ${slEndY * 12 + slEndM}
+                                GROUP BY product_id, year, month
+                            ) ag_sub
+                            JOIN "recipes" rec ON rec.product_id = ag_sub.product_id AND rec.is_active = true
+                            JOIN "products" p ON p.id = ag_sub.product_id
                             LEFT JOIN "product_size" ps ON ps.id = p.size_id
                             WHERE rec.raw_mat_id = rm.id
-                              AND (sa.year * 12 + sa.month) >= ${slStartY * 12 + slStartM}
-                              AND (sa.year * 12 + sa.month) <= ${slEndY * 12 + slEndM}
-                            GROUP BY sa.month, sa.year
+                            GROUP BY ag_sub.month, ag_sub.year
                         ) ag
                     ) AS sales_data,
 
@@ -784,7 +793,12 @@ export class RecomendationV2Service {
             },
             { header: "LT", key: "lead_time", width: 10, uiId: "lead_time" },
             { header: "CURRENT STOCK", key: "current_stock", width: 15, uiId: "current_stock" },
-            { header: "READY STOCK", key: "total_stock", width: 15, uiId: "available_stock" },
+            {
+                header: "CURRENT STOCK + OPEN PO",
+                key: "total_stock",
+                width: 15,
+                uiId: "available_stock",
+            },
         ];
 
         // Dynamic Sales Headers
