@@ -364,7 +364,7 @@ export class IssuanceService {
 
         if (total === 0) return { rekap: [], len: 0 };
 
-        const validSortFields = ["name", "code", "offline", "online", "spin_wheel", "garansi_out", "all_qty", "total_qty"];
+        const validSortFields = ["name", "code", "offline", "online", "spin_wheel", "garansi_out", "b2b", "all_qty", "total_qty"];
         const actualSortBy = validSortFields.includes(sortBy) ? sortBy : "name";
         const actualSortOrder = sortOrder === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
         
@@ -375,6 +375,7 @@ export class IssuanceService {
         else if (actualSortBy === "online") orderBySql = Prisma.sql`ORDER BY online ${actualSortOrder}`;
         else if (actualSortBy === "spin_wheel") orderBySql = Prisma.sql`ORDER BY spin_wheel ${actualSortOrder}`;
         else if (actualSortBy === "garansi_out") orderBySql = Prisma.sql`ORDER BY garansi_out ${actualSortOrder}`;
+        else if (actualSortBy === "b2b") orderBySql = Prisma.sql`ORDER BY b2b ${actualSortOrder}`;
         else if (actualSortBy === "all_qty" || actualSortBy === "total_qty") 
             orderBySql = Prisma.sql`ORDER BY total_qty ${actualSortOrder}`;
 
@@ -392,6 +393,7 @@ export class IssuanceService {
                 COALESCE(SUM(CASE WHEN NOT ${forceAll} AND sa.type = 'ONLINE' THEN sa.quantity ELSE 0 END), 0)::float AS online,
                 COALESCE(SUM(CASE WHEN NOT ${forceAll} AND sa.type = 'SPIN_WHEEL' THEN sa.quantity ELSE 0 END), 0)::float AS spin_wheel,
                 COALESCE(SUM(CASE WHEN NOT ${forceAll} AND sa.type = 'GARANSI_OUT' THEN sa.quantity ELSE 0 END), 0)::float AS garansi_out,
+                COALESCE(SUM(CASE WHEN NOT ${forceAll} AND sa.type = 'B2B' THEN sa.quantity ELSE 0 END), 0)::float AS b2b,
                 COALESCE(
                     NULLIF(SUM(CASE WHEN NOT ${forceAll} AND sa.type != 'ALL' THEN sa.quantity ELSE 0 END), 0),
                     SUM(CASE WHEN ${forceAll} AND sa.type = 'ALL' THEN sa.quantity ELSE 0 END)
@@ -421,6 +423,7 @@ export class IssuanceService {
                 online: row.online,
                 spin_wheel: row.spin_wheel,
                 garansi_out: row.garansi_out,
+                b2b: row.b2b,
                 all_qty: row.total_qty,
                 total_qty: row.total_qty,
             })),

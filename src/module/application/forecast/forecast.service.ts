@@ -816,12 +816,15 @@ export class ForecastService {
             LEFT JOIN "product_size"      ps ON ps.id = p.size_id
             -- Join specific M1 forecast for sorting
             LEFT JOIN "forecasts" f_m1 ON f_m1.product_id = p.id AND f_m1.month = ${startMonth} AND f_m1.year = ${startYear}
-            -- Join Current Stock for M1
+            -- Join Current Stock for M1 from specific Warehouse GFG-SBY
             LEFT JOIN (
-                SELECT product_id, SUM(quantity) as quantity
-                FROM product_inventories
-                WHERE month = ${startMonth} AND year = ${startYear}
-                GROUP BY product_id
+                SELECT pi.product_id, SUM(pi.quantity) as quantity
+                FROM product_inventories pi
+                JOIN warehouses w ON w.id = pi.warehouse_id
+                WHERE pi.month = ${startMonth} 
+                  AND pi.year = ${startYear}
+                  AND w.code = 'GFG-SBY'
+                GROUP BY pi.product_id
             ) pi ON p.id = pi.product_id
             WHERE p.status = 'ACTIVE'
               AND p.deleted_at IS NULL

@@ -704,6 +704,7 @@ enum IssuanceType {
   ONLINE
   SPIN_WHEEL
   GARANSI_OUT
+  B2B
 }
 
 enum WarehouseType {
