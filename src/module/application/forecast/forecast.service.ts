@@ -175,18 +175,22 @@ export class ForecastService {
                       ...(body.is_others
                           ? {
                                 OR: [
-                                    { product_type: { name: { contains: "Display", mode: "insensitive" } } },
-                                    { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
-                                    { product_type: { name: { contains: "Gift Set", mode: "insensitive" } } },
-                                    { product_type: { name: { contains: "Botol", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "display", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
                                 ],
                             }
                           : {
                                 NOT: [
-                                    { product_type: { name: { contains: "Display", mode: "insensitive" } } },
-                                    { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
-                                    { product_type: { name: { contains: "Gift Set", mode: "insensitive" } } },
-                                    { product_type: { name: { contains: "Botol", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "display", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
                                 ],
                             }),
                   },
@@ -475,11 +479,14 @@ export class ForecastService {
 
         if (!product) throw new ApiError(404, "Produk tidak ditemukan.");
 
+        const tSlug = product?.product_type?.slug?.toLowerCase() || "";
         const isOthersProduct =
-            product?.product_type?.name?.toLowerCase().includes("display") ||
-            product?.product_type?.name?.toLowerCase().includes("kertas") ||
-            product?.product_type?.name?.toLowerCase().includes("gift set") ||
-            product?.product_type?.name?.toLowerCase().includes("botol");
+            tSlug.includes("display") ||
+            tSlug.includes("kertas") ||
+            tSlug.includes("gift-set") ||
+            tSlug.includes("botol") ||
+            tSlug.includes("paper-bag") ||
+            tSlug.includes("kartu-garansi");
 
         if (!isOthersProduct) {
             throw new ApiError(403, "Update manual hanya diizinkan untuk produk Others.");
@@ -716,18 +723,22 @@ export class ForecastService {
             ...(query.is_others
                 ? {
                       OR: [
-                          { product_type: { name: { contains: "Display", mode: "insensitive" } } },
-                          { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
-                          { product_type: { name: { contains: "Gift Set", mode: "insensitive" } } },
-                          { product_type: { name: { contains: "Botol", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "display", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
                       ],
                   }
                 : {
                       NOT: [
-                          { product_type: { name: { contains: "Display", mode: "insensitive" } } },
-                          { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
-                          { product_type: { name: { contains: "Gift Set", mode: "insensitive" } } },
-                          { product_type: { name: { contains: "Botol", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "display", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
                       ],
                   }),
             ...(query.search && {
@@ -841,8 +852,8 @@ export class ForecastService {
               AND (
                 ${
                     query.is_others
-                        ? Prisma.sql`pt.name ILIKE '%Display%' OR pt.name ILIKE '%Kertas%' OR pt.name ILIKE '%Gift Set%' OR pt.name ILIKE '%Botol%'`
-                        : Prisma.sql`pt.name IS NULL OR (pt.name NOT ILIKE '%Display%' AND pt.name NOT ILIKE '%Kertas%' AND pt.name NOT ILIKE '%Gift Set%' AND pt.name NOT ILIKE '%Botol%')`
+                        ? Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%gift-set%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%'`
+                        : Prisma.sql`pt.slug IS NULL OR (pt.slug NOT ILIKE '%display%' AND pt.slug NOT ILIKE '%kertas%' AND pt.slug NOT ILIKE '%gift-set%' AND pt.slug NOT ILIKE '%botol%' AND pt.slug NOT ILIKE '%paper-bag%' AND pt.slug NOT ILIKE '%kartu-garansi%')`
                 }
               )
             ${searchRaw ? Prisma.sql`AND (p.name ILIKE ${searchRaw} OR p.code ILIKE ${searchRaw})` : Prisma.empty}
