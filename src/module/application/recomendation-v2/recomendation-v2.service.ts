@@ -8,7 +8,7 @@ import {
     RequestSaveOpenPoDTO,
 } from "./recomendation-v2.schema.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 
 export class RecomendationV2Service {
     static async list(query: QueryRecomendationV2DTO) {

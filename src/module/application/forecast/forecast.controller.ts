@@ -33,6 +33,17 @@ export class ForecastController {
         const result = await ForecastService.get(query);
         return ApiResponse.sendSuccess(c, result, 200);
     }
+    
+    static async export(c: Context) {
+        const query = QueryForecastSchema.parse(c.req.query());
+        const buffer = await ForecastService.export(query);
+        const filename = `Forecast_Report_${new Date().toISOString().split("T")[0]}.xlsx`;
+
+        c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        c.header("Content-Disposition", `attachment; filename="${filename}"`);
+
+        return c.body(buffer as any);
+    }
 
     static async detail(c: Context) {
         const product_id = Number(c.req.param("product_id"));

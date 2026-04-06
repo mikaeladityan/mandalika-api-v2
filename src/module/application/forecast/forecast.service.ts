@@ -2,6 +2,7 @@ import prisma from "../../../config/prisma.js";
 import { Prisma } from "../../../generated/prisma/client.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
+import ExcelJS from "exceljs";
 import {
     DeleteForecastByPeriodDTO,
     FinalizeForecastDTO,
@@ -23,6 +24,124 @@ const PRODUCT_SELECT = {
 type SelectedProduct = Prisma.ProductGetPayload<{ select: typeof PRODUCT_SELECT }>;
 
 export class ForecastService {
+    static async export(query: QueryForecastDTO) {
+        const { data } = await ForecastService.get({ ...query, take: 10000, page: 1 });
+
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet("Forecast Report");
+
+        const monthsShort = [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "Mei",
+            "Jun",
+            "Jul",
+            "Agu",
+            "Sep",
+            "Okt",
+            "Nov",
+            "Des",
+        ];
+
+        const fixedColumns = [
+            { header: "CODE", key: "product_code", width: 15 },
+            { header: "PRODUCT NAME", key: "product_name", width: 40 },
+            { header: "TYPE", key: "product_type", width: 15 },
+            { header: "SIZE", key: "product_size", width: 10 },
+            { header: "STOCK", key: "current_stock", width: 12 },
+            { header: "SAFETY STOCK", key: "safety_stock_quantity", width: 18 },
+            { header: "SS RATIO", key: "safety_stock_ratio", width: 12 },
+        ];
+
+        const dynamicColumns: any[] = [];
+        if (data.length > 0) {
+            data[0]?.monthly_data.forEach((m) => {
+                const periodLabel = `${monthsShort[m.month - 1]} ${String(m.year).slice(-2)}`;
+                dynamicColumns.push({
+                    header: `BASE FC\n(${periodLabel})`,
+                    key: `base_${m.month}_${m.year}`,
+                    width: 15,
+                });
+                dynamicColumns.push({
+                    header: `FINAL FC\n(${periodLabel})`,
+                    key: `final_${m.month}_${m.year}`,
+                    width: 15,
+                });
+            });
+        }
+
+        sheet.columns = [...fixedColumns, ...dynamicColumns];
+
+        // Format Header
+        const headerRow = sheet.getRow(1);
+        headerRow.height = 40;
+        headerRow.eachCell((cell) => {
+            cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+            cell.fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FF4F46E5" }, // Indigo-600
+            };
+            cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+            cell.border = {
+                top: { style: "thin", color: { argb: "FF4338CA" } },
+                left: { style: "thin", color: { argb: "FF4338CA" } },
+                bottom: { style: "thin", color: { argb: "FF4338CA" } },
+                right: { style: "thin", color: { argb: "FF4338CA" } },
+            };
+        });
+
+        // Add Data
+        data.forEach((item) => {
+            const rowData: any = {
+                product_code: item.product_code,
+                product_name: item.product_name.toUpperCase(),
+                product_type: item.product_type,
+                product_size: item.product_size,
+                current_stock: item.current_stock,
+                safety_stock_quantity: item.safety_stock_summary?.safety_stock_quantity || 0,
+                safety_stock_ratio: `${item.safety_stock_summary?.safety_stock_ratio || 0}%`,
+            };
+
+            item.monthly_data.forEach((m) => {
+                rowData[`base_${m.month}_${m.year}`] = m.base_forecast;
+                rowData[`final_${m.month}_${m.year}`] = m.final_forecast;
+            });
+
+            const row = sheet.addRow(rowData);
+            
+            // Zebra Striping & Alignment
+            const isEven = sheet.rowCount % 2 === 0;
+            row.eachCell((cell, colNumber) => {
+                cell.border = {
+                    top: { style: "thin", color: { argb: "FFE2E8F0" } },
+                    left: { style: "thin", color: { argb: "FFE2E8F0" } },
+                    bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+                    right: { style: "thin", color: { argb: "FFE2E8F0" } },
+                };
+                
+                if (isEven) {
+                    cell.fill = {
+                        type: "pattern",
+                        pattern: "solid",
+                        fgColor: { argb: "FFF8FAFC" },
+                    };
+                }
+
+                // Numeric Alignment for values
+                if (colNumber > 4) {
+                    cell.alignment = { horizontal: "right", vertical: "middle" };
+                } else {
+                    cell.alignment = { horizontal: "left", vertical: "middle" };
+                }
+            });
+        });
+
+        return await workbook.xlsx.writeBuffer();
+    }
+
     static async run(body: RunForecastDTO) {
         const { product_id, start_year, start_month, horizon = 12 } = body;
 
@@ -53,11 +172,19 @@ export class ForecastService {
             : await prisma.product.findMany({
                   where: {
                       status: { notIn: ["DELETE", "PENDING", "BLOCK"] },
-                      product_type: {
-                          name: body.is_display
-                              ? { contains: "Display" }
-                              : { not: { contains: "Display" } },
-                      },
+                      ...(body.is_display
+                          ? {
+                                OR: [
+                                    { product_type: { name: { contains: "Display", mode: "insensitive" } } },
+                                    { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
+                                ],
+                            }
+                          : {
+                                AND: [
+                                    { product_type: { name: { not: { contains: "Display" } } } },
+                                    { product_type: { name: { not: { contains: "Kertas" } } } },
+                                ],
+                            }),
                   },
                   select: PRODUCT_SELECT,
               });
@@ -132,7 +259,7 @@ export class ForecastService {
                     return { product, input, base_forecast: base, final_forecast: base };
                 });
 
-                // EDP, Parfum, & Hampers 110ml/100ml Pool (Used for special calculations)
+                // EDP, Parfum, & Hampers 120ml/110ml/100ml Pool (Used for special calculations)
                 const mainBottles = results.filter((r) => {
                     const slug = r.product.product_type?.slug?.toLowerCase();
                     const isType =
@@ -141,7 +268,10 @@ export class ForecastService {
                         slug === "edp" ||
                         slug === "hampers-edp" ||
                         slug === "hampers-parfum";
-                    const isSize = r.product.size?.size === 110 || r.product.size?.size === 100;
+                    const isSize =
+                        r.product.size?.size === 120 ||
+                        r.product.size?.size === 110 ||
+                        r.product.size?.size === 100;
                     return isType && isSize;
                 });
 
@@ -158,14 +288,20 @@ export class ForecastService {
                     const slug = r.product.product_type?.slug?.toLowerCase();
                     return (
                         (slug === "edp" || slug === "hampers-edp") &&
-                        (r.product.size?.size === 110 || r.product.size?.size === 100)
+                        (r.product.size?.size === 120 ||
+                            r.product.size?.size === 110 ||
+                            r.product.size?.size === 100)
                     );
                 });
                 const parfumMain = results.find((r) => {
                     const slug = r.product.product_type?.slug?.toLowerCase();
                     return (
-                        (slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") &&
-                        (r.product.size?.size === 110 || r.product.size?.size === 100)
+                        (slug === "parfum" ||
+                            slug === "perfume" ||
+                            slug === "hampers-parfum") &&
+                        (r.product.size?.size === 120 ||
+                            r.product.size?.size === 110 ||
+                            r.product.size?.size === 100)
                     );
                 });
 
@@ -180,7 +316,7 @@ export class ForecastService {
                     const size = r.product.size?.size;
                     const distPct = Number(r.product.distribution_percentage ?? 0);
 
-                    // Special Rule: Atomizer (Matches total Main (100/110ml) bottles)
+                    // Special Rule: Atomizer (Matches total Main (120/110/100ml) bottles)
                     if (slug === "atomizer") {
                         if (mainBottles.length > 0) {
                             r.final_forecast = totalForecastBase * totalDistPctMain;
@@ -193,7 +329,7 @@ export class ForecastService {
                             slug === "edp" ||
                             slug === "hampers-edp" ||
                             slug === "hampers-parfum") &&
-                        (size === 110 || size === 100)
+                        (size === 120 || size === 110 || size === 100)
                     ) {
                         if (mainBottles.length > 0) {
                             r.final_forecast = totalForecastBase * distPct;
@@ -398,7 +534,9 @@ export class ForecastService {
 
         if (!product) throw new ApiError(404, "Produk tidak ditemukan.");
 
-        const isDisplayProduct = product?.product_type?.name?.toLowerCase().includes("display");
+        const isDisplayProduct =
+            product?.product_type?.name?.toLowerCase().includes("display") ||
+            product?.product_type?.name?.toLowerCase().includes("kertas");
 
         if (!isDisplayProduct) {
             throw new ApiError(403, "Update manual hanya diizinkan untuk produk Display.");
@@ -632,9 +770,19 @@ export class ForecastService {
         const where: Prisma.ProductWhereInput = {
             status: { notIn: ["DELETE", "PENDING", "BLOCK"] },
             deleted_at: null,
-            product_type: {
-                name: query.is_display ? { contains: "Display" } : { not: { contains: "Display" } },
-            },
+            ...(query.is_display
+                ? {
+                      OR: [
+                          { product_type: { name: { contains: "Display", mode: "insensitive" } } },
+                          { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
+                      ],
+                  }
+                : {
+                      AND: [
+                          { product_type: { name: { not: { contains: "Display" } } } },
+                          { product_type: { name: { not: { contains: "Kertas" } } } },
+                      ],
+                  }),
             ...(query.search && {
                 OR: [
                     { name: { contains: query.search, mode: "insensitive" } },
@@ -743,8 +891,8 @@ export class ForecastService {
               AND (
                 ${
                     query.is_display
-                        ? Prisma.sql`pt.name ILIKE '%Display%'`
-                        : Prisma.sql`pt.name IS NULL OR pt.name NOT ILIKE '%Display%'`
+                        ? Prisma.sql`pt.name ILIKE '%Display%' OR pt.name ILIKE '%Kertas%'`
+                        : Prisma.sql`pt.name IS NULL OR (pt.name NOT ILIKE '%Display%' AND pt.name NOT ILIKE '%Kertas%')`
                 }
               )
             ${searchRaw ? Prisma.sql`AND (p.name ILIKE ${searchRaw} OR p.code ILIKE ${searchRaw})` : Prisma.empty}
@@ -887,9 +1035,19 @@ export class ForecastService {
                 name: target.name,
                 status: { notIn: ["DELETE", "PENDING", "BLOCK"] },
                 deleted_at: null,
-                product_type: {
-                    name: is_display ? { contains: "Display" } : { not: { contains: "Display" } },
-                },
+                ...(is_display
+                    ? {
+                          OR: [
+                              { product_type: { name: { contains: "Display", mode: "insensitive" } } },
+                              { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
+                          ],
+                      }
+                    : {
+                          AND: [
+                              { product_type: { name: { not: { contains: "Display" } } } },
+                              { product_type: { name: { not: { contains: "Kertas" } } } },
+                          ],
+                      }),
             },
             select: PRODUCT_SELECT,
         });
