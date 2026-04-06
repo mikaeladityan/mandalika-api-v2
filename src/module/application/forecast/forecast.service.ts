@@ -311,6 +311,50 @@ export class ForecastService {
         let currentInputMap = new Map<number, number>(inputMap);
         let previousTheoreticalAtomFinal = new Map<string, number>();
 
+        // Track aromas where regular variants have 0 SA, but hampers variants have >0 SA in M1
+        const edpMirrorAromas = new Set<string>();
+        const parfumMirrorAromas = new Set<string>();
+
+        for (const group of groupValues) {
+            if (!group.length) continue;
+            const aromaName = group[0]!.name;
+
+            const hampersEdp = group.find(
+                (p) =>
+                    p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
+                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+            );
+            const regEdp = group.find(
+                (p) =>
+                    p.product_type?.slug?.toLowerCase() === "edp" &&
+                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+            );
+            
+            if (hampersEdp && regEdp) {
+                const hSA = inputMap.get(hampersEdp.id) ?? 0;
+                const rSA = inputMap.get(regEdp.id) ?? 0;
+                if (rSA === 0 && hSA > 0) edpMirrorAromas.add(aromaName);
+            }
+
+            const hampersParf = group.find(
+                (p) =>
+                    p.product_type?.slug?.toLowerCase() === "hampers-parfum" &&
+                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+            );
+            const regParf = group.find(
+                (p) =>
+                    (p.product_type?.slug?.toLowerCase() === "parfum" ||
+                        p.product_type?.slug?.toLowerCase() === "perfume") &&
+                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+            );
+
+            if (hampersParf && regParf) {
+                const hSA = inputMap.get(hampersParf.id) ?? 0;
+                const rSA = inputMap.get(regParf.id) ?? 0;
+                if (rSA === 0 && hSA > 0) parfumMirrorAromas.add(aromaName);
+            }
+        }
+
         for (let i = 0; i < monthsRange.length; i++) {
             const m = monthsRange[i]!;
             const pct = pctMap.get(`${m.year}-${m.month}`);
@@ -389,6 +433,47 @@ export class ForecastService {
                     } else if (isEdpParfumAnchor || is2mlMirror) {
                         base_forecast = input * (1 + pctValue);
                         final_forecast = atomFinal * distPct;
+
+                        const isRegularEdp =
+                            slug === "edp" &&
+                            (size === 100 || size === 110 || size === 120);
+                        const isRegularParfum =
+                            (slug === "parfum" || slug === "perfume") &&
+                            (size === 100 || size === 110 || size === 120);
+
+                        if (
+                            (isRegularEdp || (size === 2 && slug === "edp")) &&
+                            edpMirrorAromas.has(aromaName)
+                        ) {
+                            const hEdp = group.find(
+                                (p) =>
+                                    p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
+                                    (p.size?.size === 100 ||
+                                        p.size?.size === 110 ||
+                                        p.size?.size === 120),
+                            );
+                            if (hEdp) {
+                                final_forecast =
+                                    atomFinal * Number(hEdp.distribution_percentage ?? 0);
+                            }
+                        } else if (
+                            (isRegularParfum ||
+                                (size === 2 &&
+                                    (slug === "parfum" || slug === "perfume"))) &&
+                            parfumMirrorAromas.has(aromaName)
+                        ) {
+                            const hParf = group.find(
+                                (p) =>
+                                    p.product_type?.slug?.toLowerCase() === "hampers-parfum" &&
+                                    (p.size?.size === 100 ||
+                                        p.size?.size === 110 ||
+                                        p.size?.size === 120),
+                            );
+                            if (hParf) {
+                                final_forecast =
+                                    atomFinal * Number(hParf.distribution_percentage ?? 0);
+                            }
+                        }
                     }
 
                     batch.push({
