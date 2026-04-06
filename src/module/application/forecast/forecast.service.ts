@@ -299,11 +299,12 @@ export class ForecastService {
             status: "ADJUSTED" | "DRAFT";
         }[] = [];
 
-        // Group products by name (for special rule Aroma groups)
+        // Group products by base name (for special rule Aroma groups, normalize HAMPERS prefix)
         const groups = new Map<string, SelectedProduct[]>();
         for (const p of products) {
-            if (!groups.has(p.name)) groups.set(p.name, []);
-            groups.get(p.name)!.push(p);
+            const baseName = ForecastService.getAromaBaseName(p.name);
+            if (!groups.has(baseName)) groups.set(baseName, []);
+            groups.get(baseName)!.push(p);
         }
         const groupValues = Array.from(groups.values());
 
@@ -317,7 +318,7 @@ export class ForecastService {
 
         for (const group of groupValues) {
             if (!group.length) continue;
-            const aromaName = group[0]!.name;
+            const aromaName = ForecastService.getAromaBaseName(group[0]!.name);
 
             const hampersEdp = group.find(
                 (p) =>
@@ -338,13 +339,14 @@ export class ForecastService {
 
             const hampersParf = group.find(
                 (p) =>
-                    p.product_type?.slug?.toLowerCase() === "hampers-parfum" &&
+                    (p.product_type?.slug?.toLowerCase() === "hampers-parfum" || 
+                     p.product_type?.slug?.toLowerCase() === "hampers-perfume") &&
                     (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
             );
             const regParf = group.find(
                 (p) =>
                     (p.product_type?.slug?.toLowerCase() === "parfum" ||
-                        p.product_type?.slug?.toLowerCase() === "perfume") &&
+                     p.product_type?.slug?.toLowerCase() === "perfume") &&
                     (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
             );
 
@@ -371,7 +373,7 @@ export class ForecastService {
 
             for (const group of groupValues) {
                 if (!group.length) continue;
-                const aromaName = group[0]!.name;
+                const aromaName = ForecastService.getAromaBaseName(group[0]!.name);
 
                 // --- Skip "others" type products that shouldn't be in non-others forecast ---
                 const isOthersSlug = (s: string | undefined | null) => {
@@ -423,23 +425,31 @@ export class ForecastService {
                     const distPct = Number(product.distribution_percentage ?? 0);
                     const input = currentInputMap.get(product.id) ?? 0;
 
-                    // Skip "others" products in non-others forecast run
-                    if (!body.is_others && isOthersSlug(slug)) {
-                        continue;
-                    }
-
-                    const isHampers = slug === "hampers-edp" || slug === "hampers-parfum";
                     const isRegularEdpParfum = 
                         (slug === "edp" || slug === "parfum" || slug === "perfume") &&
                         (size === 100 || size === 110 || size === 120 || size === 2);
 
                     // In Pass 1, skip regular EDP/Parfum that need mirroring (defer to Pass 2)
-                    if (isRegularEdpParfum && (edpMirrorAromas.has(aromaName) || parfumMirrorAromas.has(aromaName))) {
+                    const needsMirrorInPass1 = isRegularEdpParfum && (
+                        ( (slug === "edp") && edpMirrorAromas.has(aromaName) ) ||
+                        ( (slug === "parfum" || slug === "perfume") && parfumMirrorAromas.has(aromaName) )
+                    );
+
+                    if (needsMirrorInPass1) {
                         continue;
                     }
 
                     let base_forecast = input * (1 + pctValue);
                     let final_forecast = base_forecast;
+
+                    // If this is a non-others run, force others-type products to 0 or null (here 0)
+                    if (!body.is_others && isOthersSlug(slug)) {
+                        base_forecast = 0;
+                        final_forecast = 0;
+                    } 
+                    // If this is an others-run, it only processes others (already filtered by query)
+                    // but we ensure non-regular items that skipped mirroring still happen here.
+
 
                     const isEdpParfumAnchor =
                         (slug === "edp" || slug === "hampers-edp" ||
@@ -505,8 +515,11 @@ export class ForecastService {
                         }
                     } else if (needsParfumMirror) {
                         const hParf = group.find(
-                            (p) => p.product_type?.slug?.toLowerCase() === "hampers-parfum" &&
-                                (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+                            (p) => {
+                                const s = p.product_type?.slug?.toLowerCase();
+                                return (s === "hampers-parfum" || s === "hampers-perfume") &&
+                                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120);
+                            }
                         );
                         if (hParf) {
                             // Direct copy of hampers' final_forecast value
@@ -1224,6 +1237,10 @@ export class ForecastService {
             };
         });
     }
+    private static getAromaBaseName(name: string): string {
+        return name.replace(/^hampers\s+/i, "").trim().toUpperCase();
+    }
+
     private static async loadVariantsByProductId(
         product_id: number,
         is_others?: boolean,
@@ -1234,34 +1251,43 @@ export class ForecastService {
         });
         if (!target) throw new ApiError(404, "Produk tidak ditemukan.");
 
+        const baseName = ForecastService.getAromaBaseName(target.name);
+
         const variations = await prisma.product.findMany({
             where: {
-                name: target.name,
                 status: "ACTIVE",
                 deleted_at: null,
-                ...(is_others
-                    ? {
-                          OR: [
-                              { product_type: { slug: { contains: "display", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
-                          ],
-                      }
-                    : {
-                          NOT: [
-                              { product_type: { slug: { contains: "display", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
-                              { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
-                          ],
-                      }),
+                AND: [
+                    {
+                        OR: [
+                            { name: { equals: baseName, mode: "insensitive" } },
+                            { name: { startsWith: `HAMPERS ${baseName}`, mode: "insensitive" } },
+                        ],
+                    },
+                    is_others
+                        ? {
+                              OR: [
+                                  { product_type: { slug: { contains: "display", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
+                              ],
+                          }
+                        : {
+                              NOT: [
+                                  { product_type: { slug: { contains: "display", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
+                                  { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
+                              ],
+                          },
+                ],
             },
             select: PRODUCT_SELECT,
         });
