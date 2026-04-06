@@ -57,6 +57,9 @@ export class RawmatImportService {
             }
 
             const data = parsed.data;
+            const rawCountry = String(data["LOCAL/IMPORT"] || "LOCAL").toUpperCase().trim();
+            const country = rawCountry === "IMPORT" ? "IMPORT" : "LOCAL"; // Normalize LOKAL -> LOCAL
+            
             return {
                 barcode: data.BARCODE.trim(),
                 name: String(data["MATERIAL NAME"] || "").trim(),
@@ -66,7 +69,7 @@ export class RawmatImportService {
                 unit: (data.UOM || "UNIT").toUpperCase().trim(),
                 category: data.CATEGORY.toUpperCase().trim(),
                 supplier: (data.SUPPLIER || "UNKNOWN").toUpperCase().trim(),
-                country: (data["LOCAL/IMPORT"] || "LOCAL").toUpperCase().trim(),
+                country,
                 lead_time: data["LEAD TIME"] ?? 0,
                 errors: [],
             };
@@ -244,10 +247,17 @@ export class RawmatImportService {
                     const allNames = supplierSlugs.map((s) => supplierSlugMap.get(s)!.name);
                     const allCountries = supplierSlugs.map((s) => supplierSlugMap.get(s)!.country);
 
+                    // Use atomic aligned unnest (standard PG way)
+                    // We update 'country' and 'updated_at' on conflict.
+                    // 'addresses' is defaulting to '-' for new records.
                     const upserted = await tx.$queryRaw<{ id: number; slug: string }[]>`
                         INSERT INTO suppliers (name, slug, addresses, country, created_at, updated_at)
-                        SELECT unnest(${allNames}::text[]), unnest(${supplierSlugs}::text[]),
-                               '-', unnest(${allCountries}::text[]), NOW(), NOW()
+                        SELECT t.name, t.slug, '-', t.country, NOW(), NOW()
+                        FROM unnest(
+                            ${allNames}::text[],
+                            ${supplierSlugs}::text[],
+                            ${allCountries}::text[]
+                        ) AS t(name, slug, country)
                         ON CONFLICT (slug) DO UPDATE SET 
                             country = EXCLUDED.country,
                             updated_at = NOW()
