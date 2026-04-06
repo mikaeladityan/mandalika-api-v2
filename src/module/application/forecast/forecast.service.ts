@@ -373,6 +373,15 @@ export class ForecastService {
                 if (!group.length) continue;
                 const aromaName = group[0]!.name;
 
+                // --- Skip "others" type products that shouldn't be in non-others forecast ---
+                const isOthersSlug = (s: string | undefined | null) => {
+                    if (!s) return false;
+                    const sl = s.toLowerCase();
+                    return sl.includes("display") || sl.includes("kertas") || sl.includes("gift-set") ||
+                        sl.includes("botol") || sl.includes("paper-bag") || sl.includes("kartu-garansi") ||
+                        sl.includes("canvas-bag");
+                };
+
                 const edpAnchors = group.filter((p) => {
                     const slug = p.product_type?.slug?.toLowerCase();
                     const size = p.size?.size;
@@ -403,29 +412,43 @@ export class ForecastService {
                 const atomFinal = atomBase * (1 + pctValue);
                 previousTheoreticalAtomFinal.set(aromaName, atomFinal);
 
+                // ═══ TWO-PASS APPROACH for Hampers Mirroring ═══
+                // Map to store computed final_forecast per product id within this group+month
+                const computedFinalMap = new Map<number, number>();
+                
+                // --- PASS 1: Process hampers variants + atomizer + others first ---
                 for (const product of group) {
                     const slug = product.product_type?.slug?.toLowerCase();
                     const size = product.size?.size;
                     const distPct = Number(product.distribution_percentage ?? 0);
                     const input = currentInputMap.get(product.id) ?? 0;
 
+                    // Skip "others" products in non-others forecast run
+                    if (!body.is_others && isOthersSlug(slug)) {
+                        continue;
+                    }
+
+                    const isHampers = slug === "hampers-edp" || slug === "hampers-parfum";
+                    const isRegularEdpParfum = 
+                        (slug === "edp" || slug === "parfum" || slug === "perfume") &&
+                        (size === 100 || size === 110 || size === 120 || size === 2);
+
+                    // In Pass 1, skip regular EDP/Parfum that need mirroring (defer to Pass 2)
+                    if (isRegularEdpParfum && (edpMirrorAromas.has(aromaName) || parfumMirrorAromas.has(aromaName))) {
+                        continue;
+                    }
+
                     let base_forecast = input * (1 + pctValue);
                     let final_forecast = base_forecast;
 
                     const isEdpParfumAnchor =
-                        (slug === "edp" ||
-                            slug === "hampers-edp" ||
-                            slug === "parfum" ||
-                            slug === "perfume" ||
-                            slug === "hampers-parfum") &&
+                        (slug === "edp" || slug === "hampers-edp" ||
+                            slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") &&
                         (size === 100 || size === 110 || size === 120);
                     const is2mlMirror =
                         size === 2 &&
-                        (slug === "edp" ||
-                            slug === "hampers-edp" ||
-                            slug === "parfum" ||
-                            slug === "perfume" ||
-                            slug === "hampers-parfum");
+                        (slug === "edp" || slug === "hampers-edp" ||
+                            slug === "parfum" || slug === "perfume" || slug === "hampers-parfum");
 
                     if (slug === "atomizer") {
                         base_forecast = atomBase;
@@ -433,46 +456,61 @@ export class ForecastService {
                     } else if (isEdpParfumAnchor || is2mlMirror) {
                         base_forecast = input * (1 + pctValue);
                         final_forecast = atomFinal * distPct;
+                    }
 
-                        const isRegularEdp =
-                            slug === "edp" &&
-                            (size === 100 || size === 110 || size === 120);
-                        const isRegularParfum =
-                            (slug === "parfum" || slug === "perfume") &&
-                            (size === 100 || size === 110 || size === 120);
+                    computedFinalMap.set(product.id, final_forecast);
+                    batch.push({
+                        product_id: product.id,
+                        month: m.month,
+                        year: m.year,
+                        base_forecast,
+                        final_forecast,
+                        trend: ForecastService.trend(final_forecast, input),
+                        forecast_percentage_id: pct?.id ?? 1,
+                        status: status,
+                    });
+                    nextInputMap.set(product.id, final_forecast);
+                }
 
-                        if (
-                            (isRegularEdp || (size === 2 && slug === "edp")) &&
-                            edpMirrorAromas.has(aromaName)
-                        ) {
-                            const hEdp = group.find(
-                                (p) =>
-                                    p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
-                                    (p.size?.size === 100 ||
-                                        p.size?.size === 110 ||
-                                        p.size?.size === 120),
-                            );
-                            if (hEdp) {
-                                final_forecast =
-                                    atomFinal * Number(hEdp.distribution_percentage ?? 0);
-                            }
-                        } else if (
-                            (isRegularParfum ||
-                                (size === 2 &&
-                                    (slug === "parfum" || slug === "perfume"))) &&
-                            parfumMirrorAromas.has(aromaName)
-                        ) {
-                            const hParf = group.find(
-                                (p) =>
-                                    p.product_type?.slug?.toLowerCase() === "hampers-parfum" &&
-                                    (p.size?.size === 100 ||
-                                        p.size?.size === 110 ||
-                                        p.size?.size === 120),
-                            );
-                            if (hParf) {
-                                final_forecast =
-                                    atomFinal * Number(hParf.distribution_percentage ?? 0);
-                            }
+                // --- PASS 2: Process regular EDP/Parfum that need mirroring from Hampers ---
+                for (const product of group) {
+                    const slug = product.product_type?.slug?.toLowerCase();
+                    const size = product.size?.size;
+                    const input = currentInputMap.get(product.id) ?? 0;
+
+                    if (!body.is_others && isOthersSlug(slug)) continue;
+
+                    const isRegularEdp = slug === "edp" && (size === 100 || size === 110 || size === 120);
+                    const isRegularEdp2ml = slug === "edp" && size === 2;
+                    const isRegularParfum = (slug === "parfum" || slug === "perfume") && (size === 100 || size === 110 || size === 120);
+                    const isRegularParfum2ml = (slug === "parfum" || slug === "perfume") && size === 2;
+
+                    const needsEdpMirror = (isRegularEdp || isRegularEdp2ml) && edpMirrorAromas.has(aromaName);
+                    const needsParfumMirror = (isRegularParfum || isRegularParfum2ml) && parfumMirrorAromas.has(aromaName);
+
+                    if (!needsEdpMirror && !needsParfumMirror) continue;
+
+                    // Find the corresponding hampers product and COPY its final_forecast directly
+                    let final_forecast = 0;
+                    const base_forecast = input * (1 + pctValue);
+
+                    if (needsEdpMirror) {
+                        const hEdp = group.find(
+                            (p) => p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
+                                (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+                        );
+                        if (hEdp) {
+                            // Direct copy of hampers' final_forecast value
+                            final_forecast = computedFinalMap.get(hEdp.id) ?? (atomFinal * Number(hEdp.distribution_percentage ?? 0));
+                        }
+                    } else if (needsParfumMirror) {
+                        const hParf = group.find(
+                            (p) => p.product_type?.slug?.toLowerCase() === "hampers-parfum" &&
+                                (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+                        );
+                        if (hParf) {
+                            // Direct copy of hampers' final_forecast value
+                            final_forecast = computedFinalMap.get(hParf.id) ?? (atomFinal * Number(hParf.distribution_percentage ?? 0));
                         }
                     }
 
@@ -486,8 +524,6 @@ export class ForecastService {
                         forecast_percentage_id: pct?.id ?? 1,
                         status: status,
                     });
-
-                    // For the next month in horizon, the input is this month's final_forecast
                     nextInputMap.set(product.id, final_forecast);
                 }
             }
@@ -1206,22 +1242,24 @@ export class ForecastService {
                 ...(is_others
                     ? {
                           OR: [
-                              {
-                                  product_type: {
-                                      name: { contains: "Display", mode: "insensitive" },
-                                  },
-                              },
-                              {
-                                  product_type: {
-                                      name: { contains: "Kertas", mode: "insensitive" },
-                                  },
-                              },
+                              { product_type: { slug: { contains: "display", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
                           ],
                       }
                     : {
-                          AND: [
-                              { product_type: { name: { not: { contains: "Display" } } } },
-                              { product_type: { name: { not: { contains: "Kertas" } } } },
+                          NOT: [
+                              { product_type: { slug: { contains: "display", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
+                              { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
                           ],
                       }),
             },
