@@ -77,7 +77,13 @@ export const QueryRawMaterialSchema = z.object({
     visibleColumns: z.string().optional(),
 });
 
+export type QueryRawMaterialDTO = z.infer<typeof QueryRawMaterialSchema>;
 export type RequestRawMaterialDTO = z.input<typeof RequestRawMaterialSchema>;
 export type ResponseRawMaterialDTO = z.output<typeof ResponseRawMaterialSchema>;
 
-export type QueryRawMaterialDTO = z.infer<typeof QueryRawMaterialSchema>;
+export const BulkStatusRawMaterialSchema = z.object({
+    ids: z.array(z.number()),
+    status: z.enum(["ACTIVE", "DELETE"]),
+});
+
+export type BulkStatusRawMaterialDTO = z.infer<typeof BulkStatusRawMaterialSchema>;

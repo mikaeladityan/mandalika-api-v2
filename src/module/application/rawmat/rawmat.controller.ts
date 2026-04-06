@@ -139,6 +139,25 @@ export class RawMaterialController {
         return ApiResponse.sendSuccess(c, result, 200);
     }
 
+    static async bulkStatus(c: Context) {
+        const { ids, status } = c.get("body");
+        const accountSession = c.get("session");
+
+        const result = await Cache.afterMutation(
+            () => RawMaterialService.bulkStatus(ids, status),
+            RAW_MATERIAL_LIST_KEY,
+        );
+
+        const log: CreateLoggingActivityDTO = {
+            activity: status === "DELETE" ? "DELETE" : "UPDATE",
+            description: `Bulk ${status} ${Table} for ${ids.length} items`,
+            email: accountSession.email,
+        };
+        await CreateLogger(log);
+
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
     static async export(c: Context) {
         const {
             search,

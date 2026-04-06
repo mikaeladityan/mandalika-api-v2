@@ -301,6 +301,13 @@ export class RawMaterialService {
             data: { deleted_at: null },
         });
     }
+    
+    static async bulkStatus(ids: number[], status: "ACTIVE" | "DELETE") {
+        return prisma.rawMaterial.updateMany({
+            where: { id: { in: ids } },
+            data: { deleted_at: status === "DELETE" ? new Date() : null },
+        });
+    }
 
     static async export(query: QueryRawMaterialDTO) {
         const { data } = await this.list({ ...query, take: 1000000, page: 1 });
