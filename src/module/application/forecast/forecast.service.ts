@@ -1110,20 +1110,26 @@ export class ForecastService {
             ${query.type_id ? Prisma.sql`AND p.type_id = ${query.type_id}` : Prisma.empty}
             ${query.size_id ? Prisma.sql`AND p.size_id = ${query.size_id}` : Prisma.empty}
             ORDER BY 
-                group_sort_priority DESC,
-                p.name ASC, 
-                CASE 
-                    WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
-                    WHEN pt.name ILIKE '%Atomizer%' THEN 2
-                    ELSE 3
-                END ASC,
-                ps.size DESC NULLS LAST,
-                CASE 
-                    WHEN pt.name ILIKE '%EDP%' THEN 1
-                    WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
-                    ELSE 3
-                END ASC,
-                p.id ASC
+                ${
+                    query.is_others
+                        ? Prisma.sql`p.name ASC, p.id ASC`
+                        : Prisma.sql`
+                        group_sort_priority DESC,
+                        p.name ASC, 
+                        CASE 
+                            WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+                            WHEN pt.name ILIKE '%Atomizer%' THEN 2
+                            ELSE 3
+                        END ASC,
+                        ps.size DESC NULLS LAST,
+                        CASE 
+                            WHEN pt.name ILIKE '%EDP%' THEN 1
+                            WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
+                            ELSE 3
+                        END ASC,
+                        p.id ASC
+                    `
+                }
             LIMIT ${limit} OFFSET ${skip}
         `;
 

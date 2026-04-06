@@ -239,19 +239,21 @@ export class RawmatImportService {
                     `;
                 }
 
-                // d) INSERT yang benar-benar baru (tidak ditemukan sama sekali)
-                const missing = supplierSlugs.filter((s) => !foundBySlug.has(s));
-                if (missing.length) {
-                    const missingNames     = missing.map((s) => supplierSlugMap.get(s)!.name);
-                    const missingCountries = missing.map((s) => supplierSlugMap.get(s)!.country);
-                    const inserted = await tx.$queryRaw<{ id: number; slug: string }[]>`
+                // d) UPSERT all suppliers from the excel to ensure "country" (Local/Import) is up to date
+                if (supplierSlugs.length) {
+                    const allNames = supplierSlugs.map((s) => supplierSlugMap.get(s)!.name);
+                    const allCountries = supplierSlugs.map((s) => supplierSlugMap.get(s)!.country);
+
+                    const upserted = await tx.$queryRaw<{ id: number; slug: string }[]>`
                         INSERT INTO suppliers (name, slug, addresses, country, created_at, updated_at)
-                        SELECT unnest(${missingNames}::text[]), unnest(${missing}::text[]),
-                               '-', unnest(${missingCountries}::text[]), NOW(), NOW()
-                        ON CONFLICT (slug) DO UPDATE SET updated_at = NOW()
+                        SELECT unnest(${allNames}::text[]), unnest(${supplierSlugs}::text[]),
+                               '-', unnest(${allCountries}::text[]), NOW(), NOW()
+                        ON CONFLICT (slug) DO UPDATE SET 
+                            country = EXCLUDED.country,
+                            updated_at = NOW()
                         RETURNING id, slug
                     `;
-                    for (const s of inserted) supplierSlugToId.set(s.slug, s.id);
+                    for (const s of upserted) supplierSlugToId.set(s.slug, s.id);
                 }
             }
 
