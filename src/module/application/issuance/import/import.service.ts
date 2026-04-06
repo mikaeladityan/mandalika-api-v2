@@ -94,16 +94,29 @@ export class IssuanceImportService {
             rows: parsedRows,
         };
 
-        await ImportCacheService.save(CACHE_PREFIX, import_id, payload);
-
+        await ImportCacheService.save(CACHE_PREFIX, import_id, payload, 900); // 15 mins TTL
+        
         return { import_id, total, valid, invalid };
     }
 
     static async execute(import_id: string, month: number, year: number, type: any = "ALL") {
+        logger.info("Executing import", { import_id, month, year, type, prefix: CACHE_PREFIX });
+        
+        if (!import_id || import_id === "null" || import_id === "undefined") {
+            throw new ApiError(400, "Import ID tidak valid");
+        }
+
         const cache = (await ImportCacheService.get(CACHE_PREFIX, import_id)) as ImportCachePayload | null;
 
-        if (!cache) throw new ApiError(404, "Import session telah kadaluarsa atau tidak ditemukan");
-        if (cache.status !== "preview") throw new ApiError(400, "Import sudah dieksekusi atau sedang diproses");
+        if (!cache) {
+            logger.error("Import session not found in Redis", { import_id, prefix: CACHE_PREFIX });
+            throw new ApiError(404, "Import session telah kadaluarsa atau tidak ditemukan");
+        }
+        
+        if (cache.status !== "preview") {
+            logger.warn("Import session already in a non-preview state", { import_id, status: cache.status });
+            throw new ApiError(400, "Import sudah dieksekusi atau sedang diproses");
+        }
 
         const validRows = cache.rows.filter((r) => r.errors.length === 0);
         if (!validRows.length) throw new ApiError(400, "Tidak ada baris valid untuk diimport");
