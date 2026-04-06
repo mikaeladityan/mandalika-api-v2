@@ -7,7 +7,7 @@ export const RunForecastSchema = z.object({
     start_month: z.coerce.number().int().min(1).max(12),
     start_year: z.coerce.number().int().min(2000).max(2100),
     horizon: z.coerce.number().int().min(1).max(12).default(12),
-    is_display: z.boolean().optional(),
+    is_others: z.boolean().optional(),
 });
 
 // ─── Query ─────────────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ export const QueryForecastSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),
     take: z.coerce.number().int().positive().max(1000).default(25).optional(),
     horizon: z.coerce.number().int().min(3).max(12).default(12).optional(),
-    is_display: z.coerce.boolean().optional(),
+    is_others: z.coerce.boolean().optional(),
     type_id: z.coerce.number().optional(),
     size_id: z.coerce.number().optional(),
 });

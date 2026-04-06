@@ -168,21 +168,25 @@ export class ForecastService {
 
         // 2. Load relevant products
         const products: SelectedProduct[] = product_id
-            ? await ForecastService.loadVariantsByProductId(product_id, body.is_display)
+            ? await ForecastService.loadVariantsByProductId(product_id, body.is_others)
             : await prisma.product.findMany({
                   where: {
                       status: "ACTIVE",
-                      ...(body.is_display
+                      ...(body.is_others
                           ? {
                                 OR: [
                                     { product_type: { name: { contains: "Display", mode: "insensitive" } } },
                                     { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
+                                    { product_type: { name: { contains: "Gift Set", mode: "insensitive" } } },
+                                    { product_type: { name: { contains: "Botol", mode: "insensitive" } } },
                                 ],
                             }
                           : {
-                                AND: [
-                                    { product_type: { name: { not: { contains: "Display" } } } },
-                                    { product_type: { name: { not: { contains: "Kertas" } } } },
+                                NOT: [
+                                    { product_type: { name: { contains: "Display", mode: "insensitive" } } },
+                                    { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
+                                    { product_type: { name: { contains: "Gift Set", mode: "insensitive" } } },
+                                    { product_type: { name: { contains: "Botol", mode: "insensitive" } } },
                                 ],
                             }),
                   },
@@ -243,10 +247,10 @@ export class ForecastService {
             const pct = pctMap.get(`${m.year}-${m.month}`);
 
             // Special Rule for Display: Ignore existing percentage settings and force 0 growth
-            const pctValue = body.is_display ? 0 : Number(pct?.value ?? 0);
+            const pctValue = body.is_others ? 0 : Number(pct?.value ?? 0);
 
-            // If not is_display, stop calculation if percentage is not found or zero
-            if (!body.is_display && (!pct || Number(pct.value) === 0)) {
+            // If not is_others, stop calculation if percentage is not found or zero
+            if (!body.is_others && (!pct || Number(pct.value) === 0)) {
                 break;
             }
             const nextInputMap = new Map<number, number>();
@@ -471,12 +475,14 @@ export class ForecastService {
 
         if (!product) throw new ApiError(404, "Produk tidak ditemukan.");
 
-        const isDisplayProduct =
+        const isOthersProduct =
             product?.product_type?.name?.toLowerCase().includes("display") ||
-            product?.product_type?.name?.toLowerCase().includes("kertas");
+            product?.product_type?.name?.toLowerCase().includes("kertas") ||
+            product?.product_type?.name?.toLowerCase().includes("gift set") ||
+            product?.product_type?.name?.toLowerCase().includes("botol");
 
-        if (!isDisplayProduct) {
-            throw new ApiError(403, "Update manual hanya diizinkan untuk produk Display.");
+        if (!isOthersProduct) {
+            throw new ApiError(403, "Update manual hanya diizinkan untuk produk Others.");
         }
 
         // Helper to resolve base_forecast if it doesn't exist
@@ -512,7 +518,7 @@ export class ForecastService {
         
         let resolvedFinal = resolvedBase * (1 + resolvedRatio / 100);
 
-        const shouldPropagate = isDisplayProduct && final_forecast !== undefined;
+        const shouldPropagate = isOthersProduct && final_forecast !== undefined;
 
         if (!shouldPropagate) {
             // SINGLE UPDATE (Non-Display or Display Ratio-only)
@@ -707,17 +713,21 @@ export class ForecastService {
         const where: Prisma.ProductWhereInput = {
             status: "ACTIVE",
             deleted_at: null,
-            ...(query.is_display
+            ...(query.is_others
                 ? {
                       OR: [
                           { product_type: { name: { contains: "Display", mode: "insensitive" } } },
                           { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
+                          { product_type: { name: { contains: "Gift Set", mode: "insensitive" } } },
+                          { product_type: { name: { contains: "Botol", mode: "insensitive" } } },
                       ],
                   }
                 : {
-                      AND: [
-                          { product_type: { name: { not: { contains: "Display" } } } },
-                          { product_type: { name: { not: { contains: "Kertas" } } } },
+                      NOT: [
+                          { product_type: { name: { contains: "Display", mode: "insensitive" } } },
+                          { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
+                          { product_type: { name: { contains: "Gift Set", mode: "insensitive" } } },
+                          { product_type: { name: { contains: "Botol", mode: "insensitive" } } },
                       ],
                   }),
             ...(query.search && {
@@ -830,9 +840,9 @@ export class ForecastService {
               AND p.deleted_at IS NULL
               AND (
                 ${
-                    query.is_display
-                        ? Prisma.sql`pt.name ILIKE '%Display%' OR pt.name ILIKE '%Kertas%'`
-                        : Prisma.sql`pt.name IS NULL OR (pt.name NOT ILIKE '%Display%' AND pt.name NOT ILIKE '%Kertas%')`
+                    query.is_others
+                        ? Prisma.sql`pt.name ILIKE '%Display%' OR pt.name ILIKE '%Kertas%' OR pt.name ILIKE '%Gift Set%' OR pt.name ILIKE '%Botol%'`
+                        : Prisma.sql`pt.name IS NULL OR (pt.name NOT ILIKE '%Display%' AND pt.name NOT ILIKE '%Kertas%' AND pt.name NOT ILIKE '%Gift Set%' AND pt.name NOT ILIKE '%Botol%')`
                 }
               )
             ${searchRaw ? Prisma.sql`AND (p.name ILIKE ${searchRaw} OR p.code ILIKE ${searchRaw})` : Prisma.empty}
@@ -886,7 +896,7 @@ export class ForecastService {
                     is_current_month: m.is_current_month,
                     is_actionable: !forecast || forecast.status !== "FINALIZED",
                     ratio: forecast?.ratio != null ? Number(forecast.ratio) : 0,
-                    percentage_value: query.is_display
+                    percentage_value: query.is_others
                         ? (forecast?.ratio != null ? Number(forecast.ratio) : 0)
                         : pctMap.has(`${m.year}-${m.month}`)
                           ? Number(
@@ -962,7 +972,7 @@ export class ForecastService {
     }
     private static async loadVariantsByProductId(
         product_id: number,
-        is_display?: boolean,
+        is_others?: boolean,
     ): Promise<SelectedProduct[]> {
         const target = await prisma.product.findUnique({
             where: { id: product_id },
@@ -975,7 +985,7 @@ export class ForecastService {
                 name: target.name,
                 status: "ACTIVE",
                 deleted_at: null,
-                ...(is_display
+                ...(is_others
                     ? {
                           OR: [
                               { product_type: { name: { contains: "Display", mode: "insensitive" } } },
