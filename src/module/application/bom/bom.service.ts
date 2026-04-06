@@ -24,8 +24,10 @@ export class BOMService {
             return { month: d.getUTCMonth() + 1, year: d.getUTCFullYear() };
         }).reverse();
 
-        // Forecast: Next n months starting from now
-        const forecastRange = Array.from({ length: forecast_months }, (_, i) => {
+        // Forecast: Next n months starting from now (ensure at least 4 for Safety Stock)
+        const FIXED_SS_MONTHS = 4;
+        const effectiveForecastMonths = Math.max(forecast_months, FIXED_SS_MONTHS);
+        const forecastRange = Array.from({ length: effectiveForecastMonths }, (_, i) => {
             const d = new Date(Date.UTC(currentYear, currentMonth - 1 + i, 1));
             return { month: d.getUTCMonth() + 1, year: d.getUTCFullYear() };
         });
@@ -164,9 +166,11 @@ export class BOMService {
                     value: salesMap.get(`${r.p_id}-${s.year}-${s.month}`) ?? 0,
                 }));
 
-                // Calculate Safety Stock on the fly based on horizon (forecast_months)
-                const totalForecastForSS = fscRange.reduce((acc, f) => acc + f.value, 0);
-                const avgForecastForSS = totalForecastForSS / forecast_months;
+                // Safety Stock: Always use fixed 4-month average (M+0..M+3), independent of forecast_months
+                const FIXED_SS_MONTHS = 4;
+                const ssForecasts = fscRange.slice(0, FIXED_SS_MONTHS);
+                const totalForecastForSS = ssForecasts.reduce((acc, f) => acc + f.value, 0);
+                const avgForecastForSS = totalForecastForSS / FIXED_SS_MONTHS;
                 const calculatedSS = avgForecastForSS * Number(r.p_safety_percentage || 0);
 
                 // Calculate Need Produce for entire horizon
@@ -295,8 +299,10 @@ export class BOMService {
 
             const currentStock = Number(inventory._sum.quantity || 0);
 
-            // Forecast Range (Next n months)
-            const forecastRange = Array.from({ length: forecast_months }, (_, i) => {
+            // Forecast Range (Next n months, ensure at least 4 for Safety Stock)
+            const FIXED_SS_MONTHS_DETAIL = 4;
+            const effectiveFcMonths = Math.max(forecast_months, FIXED_SS_MONTHS_DETAIL);
+            const forecastRange = Array.from({ length: effectiveFcMonths }, (_, i) => {
                 const d = new Date(Date.UTC(currentYear, currentMonth - 1 + i, 1));
                 return {
                     month: d.getUTCMonth() + 1,
@@ -370,11 +376,16 @@ export class BOMService {
                 });
 
                 const productForecasts = r.products.forecasts || [];
-                const sumProductForecast = productForecasts.reduce(
+                const FIXED_SS_MONTHS = 4;
+                // Safety Stock: Always use fixed 4-month average, independent of forecast_months
+                const ssProductForecasts = productForecasts
+                    .sort((a, b) => (a.year * 12 + a.month) - (b.year * 12 + b.month))
+                    .slice(0, FIXED_SS_MONTHS);
+                const sumProductForecast = ssProductForecasts.reduce(
                     (sum, f) => sum + Math.round(Number(f.final_forecast)),
                     0,
                 );
-                const avgProductForecast = sumProductForecast / forecast_months;
+                const avgProductForecast = sumProductForecast / FIXED_SS_MONTHS;
                 const productSS = Math.round(avgProductForecast * Number(r.products.safety_percentage || 0));
 
                 // Calculate product-specific Need Produce for entire Horizon

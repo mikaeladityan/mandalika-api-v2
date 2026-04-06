@@ -73,6 +73,7 @@ export const ResponseRecomendationV2Schema = z.object({
     stock_fg_x_resep: z.number(),
     safety_stock_x_resep: z.number(),
     forecast_needed: z.number(),
+    total_needed_horizon: z.number().optional(),
 
     // Work Order Info
     work_order_id: z.number().optional().nullable(),

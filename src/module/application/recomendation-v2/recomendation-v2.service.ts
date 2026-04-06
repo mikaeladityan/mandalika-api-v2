@@ -178,10 +178,18 @@ export class RecomendationV2Service {
         const fcStart = fcStartY * 12 + fcStartM;
         const fcEnd = fcEndY * 12 + fcEndM;
 
+        // Fixed 4-month range for Safety Stock (M+0..M+3), independent of horizon
+        const FIXED_SS_MONTHS = 4;
+        let ssEndM = currentMonth + FIXED_SS_MONTHS - 1;
+        let ssEndY = currentYear;
+        while (ssEndM > 12) { ssEndM -= 12; ssEndY += 1; }
+        const ssStart = currentYear * 12 + currentMonth;
+        const ssEnd = ssEndY * 12 + ssEndM;
+
         // Main Query with calculation and sorting
         const rows = await prisma.$queryRaw<any[]>`
             WITH 
-                -- Pre-calculate product-level dynamic safety stock based on forecast horizon
+                -- Pre-calculate product-level safety stock using FIXED 4-month average
                 prod_stats AS (
                     SELECT 
                         f.product_id,
@@ -189,14 +197,14 @@ export class RecomendationV2Service {
                         p.safety_percentage
                     FROM "forecasts" f
                     JOIN "products" p ON p.id = f.product_id
-                    WHERE (f.year * 12 + f.month) >= ${fcStart}
-                      AND (f.year * 12 + f.month) <= ${fcEnd}
+                    WHERE (f.year * 12 + f.month) >= ${ssStart}
+                      AND (f.year * 12 + f.month) <= ${ssEnd}
                     GROUP BY f.product_id, p.safety_percentage
                 ),
                 prod_dynamic_ss AS (
                     SELECT 
                         product_id,
-                        (total_forecast_horizon / ${forecast_months}::numeric * safety_percentage) as dynamic_ss_qty
+                        (total_forecast_horizon / ${FIXED_SS_MONTHS}::numeric * safety_percentage) as dynamic_ss_qty
                     FROM prod_stats
                 ),
                 rm_forecast_agg AS (
@@ -455,8 +463,12 @@ export class RecomendationV2Service {
                                   ? Prisma.sql`forecast_needed ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
                                   : query.sortBy === "recommendation_quantity"
                                     ? Prisma.sql`recommendation_val ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
-                                    : Prisma.sql`current_month_sales DESC, material_name ASC`
-                        : Prisma.sql`current_month_sales DESC, material_name ASC`
+                                    : (type === 'ffo' 
+                                        ? Prisma.sql`current_month_sales DESC, material_name ASC` 
+                                        : Prisma.sql`material_name ASC`)
+                        : (type === 'ffo' 
+                            ? Prisma.sql`current_month_sales DESC, material_name ASC` 
+                            : Prisma.sql`material_name ASC`)
                 }
             LIMIT ${limit} OFFSET ${skip}
         `;
@@ -516,6 +528,7 @@ export class RecomendationV2Service {
                 stock_fg_x_resep: Number(r.stock_fg_x_resep),
                 safety_stock_x_resep: Number(r.safety_stock_x_resep),
                 forecast_needed: Number(r.forecast_needed),
+                total_needed_horizon: Number(r.total_forecast_horizon_dynamic),
                 recommendation_quantity: Number(r.recommendation_val),
 
                 // Work Order / Consolidation data
@@ -748,6 +761,14 @@ export class RecomendationV2Service {
         const fcStart = fcStartY * 12 + fcStartM;
         const fcEnd = fcEndY * 12 + fcEndM;
 
+        // Fixed 4-month range for Safety Stock, independent of horizon
+        const FIXED_SS_MONTHS = 4;
+        let bssEndM = month + FIXED_SS_MONTHS - 1;
+        let bssEndY = year;
+        while (bssEndM > 12) { bssEndM -= 12; bssEndY += 1; }
+        const bssStart = year * 12 + month;
+        const bssEnd = bssEndY * 12 + bssEndM;
+
         // Secure Bulk Upsert using CTEs to pre-compute each aggregation once per material
         return await prisma.$executeRaw`
             WITH
@@ -784,9 +805,9 @@ export class RecomendationV2Service {
                                 (SELECT COALESCE(SUM(f2.final_forecast), 0)
                                  FROM "forecasts" f2
                                  WHERE f2.product_id = p.id
-                                   AND (f2.year * 12 + f2.month) >= ${fcStart}
-                                   AND (f2.year * 12 + f2.month) <= ${fcEnd}
-                                ) / ${horizon}::numeric * p.safety_percentage
+                                   AND (f2.year * 12 + f2.month) >= ${bssStart}
+                                   AND (f2.year * 12 + f2.month) <= ${bssEnd}
+                                ) / ${FIXED_SS_MONTHS}::numeric * p.safety_percentage
                             ) * rec.quantity *
                             CASE WHEN rm2.type = 'FO' OR urm2.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
                         )::numeric AS total

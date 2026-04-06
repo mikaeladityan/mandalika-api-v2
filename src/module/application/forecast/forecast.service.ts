@@ -1127,11 +1127,13 @@ export class ForecastService {
                     ? JSON.parse(p.safety_stock_data)
                     : p.safety_stock_data;
 
-            const requestedHorizon = query.horizon ?? 12;
+            const FIXED_SS_MONTHS = 4;
             let safety_stock_summary = null;
 
-            const total = monthly_data.reduce((acc, m) => acc + (m.final_forecast ?? 0), 0);
-            const avg = total / requestedHorizon;
+            // Safety Stock always uses fixed 4-month average (M+0..M+3), independent of horizon
+            const ssMonths = monthly_data.slice(0, FIXED_SS_MONTHS);
+            const total = ssMonths.reduce((acc, m) => acc + (m.final_forecast ?? 0), 0);
+            const avg = total / FIXED_SS_MONTHS;
             const ratio = Number(p.safety_percentage ?? 0);
             const safetyQ = avg * ratio;
 
