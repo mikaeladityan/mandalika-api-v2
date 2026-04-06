@@ -111,7 +111,7 @@ export class ForecastService {
             });
 
             const row = sheet.addRow(rowData);
-            
+
             // Zebra Striping & Alignment
             const isEven = sheet.rowCount % 2 === 0;
             row.eachCell((cell, colNumber) => {
@@ -121,7 +121,7 @@ export class ForecastService {
                     bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
                     right: { style: "thin", color: { argb: "FFE2E8F0" } },
                 };
-                
+
                 if (isEven) {
                     cell.fill = {
                         type: "pattern",
@@ -175,24 +175,86 @@ export class ForecastService {
                       ...(body.is_others
                           ? {
                                 OR: [
-                                    { product_type: { slug: { contains: "display", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "display", mode: "insensitive" },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "kertas", mode: "insensitive" },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "gift-set", mode: "insensitive" },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "botol", mode: "insensitive" },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "paper-bag", mode: "insensitive" },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: {
+                                                contains: "kartu-garansi",
+                                                mode: "insensitive",
+                                            },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "canvas-bag", mode: "insensitive" },
+                                        },
+                                    },
                                 ],
                             }
                           : {
                                 NOT: [
-                                    { product_type: { slug: { contains: "display", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
-                                    { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "display", mode: "insensitive" },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "kertas", mode: "insensitive" },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "gift-set", mode: "insensitive" },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "botol", mode: "insensitive" },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "paper-bag", mode: "insensitive" },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: {
+                                                contains: "kartu-garansi",
+                                                mode: "insensitive",
+                                            },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "canvas-bag", mode: "insensitive" },
+                                        },
+                                    },
                                 ],
                             }),
                   },
@@ -206,7 +268,7 @@ export class ForecastService {
         // 3. Load actual sales for the base month (M-1 of start_month)
         const prevMonth = start_month === 1 ? 12 : start_month - 1;
         const prevYear = start_month === 1 ? start_year - 1 : start_year;
-        
+
         const salesData = await prisma.$queryRaw<any[]>(Prisma.sql`
             SELECT 
                 product_id,
@@ -215,7 +277,7 @@ export class ForecastService {
                     SUM(CASE WHEN (year * 12 + month) <= 24314 AND type = 'ALL' THEN quantity ELSE 0 END)
                 ) as total_quantity
             FROM product_issuances
-            WHERE product_id IN (${Prisma.join(products.map(p => p.id))})
+            WHERE product_id IN (${Prisma.join(products.map((p) => p.id))})
               AND year = ${prevYear}
               AND month = ${prevMonth}
             GROUP BY product_id
@@ -247,6 +309,7 @@ export class ForecastService {
 
         // track the input for the current month calculation (starts with actual sales)
         let currentInputMap = new Map<number, number>(inputMap);
+        let previousTheoreticalAtomFinal = new Map<string, number>();
 
         for (let i = 0; i < monthsRange.length; i++) {
             const m = monthsRange[i]!;
@@ -263,71 +326,84 @@ export class ForecastService {
             const status = i === 0 ? "ADJUSTED" : "DRAFT";
 
             for (const group of groupValues) {
-                const results = group.map((product) => {
-                    const input = currentInputMap.get(product.id) ?? 0;
-                    const base = input * (1 + pctValue);
-                    return { product, input, base_forecast: base, final_forecast: base };
-                });
+                if (!group.length) continue;
+                const aromaName = group[0]!.name;
 
-                // 1. Identify Anchors & Calculate Base (EDP/Parfum size 100/110/120)
-                const edpAnchors = results.filter((r) => {
-                    const slug = r.product.product_type?.slug?.toLowerCase();
-                    const size = r.product.size?.size;
-                    return (slug === "edp" || slug === "hampers-edp") && (size === 100 || size === 110 || size === 120);
-                });
-
-                const parfumAnchors = results.filter((r) => {
-                    const slug = r.product.product_type?.slug?.toLowerCase();
-                    const size = r.product.size?.size;
-                    return (slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") && (size === 100 || size === 110 || size === 120);
-                });
-
-                // ATOMIZER BASE is the sum of EDP and Parfum anchor bases
-                const edpAnchorBase = edpAnchors.reduce((acc, r) => acc + r.base_forecast, 0);
-                const parfumAnchorBase = parfumAnchors.reduce((acc, r) => acc + r.base_forecast, 0);
-                const totalAnchorBase = edpAnchorBase + parfumAnchorBase;
-
-                // 2. Apply Special Rules (Atomizer Source & EDAR Redistribution)
-                results.forEach((r) => {
-                    const slug = r.product.product_type?.slug?.toLowerCase();
-                    const size = r.product.size?.size;
-                    const distPct = Number(r.product.distribution_percentage ?? 0);
-
-                    // ATOMIZER FINAL is the sum of anchor bases
-                    if (slug === "atomizer") {
-                        r.final_forecast = totalAnchorBase;
-                    }
-                    // EDP/Parfum ANCHORS are redistributed by EDAR
-                    else if (
-                        (slug === "edp" || slug === "hampers-edp" || slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") &&
+                const edpAnchors = group.filter((p) => {
+                    const slug = p.product_type?.slug?.toLowerCase();
+                    const size = p.size?.size;
+                    return (
+                        (slug === "edp" || slug === "hampers-edp") &&
                         (size === 100 || size === 110 || size === 120)
-                    ) {
-                        r.final_forecast = totalAnchorBase * distPct;
-                    }
-                    // 2ml MIRROR rule (follows its respective anchor's final)
-                    else if (size === 2) {
-                        if (slug === "edp" || slug === "hampers-edp") {
-                            r.final_forecast = totalAnchorBase * distPct; // Effectively anchor final
-                        } else if (slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") {
-                            r.final_forecast = totalAnchorBase * distPct; // Effectively anchor final
-                        }
-                    }
-                    // Others keep Sales * Pct
+                    );
                 });
 
-                for (const r of results) {
+                const parfumAnchors = group.filter((p) => {
+                    const slug = p.product_type?.slug?.toLowerCase();
+                    const size = p.size?.size;
+                    return (
+                        (slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") &&
+                        (size === 100 || size === 110 || size === 120)
+                    );
+                });
+
+                let atomBase = 0;
+                if (i === 0) {
+                    atomBase =
+                        edpAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0) +
+                        parfumAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0);
+                } else {
+                    atomBase = previousTheoreticalAtomFinal.get(aromaName) ?? 0;
+                }
+
+                const atomFinal = atomBase * (1 + pctValue);
+                previousTheoreticalAtomFinal.set(aromaName, atomFinal);
+
+                for (const product of group) {
+                    const slug = product.product_type?.slug?.toLowerCase();
+                    const size = product.size?.size;
+                    const distPct = Number(product.distribution_percentage ?? 0);
+                    const input = currentInputMap.get(product.id) ?? 0;
+
+                    let base_forecast = input * (1 + pctValue);
+                    let final_forecast = base_forecast;
+
+                    const isEdpParfumAnchor =
+                        (slug === "edp" ||
+                            slug === "hampers-edp" ||
+                            slug === "parfum" ||
+                            slug === "perfume" ||
+                            slug === "hampers-parfum") &&
+                        (size === 100 || size === 110 || size === 120);
+                    const is2mlMirror =
+                        size === 2 &&
+                        (slug === "edp" ||
+                            slug === "hampers-edp" ||
+                            slug === "parfum" ||
+                            slug === "perfume" ||
+                            slug === "hampers-parfum");
+
+                    if (slug === "atomizer") {
+                        base_forecast = atomBase;
+                        final_forecast = atomFinal;
+                    } else if (isEdpParfumAnchor || is2mlMirror) {
+                        base_forecast = input * (1 + pctValue);
+                        final_forecast = atomFinal * distPct;
+                    }
+
                     batch.push({
-                        product_id: r.product.id,
+                        product_id: product.id,
                         month: m.month,
                         year: m.year,
-                        base_forecast: r.base_forecast,
-                        final_forecast: r.final_forecast,
-                        trend: ForecastService.trend(r.final_forecast, r.input),
+                        base_forecast,
+                        final_forecast,
+                        trend: ForecastService.trend(final_forecast, input),
                         forecast_percentage_id: pct?.id ?? 1,
                         status: status,
                     });
+
                     // For the next month in horizon, the input is this month's final_forecast
-                    nextInputMap.set(r.product.id, r.final_forecast);
+                    nextInputMap.set(product.id, final_forecast);
                 }
             }
             currentInputMap = nextInputMap;
@@ -337,22 +413,23 @@ export class ForecastService {
         if (batch.length > 0) {
             const start = Date.now();
             const nowIso = new Date().toISOString();
-            
+
             try {
                 // Use larger chunk size to reduce roundtrips
                 const chunkSize = 4000;
-                
-                await prisma.$transaction(async (tx) => {
-                    for (let i = 0; i < batch.length; i += chunkSize) {
-                        const chunk = batch.slice(i, i + chunkSize);
-                        const valuesSql = chunk
-                            .map(
-                                (f) =>
-                                    `(${f.product_id}, ${f.month}, ${f.year}, '${f.trend}', '${f.status}', ${f.base_forecast}, ${f.final_forecast}, ${f.forecast_percentage_id}, '${nowIso}', '${nowIso}')`,
-                            )
-                            .join(", ");
 
-                        await tx.$executeRawUnsafe(`
+                await prisma.$transaction(
+                    async (tx) => {
+                        for (let i = 0; i < batch.length; i += chunkSize) {
+                            const chunk = batch.slice(i, i + chunkSize);
+                            const valuesSql = chunk
+                                .map(
+                                    (f) =>
+                                        `(${f.product_id}, ${f.month}, ${f.year}, '${f.trend}', '${f.status}', ${f.base_forecast}, ${f.final_forecast}, ${f.forecast_percentage_id}, '${nowIso}', '${nowIso}')`,
+                                )
+                                .join(", ");
+
+                            await tx.$executeRawUnsafe(`
                             INSERT INTO forecasts (
                                 product_id, month, year, trend, status, 
                                 base_forecast, final_forecast, forecast_percentage_id, 
@@ -368,8 +445,10 @@ export class ForecastService {
                                 forecast_percentage_id = EXCLUDED.forecast_percentage_id,
                                 updated_at = EXCLUDED.updated_at;
                         `);
-                    }
-                }, { timeout: 60000 }); // 60s transaction timeout
+                        }
+                    },
+                    { timeout: 60000 },
+                ); // 60s transaction timeout
 
                 const duration = ((Date.now() - start) / 1000).toFixed(2);
                 console.log(`[Forecast Engine] Bulk Upsert ${batch.length} rows took ${duration}s`);
@@ -381,7 +460,7 @@ export class ForecastService {
 
         // 6. Safety Stock Calculation (Rolling 4-Month Forecast Average)
         const safetyStockBatch: any[] = [];
-        
+
         // Group forecasts by product for faster sliding window calculation
         const productForecasts = new Map<number, typeof batch>();
         for (const b of batch) {
@@ -407,7 +486,10 @@ export class ForecastService {
             // Slide the window
             for (let i = 0; i <= pBatch.length - windowSize; i++) {
                 if (i > 0) {
-                    currentSum = currentSum - pBatch[i - 1]!.final_forecast + pBatch[i + windowSize - 1]!.final_forecast;
+                    currentSum =
+                        currentSum -
+                        pBatch[i - 1]!.final_forecast +
+                        pBatch[i + windowSize - 1]!.final_forecast;
                 }
 
                 const avg = currentSum / windowSize;
@@ -427,17 +509,18 @@ export class ForecastService {
         if (safetyStockBatch.length > 0) {
             try {
                 const chunkSize = 4000;
-                await prisma.$transaction(async (tx) => {
-                    for (let i = 0; i < safetyStockBatch.length; i += chunkSize) {
-                        const chunk = safetyStockBatch.slice(i, i + chunkSize);
-                        const valuesSql = chunk
-                            .map(
-                                (s) =>
-                                    `(${s.product_id}, ${s.month}, ${s.year}, ${s.horizon}, ${s.avg_forecast}, ${s.total_forecast}, ${s.safety_stock_quantity}, ${s.safety_stock_ratio}, '${nowIso}', '${nowIso}')`,
-                            )
-                            .join(", ");
+                await prisma.$transaction(
+                    async (tx) => {
+                        for (let i = 0; i < safetyStockBatch.length; i += chunkSize) {
+                            const chunk = safetyStockBatch.slice(i, i + chunkSize);
+                            const valuesSql = chunk
+                                .map(
+                                    (s) =>
+                                        `(${s.product_id}, ${s.month}, ${s.year}, ${s.horizon}, ${s.avg_forecast}, ${s.total_forecast}, ${s.safety_stock_quantity}, ${s.safety_stock_ratio}, '${nowIso}', '${nowIso}')`,
+                                )
+                                .join(", ");
 
-                        await tx.$executeRawUnsafe(`
+                            await tx.$executeRawUnsafe(`
                             INSERT INTO safety_stock (
                                 product_id, month, year, horizon, 
                                 avg_forecast, total_forecast, 
@@ -454,8 +537,10 @@ export class ForecastService {
                                 safety_stock_ratio = EXCLUDED.safety_stock_ratio,
                                 updated_at = EXCLUDED.updated_at;
                         `);
-                    }
-                }, { timeout: 60000 });
+                        }
+                    },
+                    { timeout: 60000 },
+                );
                 console.log(
                     `[Forecast Engine] Safety Stock Upsert Sukses: ${safetyStockBatch.length} rows`,
                 );
@@ -518,14 +603,14 @@ export class ForecastService {
         };
 
         const currentBase = await getBase(month, year);
-        
+
         // New Logic: final_forecast in input is treated as Base Forecast
         let resolvedBase = final_forecast !== undefined ? final_forecast : currentBase;
         let resolvedRatio = ratio !== undefined ? ratio : 0;
-        
+
         // If it's an existing record and only ratio changed, we might want to keep the existing ratio if ratio was undefined
         // But the DTO usually sends what's in the form.
-        
+
         let resolvedFinal = resolvedBase * (1 + resolvedRatio / 100);
 
         const shouldPropagate = isOthersProduct && final_forecast !== undefined;
@@ -570,7 +655,7 @@ export class ForecastService {
             const windowSize = 4;
             const safetyPct = Number(product.safety_percentage ?? 0);
             const avg = resolvedFinal; // Simplified for single update; usually requires window lookup but Display is manual-first
-            
+
             await prisma.safetyStock.upsert({
                 where: { product_id_month_year: { product_id, month, year } },
                 create: {
@@ -588,9 +673,8 @@ export class ForecastService {
                     total_forecast: avg * windowSize,
                     safety_stock_quantity: avg * safetyPct,
                     safety_stock_ratio: safetyPct,
-                }
+                },
             });
-
         } else {
             // PROPAGATION (Display Base Forecast update)
             const horizon = 12;
@@ -610,7 +694,7 @@ export class ForecastService {
             const forecastBatch = monthsRange.map((m) => {
                 const pct = pctMap.get(`${m.year}-${m.month}`);
                 const isTargetMonth = m.month === month && m.year === year;
-                
+
                 // Ratio is month-specific per user request
                 const mRatio = isTargetMonth ? resolvedRatio : 0;
                 const mFinal = resolvedBase * (1 + mRatio / 100);
@@ -619,24 +703,25 @@ export class ForecastService {
                     product_id,
                     month: m.month,
                     year: m.year,
-                    final_forecast: mFinal, 
-                    base_forecast: resolvedBase,  
-                    ratio: mRatio,         
+                    final_forecast: mFinal,
+                    base_forecast: resolvedBase,
+                    ratio: mRatio,
                     trend: "STABLE",
                     status: "ADJUSTED",
                     forecast_percentage_id: pct?.id ?? 1,
                 };
             });
 
-            await prisma.$transaction(async (tx) => {
-                const valuesSql = forecastBatch
-                    .map(
-                        (f) =>
-                            `(${f.product_id}, ${f.month}, ${f.year}, '${f.trend}', '${f.status}', ${f.base_forecast}, ${f.final_forecast}, ${f.ratio}, ${f.forecast_percentage_id}, '${nowIso}', '${nowIso}')`,
-                    )
-                    .join(", ");
+            await prisma.$transaction(
+                async (tx) => {
+                    const valuesSql = forecastBatch
+                        .map(
+                            (f) =>
+                                `(${f.product_id}, ${f.month}, ${f.year}, '${f.trend}', '${f.status}', ${f.base_forecast}, ${f.final_forecast}, ${f.ratio}, ${f.forecast_percentage_id}, '${nowIso}', '${nowIso}')`,
+                        )
+                        .join(", ");
 
-                await tx.$executeRawUnsafe(`
+                    await tx.$executeRawUnsafe(`
                     INSERT INTO forecasts (
                         product_id, month, year, trend, status, 
                         base_forecast, final_forecast, ratio, forecast_percentage_id, 
@@ -654,38 +739,38 @@ export class ForecastService {
                         updated_at = EXCLUDED.updated_at;
                 `);
 
-                const windowSize = 4;
-                const safetyStockBatch: any[] = [];
-                const safetyPct = Number(product.safety_percentage ?? 0);
+                    const windowSize = 4;
+                    const safetyStockBatch: any[] = [];
+                    const safetyPct = Number(product.safety_percentage ?? 0);
 
-                for (const m of monthsRange) {
-                    const isTargetMonth = m.month === month && m.year === year;
-                    const mRatio = isTargetMonth ? resolvedRatio : 0;
-                    const mFinal = resolvedBase * (1 + mRatio / 100);
-                    
-                    const avg = mFinal;
-                    const totalDemand = mFinal * windowSize;
-                    safetyStockBatch.push({
-                        product_id,
-                        month: m.month,
-                        year: m.year,
-                        horizon: windowSize,
-                        avg_forecast: avg,
-                        total_forecast: totalDemand,
-                        safety_stock_quantity: avg * safetyPct,
-                        safety_stock_ratio: safetyPct,
-                    });
-                }
+                    for (const m of monthsRange) {
+                        const isTargetMonth = m.month === month && m.year === year;
+                        const mRatio = isTargetMonth ? resolvedRatio : 0;
+                        const mFinal = resolvedBase * (1 + mRatio / 100);
 
-                if (safetyStockBatch.length > 0) {
-                    const ssSql = safetyStockBatch
-                        .map(
-                            (s) =>
-                                `(${s.product_id}, ${s.month}, ${s.year}, ${s.horizon}, ${s.avg_forecast}, ${s.total_forecast}, ${s.safety_stock_quantity}, ${s.safety_stock_ratio}, '${nowIso}', '${nowIso}')`,
-                        )
-                        .join(", ");
+                        const avg = mFinal;
+                        const totalDemand = mFinal * windowSize;
+                        safetyStockBatch.push({
+                            product_id,
+                            month: m.month,
+                            year: m.year,
+                            horizon: windowSize,
+                            avg_forecast: avg,
+                            total_forecast: totalDemand,
+                            safety_stock_quantity: avg * safetyPct,
+                            safety_stock_ratio: safetyPct,
+                        });
+                    }
 
-                    await tx.$executeRawUnsafe(`
+                    if (safetyStockBatch.length > 0) {
+                        const ssSql = safetyStockBatch
+                            .map(
+                                (s) =>
+                                    `(${s.product_id}, ${s.month}, ${s.year}, ${s.horizon}, ${s.avg_forecast}, ${s.total_forecast}, ${s.safety_stock_quantity}, ${s.safety_stock_ratio}, '${nowIso}', '${nowIso}')`,
+                            )
+                            .join(", ");
+
+                        await tx.$executeRawUnsafe(`
                         INSERT INTO safety_stock (
                             product_id, month, year, horizon, 
                             avg_forecast, total_forecast, 
@@ -702,8 +787,10 @@ export class ForecastService {
                             safety_stock_ratio = EXCLUDED.safety_stock_ratio,
                             updated_at = EXCLUDED.updated_at;
                     `);
-                }
-            }, { timeout: 30000 });
+                    }
+                },
+                { timeout: 30000 },
+            );
         }
 
         return { message: "Forecast berhasil diperbarui secara manual." };
@@ -730,9 +817,21 @@ export class ForecastService {
                           { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
-                          { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
-                          { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
-                          { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
+                          {
+                              product_type: {
+                                  slug: { contains: "paper-bag", mode: "insensitive" },
+                              },
+                          },
+                          {
+                              product_type: {
+                                  slug: { contains: "kartu-garansi", mode: "insensitive" },
+                              },
+                          },
+                          {
+                              product_type: {
+                                  slug: { contains: "canvas-bag", mode: "insensitive" },
+                              },
+                          },
                       ],
                   }
                 : {
@@ -741,9 +840,21 @@ export class ForecastService {
                           { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
-                          { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
-                          { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
-                          { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
+                          {
+                              product_type: {
+                                  slug: { contains: "paper-bag", mode: "insensitive" },
+                              },
+                          },
+                          {
+                              product_type: {
+                                  slug: { contains: "kartu-garansi", mode: "insensitive" },
+                              },
+                          },
+                          {
+                              product_type: {
+                                  slug: { contains: "canvas-bag", mode: "insensitive" },
+                              },
+                          },
                       ],
                   }),
             ...(query.search && {
@@ -913,10 +1024,14 @@ export class ForecastService {
                     is_actionable: !forecast || forecast.status !== "FINALIZED",
                     ratio: forecast?.ratio != null ? Number(forecast.ratio) : 0,
                     percentage_value: query.is_others
-                        ? (forecast?.ratio != null ? Number(forecast.ratio) : 0)
+                        ? forecast?.ratio != null
+                            ? Number(forecast.ratio)
+                            : 0
                         : pctMap.has(`${m.year}-${m.month}`)
                           ? Number(
-                                (Number(pctMap.get(`${m.year}-${m.month}`)!.value) * 100).toFixed(2),
+                                (Number(pctMap.get(`${m.year}-${m.month}`)!.value) * 100).toFixed(
+                                    2,
+                                ),
                             )
                           : null,
                 };
@@ -1004,8 +1119,16 @@ export class ForecastService {
                 ...(is_others
                     ? {
                           OR: [
-                              { product_type: { name: { contains: "Display", mode: "insensitive" } } },
-                              { product_type: { name: { contains: "Kertas", mode: "insensitive" } } },
+                              {
+                                  product_type: {
+                                      name: { contains: "Display", mode: "insensitive" },
+                                  },
+                              },
+                              {
+                                  product_type: {
+                                      name: { contains: "Kertas", mode: "insensitive" },
+                                  },
+                              },
                           ],
                       }
                     : {
@@ -1060,7 +1183,8 @@ export class ForecastService {
         const result = await prisma.forecast.deleteMany({
             where: { month: data.month, year: data.year },
         });
-        if (result.count === 0) throw new ApiError(400, "Tidak ada data forecast untuk dihapus pada periode ini");
+        if (result.count === 0)
+            throw new ApiError(400, "Tidak ada data forecast untuk dihapus pada periode ini");
         return { count: result.count };
     }
 
