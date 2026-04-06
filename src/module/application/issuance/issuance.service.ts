@@ -206,8 +206,8 @@ export class IssuanceService {
                     year, 
                     month,
                     COALESCE(
-                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${IssuanceService.THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
-                        SUM(CASE WHEN (year * 12 + month) <= ${IssuanceService.THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
+                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${IssuanceService.THRESHOLD_PERIOD} AND type::text != 'ALL' THEN quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (year * 12 + month) <= ${IssuanceService.THRESHOLD_PERIOD} AND type::text = 'ALL' THEN quantity ELSE 0 END)
                     ) as quantity
                 FROM product_issuances
                 WHERE (year * 12 + month) >= ${startVal}
@@ -285,8 +285,8 @@ export class IssuanceService {
         // Prioritized logic: Sum of specific types OR 'ALL' type
         const issuanceRows = await prisma.$queryRaw<any[]>(Prisma.sql`
             SELECT 
-                COALESCE(SUM(CASE WHEN (year * 12 + month) > ${IssuanceService.THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0) as others_sum,
-                COALESCE(SUM(CASE WHEN (year * 12 + month) <= ${IssuanceService.THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END), 0) as all_val,
+                COALESCE(SUM(CASE WHEN (year * 12 + month) > ${IssuanceService.THRESHOLD_PERIOD} AND type::text != 'ALL' THEN quantity ELSE 0 END), 0) as others_sum,
+                COALESCE(SUM(CASE WHEN (year * 12 + month) <= ${IssuanceService.THRESHOLD_PERIOD} AND type::text = 'ALL' THEN quantity ELSE 0 END), 0) as all_val,
                 MAX(id) as last_id
             FROM product_issuances
             WHERE product_id = ${product_id} AND year = ${year} AND month = ${month}
@@ -389,14 +389,14 @@ export class IssuanceService {
                 ps.size                          AS size_val,
                 u.name                           AS unit_name,
                 pt.name                          AS pt_name,
-                COALESCE(SUM(CASE WHEN NOT ${forceAll} AND sa.type = 'OFFLINE' THEN sa.quantity ELSE 0 END), 0)::float AS offline,
-                COALESCE(SUM(CASE WHEN NOT ${forceAll} AND sa.type = 'ONLINE' THEN sa.quantity ELSE 0 END), 0)::float AS online,
-                COALESCE(SUM(CASE WHEN NOT ${forceAll} AND sa.type = 'SPIN_WHEEL' THEN sa.quantity ELSE 0 END), 0)::float AS spin_wheel,
-                COALESCE(SUM(CASE WHEN NOT ${forceAll} AND sa.type = 'GARANSI_OUT' THEN sa.quantity ELSE 0 END), 0)::float AS garansi_out,
-                COALESCE(SUM(CASE WHEN NOT ${forceAll} AND sa.type = 'B2B' THEN sa.quantity ELSE 0 END), 0)::float AS b2b,
+                COALESCE(SUM(CASE WHEN ${!forceAll} AND sa.type::text = 'OFFLINE' THEN sa.quantity ELSE 0 END), 0)::float AS offline,
+                COALESCE(SUM(CASE WHEN ${!forceAll} AND sa.type::text = 'ONLINE' THEN sa.quantity ELSE 0 END), 0)::float AS online,
+                COALESCE(SUM(CASE WHEN ${!forceAll} AND sa.type::text = 'SPIN_WHEEL' THEN sa.quantity ELSE 0 END), 0)::float AS spin_wheel,
+                COALESCE(SUM(CASE WHEN ${!forceAll} AND sa.type::text = 'GARANSI_OUT' THEN sa.quantity ELSE 0 END), 0)::float AS garansi_out,
+                COALESCE(SUM(CASE WHEN ${!forceAll} AND sa.type::text = 'B2B' THEN sa.quantity ELSE 0 END), 0)::float AS b2b,
                 COALESCE(
-                    NULLIF(SUM(CASE WHEN NOT ${forceAll} AND sa.type != 'ALL' THEN sa.quantity ELSE 0 END), 0),
-                    SUM(CASE WHEN ${forceAll} AND sa.type = 'ALL' THEN sa.quantity ELSE 0 END)
+                    NULLIF(SUM(CASE WHEN ${!forceAll} AND sa.type::text != 'ALL' THEN sa.quantity ELSE 0 END), 0),
+                    SUM(CASE WHEN ${forceAll} AND sa.type::text = 'ALL' THEN sa.quantity ELSE 0 END)
                 )::float AS total_qty
             FROM products p
             LEFT JOIN product_types pt ON p.type_id = pt.id
