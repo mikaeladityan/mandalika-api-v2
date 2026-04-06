@@ -193,10 +193,29 @@ export class ProductService {
     }
 
     static async clean() {
-        const count = await prisma.product.count({ where: { deleted_at: { not: null } } });
-        if (count === 0) throw new ApiError(400, "Tidak ada produk yang akan dihapus");
+        const products = await prisma.product.findMany({
+            where: { deleted_at: { not: null } },
+            select: { id: true },
+        });
 
-        await prisma.product.deleteMany({ where: { deleted_at: { not: null } } });
+        if (products.length === 0) throw new ApiError(400, "Tidak ada produk yang akan dihapus");
+        const ids = products.map((p) => p.id);
+
+        await prisma.$transaction(async (tx) => {
+            // Delete related records in specific order
+            await tx.forecast.deleteMany({ where: { product_id: { in: ids } } });
+            await tx.outletInventory.deleteMany({ where: { product_id: { in: ids } } });
+            await tx.productInventory.deleteMany({ where: { product_id: { in: ids } } });
+            await tx.productIssuance.deleteMany({ where: { product_id: { in: ids } } });
+            await tx.recipes.deleteMany({ where: { product_id: { in: ids } } });
+            await tx.safetyStock.deleteMany({ where: { product_id: { in: ids } } });
+            await tx.stockTransferItem.deleteMany({ where: { product_id: { in: ids } } });
+            await tx.goodsReceiptItem.deleteMany({ where: { product_id: { in: ids } } });
+            await tx.stockReturnItem.deleteMany({ where: { product_id: { in: ids } } });
+
+            // Finally delete products
+            await tx.product.deleteMany({ where: { id: { in: ids } } });
+        });
     }
 
     static async list(
