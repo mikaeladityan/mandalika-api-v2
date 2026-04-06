@@ -373,10 +373,30 @@ export class RawMaterialService {
     }
 
     static async clean() {
-        const count = await prisma.rawMaterial.count({ where: { deleted_at: { not: null } } });
-        if (count === 0) throw new ApiError(400, "Tidak ada raw material yang akan dihapus");
+        const softDeleted = await prisma.rawMaterial.findMany({
+            where: { deleted_at: { not: null } },
+            select: { id: true },
+        });
 
-        return prisma.rawMaterial.deleteMany({ where: { deleted_at: { not: null } } });
+        if (softDeleted.length === 0)
+            throw new ApiError(400, "Tidak ada raw material yang akan dihapus");
+
+        const ids = softDeleted.map((s) => s.id);
+
+        return prisma.$transaction(async (tx) => {
+            // 1. Manually clean polymorphic/loose relations
+            await tx.stockMovement.deleteMany({
+                where: {
+                    entity_type: "RAW_MATERIAL",
+                    entity_id: { in: ids },
+                },
+            });
+
+            // 2. Clear bulk Status (soft deleted)
+            return tx.rawMaterial.deleteMany({
+                where: { id: { in: ids } },
+            });
+        });
     }
 
     static async getUtils(): Promise<{
