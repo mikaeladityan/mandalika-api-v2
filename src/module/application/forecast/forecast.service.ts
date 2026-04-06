@@ -171,7 +171,7 @@ export class ForecastService {
             ? await ForecastService.loadVariantsByProductId(product_id, body.is_display)
             : await prisma.product.findMany({
                   where: {
-                      status: { notIn: ["DELETE", "PENDING", "BLOCK"] },
+                      status: "ACTIVE",
                       ...(body.is_display
                           ? {
                                 OR: [
@@ -259,113 +259,41 @@ export class ForecastService {
                     return { product, input, base_forecast: base, final_forecast: base };
                 });
 
-                // EDP, Parfum, & Hampers 120ml/110ml/100ml Pool (Used for special calculations)
-                const mainBottles = results.filter((r) => {
+                // 1. Identify Anchors (EDP/Parfum size 100/110/120)
+                const edpAnchors = results.filter((r) => {
                     const slug = r.product.product_type?.slug?.toLowerCase();
-                    const isType =
-                        slug === "parfum" ||
-                        slug === "perfume" ||
-                        slug === "edp" ||
-                        slug === "hampers-edp" ||
-                        slug === "hampers-parfum";
-                    const isSize =
-                        r.product.size?.size === 120 ||
-                        r.product.size?.size === 110 ||
-                        r.product.size?.size === 100;
-                    return isType && isSize;
+                    const size = r.product.size?.size;
+                    return (slug === "edp" || slug === "hampers-edp") && (size === 100 || size === 110 || size === 120);
                 });
 
-                const totalInputBase = mainBottles.reduce((acc, r) => acc + r.input, 0);
-                const totalForecastBase = totalInputBase * (1 + pctValue);
-
-                // Total distribution percentage for main pool (should usually be 1, but could be 0)
-                const totalDistPctMain = mainBottles.reduce(
-                    (acc, r) => acc + Number(r.product.distribution_percentage ?? 0),
-                    0,
-                );
-
-                const edpMain = results.find((r) => {
+                const parfumAnchors = results.filter((r) => {
                     const slug = r.product.product_type?.slug?.toLowerCase();
-                    return (
-                        (slug === "edp" || slug === "hampers-edp") &&
-                        (r.product.size?.size === 120 ||
-                            r.product.size?.size === 110 ||
-                            r.product.size?.size === 100)
-                    );
-                });
-                const parfumMain = results.find((r) => {
-                    const slug = r.product.product_type?.slug?.toLowerCase();
-                    return (
-                        (slug === "parfum" ||
-                            slug === "perfume" ||
-                            slug === "hampers-parfum") &&
-                        (r.product.size?.size === 120 ||
-                            r.product.size?.size === 110 ||
-                            r.product.size?.size === 100)
-                    );
+                    const size = r.product.size?.size;
+                    return (slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") && (size === 100 || size === 110 || size === 120);
                 });
 
-                const edpMainFinal =
-                    totalForecastBase * Number(edpMain?.product.distribution_percentage ?? 0);
+                const edpAnchorForecast = edpAnchors.reduce((acc, r) => acc + r.final_forecast, 0);
+                const parfumAnchorForecast = parfumAnchors.reduce((acc, r) => acc + r.final_forecast, 0);
+                const totalAnchorForecast = edpAnchorForecast + parfumAnchorForecast;
 
-                const parfumMainFinal =
-                    totalForecastBase * Number(parfumMain?.product.distribution_percentage ?? 0);
-
+                // 2. Apply Special Rules (2ml Mirror & Atomizer Sum)
                 results.forEach((r) => {
                     const slug = r.product.product_type?.slug?.toLowerCase();
                     const size = r.product.size?.size;
-                    const distPct = Number(r.product.distribution_percentage ?? 0);
 
-                    // Special Rule: Atomizer (Matches total Main (120/110/100ml) bottles)
-                    if (slug === "atomizer") {
-                        if (mainBottles.length > 0) {
-                            r.final_forecast = totalForecastBase * totalDistPctMain;
+                    // Rule: Size 2 matches Anchor Value
+                    if (size === 2) {
+                        if (slug === "edp" || slug === "hampers-edp") {
+                            r.final_forecast = edpAnchorForecast;
+                        } else if (slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") {
+                            r.final_forecast = parfumAnchorForecast;
                         }
                     }
-                    // Special Rule: Main bottles split (Proportional to EDAR)
-                    else if (
-                        (slug === "parfum" ||
-                            slug === "perfume" ||
-                            slug === "edp" ||
-                            slug === "hampers-edp" ||
-                            slug === "hampers-parfum") &&
-                        (size === 120 || size === 110 || size === 100)
-                    ) {
-                        if (mainBottles.length > 0) {
-                            r.final_forecast = totalForecastBase * distPct;
-                        }
+                    // Rule: Atomizer is SUM of EDP + Parfum Anchors
+                    else if (slug === "atomizer") {
+                        r.final_forecast = totalAnchorForecast;
                     }
-                    // Special Rule: 2ml mirror (Matches its Main variant)
-                    else if (size === 2) {
-                        if ((slug === "edp" || slug === "hampers-edp") && edpMain) {
-                            r.final_forecast = edpMainFinal;
-                        } else if (
-                            (slug === "parfum" ||
-                                slug === "perfume" ||
-                                slug === "hampers-parfum") &&
-                            parfumMain
-                        ) {
-                            r.final_forecast = parfumMainFinal;
-                        }
-                    }
-
-                    // Force 0 if distribution percentage is 0 (Ensuring split-rule products respect EDAR)
-                    if (
-                        (slug === "edp" ||
-                            slug === "parfum" ||
-                            slug === "perfume" ||
-                            slug === "hampers-edp" ||
-                            slug === "hampers-parfum") &&
-                        distPct === 0
-                    ) {
-                        r.final_forecast = 0;
-                    } else if (
-                        slug === "atomizer" &&
-                        (totalForecastBase === 0 || totalDistPctMain === 0)
-                    ) {
-                        // Atomizer also becomes 0 if the total pool or its allocation is 0
-                        r.final_forecast = 0;
-                    }
+                    // Other types keep their default base_forecast (SalesActual * Pct)
                 });
 
                 for (const r of results) {
@@ -768,7 +696,7 @@ export class ForecastService {
         const { skip, take: limit } = GetPagination(page, take);
 
         const where: Prisma.ProductWhereInput = {
-            status: { notIn: ["DELETE", "PENDING", "BLOCK"] },
+            status: "ACTIVE",
             deleted_at: null,
             ...(query.is_display
                 ? {
@@ -886,7 +814,7 @@ export class ForecastService {
                 WHERE month = ${startMonth} AND year = ${startYear}
                 GROUP BY product_id
             ) pi ON p.id = pi.product_id
-            WHERE p.status NOT IN ('DELETE', 'PENDING', 'BLOCK')
+            WHERE p.status = 'ACTIVE'
               AND p.deleted_at IS NULL
               AND (
                 ${
@@ -1033,7 +961,7 @@ export class ForecastService {
         const variations = await prisma.product.findMany({
             where: {
                 name: target.name,
-                status: { notIn: ["DELETE", "PENDING", "BLOCK"] },
+                status: "ACTIVE",
                 deleted_at: null,
                 ...(is_display
                     ? {
