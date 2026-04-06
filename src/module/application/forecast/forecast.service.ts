@@ -181,6 +181,7 @@ export class ForecastService {
                                     { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
                                     { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
                                     { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
                                 ],
                             }
                           : {
@@ -191,6 +192,7 @@ export class ForecastService {
                                     { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
                                     { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
                                     { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
+                                    { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
                                 ],
                             }),
                   },
@@ -486,7 +488,8 @@ export class ForecastService {
             tSlug.includes("gift-set") ||
             tSlug.includes("botol") ||
             tSlug.includes("paper-bag") ||
-            tSlug.includes("kartu-garansi");
+            tSlug.includes("kartu-garansi") ||
+            tSlug.includes("canvas-bag");
 
         if (!isOthersProduct) {
             throw new ApiError(403, "Update manual hanya diizinkan untuk produk Others.");
@@ -729,6 +732,7 @@ export class ForecastService {
                           { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
                       ],
                   }
                 : {
@@ -739,6 +743,7 @@ export class ForecastService {
                           { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
+                          { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
                       ],
                   }),
             ...(query.search && {
@@ -852,8 +857,8 @@ export class ForecastService {
               AND (
                 ${
                     query.is_others
-                        ? Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%gift-set%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%'`
-                        : Prisma.sql`pt.slug IS NULL OR (pt.slug NOT ILIKE '%display%' AND pt.slug NOT ILIKE '%kertas%' AND pt.slug NOT ILIKE '%gift-set%' AND pt.slug NOT ILIKE '%botol%' AND pt.slug NOT ILIKE '%paper-bag%' AND pt.slug NOT ILIKE '%kartu-garansi%')`
+                        ? Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%gift-set%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%'`
+                        : Prisma.sql`pt.slug IS NULL OR (pt.slug NOT ILIKE '%display%' AND pt.slug NOT ILIKE '%kertas%' AND pt.slug NOT ILIKE '%gift-set%' AND pt.slug NOT ILIKE '%botol%' AND pt.slug NOT ILIKE '%paper-bag%' AND pt.slug NOT ILIKE '%kartu-garansi%' AND pt.slug NOT ILIKE '%canvas-bag%')`
                 }
               )
             ${searchRaw ? Prisma.sql`AND (p.name ILIKE ${searchRaw} OR p.code ILIKE ${searchRaw})` : Prisma.empty}
