@@ -53,8 +53,8 @@ export class RecomendationV2Controller {
 
         const buffer = await RecomendationV2Service.export(params);
 
-        c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        c.header("Content-Disposition", `attachment; filename=Rekomendasi_V2_${type?.toUpperCase()}_${month}_${year}.xlsx`);
+        c.header("Content-Type", "text/csv");
+        c.header("Content-Disposition", `attachment; filename=Rekomendasi_V2_${type?.toUpperCase()}_${month}_${year}.csv`);
 
         return c.body(buffer as any);
     }

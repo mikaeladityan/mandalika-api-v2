@@ -37,9 +37,9 @@ export class ForecastController {
     static async export(c: Context) {
         const query = QueryForecastSchema.parse(c.req.query());
         const buffer = await ForecastService.export(query);
-        const filename = `Forecast_Report_${new Date().toISOString().split("T")[0]}.xlsx`;
+        const filename = `Forecast_Report_${new Date().toISOString().split("T")[0]}.csv`;
 
-        c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        c.header("Content-Type", "text/csv");
         c.header("Content-Disposition", `attachment; filename="${filename}"`);
 
         return c.body(buffer as any);

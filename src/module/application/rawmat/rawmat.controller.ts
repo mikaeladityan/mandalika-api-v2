@@ -185,9 +185,9 @@ export class RawMaterialController {
 
         c.header(
             "Content-Type",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/csv",
         );
-        c.header("Content-Disposition", `attachment; filename="data-raw-materials.xlsx"`);
+        c.header("Content-Disposition", `attachment; filename="data-raw-materials.csv"`);
         return c.body(buffer as any);
     }
 

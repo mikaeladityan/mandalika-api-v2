@@ -1054,7 +1054,7 @@ export class RecomendationV2Service {
         sheet.getRow(1).font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } }; // White text for blue header
         sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
 
-        const buffer = await workbook.xlsx.writeBuffer();
+        const buffer = await workbook.csv.writeBuffer();
         return buffer;
     }
 

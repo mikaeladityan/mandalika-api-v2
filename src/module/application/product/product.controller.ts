@@ -114,8 +114,8 @@ export class ProductController {
 
         const buffer = await ProductService.export(params);
 
-        c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        c.header("Content-Disposition", `attachment; filename="data-produk.xlsx"`);
+        c.header("Content-Type", "text/csv");
+        c.header("Content-Disposition", `attachment; filename="data-produk.csv"`);
         return c.body(buffer as any);
     }
 

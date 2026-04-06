@@ -310,6 +310,6 @@ export class ConsolidationService {
         };
         sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
 
-        return await workbook.xlsx.writeBuffer();
+        return await workbook.csv.writeBuffer();
     }
 }

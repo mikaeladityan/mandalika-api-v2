@@ -139,7 +139,7 @@ export class ForecastService {
             });
         });
 
-        return await workbook.xlsx.writeBuffer();
+        return await workbook.csv.writeBuffer();
     }
 
     static async run(body: RunForecastDTO) {
