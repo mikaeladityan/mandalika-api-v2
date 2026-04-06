@@ -3,7 +3,8 @@ import z from "zod";
 const sanitizeNumber = (val: unknown) => {
     if (val === "" || val === null || val === undefined) return 0;
     if (typeof val === "string") {
-        const cleaned = val.replace(/[^\d]/g, "");
+        let cleaned = val.replace(/,/g, ".");
+        cleaned = cleaned.replace(/[^\d.-]/g, "");
         return cleaned === "" ? 0 : Number(cleaned);
     }
     return Number(val);
