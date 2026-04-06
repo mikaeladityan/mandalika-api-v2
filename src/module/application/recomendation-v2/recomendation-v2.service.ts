@@ -6,6 +6,7 @@ import {
     RequestSaveWorkOrderDTO,
     RequestBulkSaveHorizonDTO,
     RequestSaveOpenPoDTO,
+    RequestUpdateMoqDTO,
 } from "./recomendation-v2.schema.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";
@@ -1055,5 +1056,13 @@ export class RecomendationV2Service {
 
         const buffer = await workbook.xlsx.writeBuffer();
         return buffer;
+    }
+
+    static async updateMoq(body: RequestUpdateMoqDTO) {
+        const { material_id, moq } = body;
+        return await prisma.rawMaterial.update({
+            where: { id: material_id },
+            data: { min_buy: moq },
+        });
     }
 }

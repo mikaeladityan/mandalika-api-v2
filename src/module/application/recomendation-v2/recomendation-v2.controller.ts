@@ -7,6 +7,7 @@ import {
     RequestSaveWorkOrderSchema,
     RequestBulkSaveHorizonSchema,
     RequestSaveOpenPoSchema,
+    RequestUpdateMoqSchema,
 } from "./recomendation-v2.schema.js";
 
 export class RecomendationV2Controller {
@@ -90,6 +91,13 @@ export class RecomendationV2Controller {
         const body = await c.req.json();
         const validBody = RequestSaveOpenPoSchema.parse(body);
         const result = await RecomendationV2Service.saveOpenPo(validBody);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async updateMoq(c: Context) {
+        const body = await c.req.json();
+        const validBody = RequestUpdateMoqSchema.parse(body);
+        const result = await RecomendationV2Service.updateMoq(validBody);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 }

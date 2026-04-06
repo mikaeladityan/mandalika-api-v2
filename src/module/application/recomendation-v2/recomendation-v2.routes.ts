@@ -9,6 +9,7 @@ routes.post("/order", RecomendationV2Controller.saveWorkOrder);
 routes.post("/approve", RecomendationV2Controller.approveWorkOrder);
 routes.post("/bulk-horizon", RecomendationV2Controller.bulkSaveHorizon);
 routes.post("/open-po", RecomendationV2Controller.saveOpenPo);
+routes.patch("/moq", RecomendationV2Controller.updateMoq);
 routes.delete("/:id", RecomendationV2Controller.destroyWorkOrder);
 
 export default routes;

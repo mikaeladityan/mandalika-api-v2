@@ -101,4 +101,12 @@ export const ResponseRecomendationV2Schema = z.object({
     })).optional(),
 });
 
+
+export const RequestUpdateMoqSchema = z.object({
+    material_id: z.coerce.number(),
+    moq: z.coerce.number().min(0),
+});
+
+export type RequestUpdateMoqDTO = z.infer<typeof RequestUpdateMoqSchema>;
+
 export type ResponseRecomendationV2DTO = z.infer<typeof ResponseRecomendationV2Schema>;
