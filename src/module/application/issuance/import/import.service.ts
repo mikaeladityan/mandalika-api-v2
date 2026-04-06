@@ -1,6 +1,7 @@
 // import.service.ts
 import { randomUUID } from "crypto";
 import prisma from "../../../../config/prisma.js";
+import { IssuanceService } from "../issuance.service.js";
 import { IssuanceImportPreviewDTO, IssuanceImportRowSchema, ResponseIssuanceImportDTO } from "./import.schema.js";
 import { ImportCacheService } from "../../../../lib/utils/import.cache.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
@@ -125,7 +126,7 @@ export class IssuanceImportService {
         await ImportCacheService.save(CACHE_PREFIX, import_id, { ...cache, status: "executing" });
 
         try {
-            const forceAll = (year * 12 + month) <= 24314;
+            const forceAll = (year * 12 + month) <= IssuanceService.THRESHOLD_PERIOD;
             if (forceAll && type !== "ALL") {
                 throw new ApiError(
                     400,
@@ -196,7 +197,7 @@ export class IssuanceImportService {
                 ${month}::int,
                 ${year}::int,
                 q.quantity::numeric,
-                CAST(${type} AS "IssuanceType"),
+                CAST(${type}::text AS "IssuanceType"),
                 NOW(),
                 NOW()
             FROM
