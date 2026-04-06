@@ -259,7 +259,7 @@ export class ForecastService {
                     return { product, input, base_forecast: base, final_forecast: base };
                 });
 
-                // 1. Identify Anchors (EDP/Parfum size 100/110/120)
+                // 1. Identify Anchors & Calculate Base (EDP/Parfum size 100/110/120)
                 const edpAnchors = results.filter((r) => {
                     const slug = r.product.product_type?.slug?.toLowerCase();
                     const size = r.product.size?.size;
@@ -272,28 +272,37 @@ export class ForecastService {
                     return (slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") && (size === 100 || size === 110 || size === 120);
                 });
 
-                const edpAnchorForecast = edpAnchors.reduce((acc, r) => acc + r.final_forecast, 0);
-                const parfumAnchorForecast = parfumAnchors.reduce((acc, r) => acc + r.final_forecast, 0);
-                const totalAnchorForecast = edpAnchorForecast + parfumAnchorForecast;
+                // ATOMIZER BASE is the sum of EDP and Parfum anchor bases
+                const edpAnchorBase = edpAnchors.reduce((acc, r) => acc + r.base_forecast, 0);
+                const parfumAnchorBase = parfumAnchors.reduce((acc, r) => acc + r.base_forecast, 0);
+                const totalAnchorBase = edpAnchorBase + parfumAnchorBase;
 
-                // 2. Apply Special Rules (2ml Mirror & Atomizer Sum)
+                // 2. Apply Special Rules (Atomizer Source & EDAR Redistribution)
                 results.forEach((r) => {
                     const slug = r.product.product_type?.slug?.toLowerCase();
                     const size = r.product.size?.size;
+                    const distPct = Number(r.product.distribution_percentage ?? 0);
 
-                    // Rule: Size 2 matches Anchor Value
-                    if (size === 2) {
+                    // ATOMIZER FINAL is the sum of anchor bases
+                    if (slug === "atomizer") {
+                        r.final_forecast = totalAnchorBase;
+                    }
+                    // EDP/Parfum ANCHORS are redistributed by EDAR
+                    else if (
+                        (slug === "edp" || slug === "hampers-edp" || slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") &&
+                        (size === 100 || size === 110 || size === 120)
+                    ) {
+                        r.final_forecast = totalAnchorBase * distPct;
+                    }
+                    // 2ml MIRROR rule (follows its respective anchor's final)
+                    else if (size === 2) {
                         if (slug === "edp" || slug === "hampers-edp") {
-                            r.final_forecast = edpAnchorForecast;
+                            r.final_forecast = totalAnchorBase * distPct; // Effectively anchor final
                         } else if (slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") {
-                            r.final_forecast = parfumAnchorForecast;
+                            r.final_forecast = totalAnchorBase * distPct; // Effectively anchor final
                         }
                     }
-                    // Rule: Atomizer is SUM of EDP + Parfum Anchors
-                    else if (slug === "atomizer") {
-                        r.final_forecast = totalAnchorForecast;
-                    }
-                    // Other types keep their default base_forecast (SalesActual * Pct)
+                    // Others keep Sales * Pct
                 });
 
                 for (const r of results) {
