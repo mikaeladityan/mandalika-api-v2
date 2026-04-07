@@ -7,6 +7,7 @@ import {
     RequestBulkSaveHorizonDTO,
     RequestSaveOpenPoDTO,
     RequestUpdateMoqDTO,
+    RequestSaveNeedOverrideDTO,
 } from "./recomendation-v2.schema.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";
@@ -56,78 +57,7 @@ export class RecomendationV2Service {
         }
 
         // Dynamic back horizon for Open PO
-        let backMonths = -1; // Default M-1
-        
-        let dynamicTypeFilter = Prisma.sql`1=1`;
-        if (type === 'ffo') {
-            dynamicTypeFilter = Prisma.sql`rmc.slug ILIKE '%fragrance-oil%' OR rmc.slug ILIKE '%ffo%'`;
-        } else if (type === 'lokal') {
-            dynamicTypeFilter = Prisma.sql`rm.source = 'LOCAL'`;
-        } else if (type === 'impor') {
-            dynamicTypeFilter = Prisma.sql`rm.source = 'IMPORT'`;
-        }
-
-        let dynamicSearchFilter = Prisma.sql``;
-        if (search) {
-            dynamicSearchFilter = Prisma.sql`AND (rm.name ILIKE ${'%' + search + '%'} OR rm.barcode ILIKE ${'%' + search + '%'})`;
-        }
-
-        const earliestPo = await prisma.$queryRaw<any[]>`
-            SELECT MIN(po.order_date) as earliest
-            FROM "raw_material_open_pos" po
-            JOIN "raw_materials" rm ON rm.id = po.raw_material_id
-            LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-            LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
-            WHERE po.status != 'RECEIVED'
-              AND po.status != 'CANCELLED'
-              AND ${dynamicTypeFilter}
-              ${dynamicSearchFilter}
-        `;
-
-        if (earliestPo[0]?.earliest) {
-            const d = new Date(earliestPo[0].earliest);
-            const mDiff = (currentYear * 12 + currentMonth) - (d.getFullYear() * 12 + d.getMonth() + 1);
-            if (mDiff > 1) {
-                backMonths = Math.max(-12, -mDiff); // Cap at 1 year back
-            }
-        }
-
-        const poPeriods: { month: number; year: number; key: string }[] = [];
-        for (let i = backMonths; i <= po_months; i++) {
-            let m = currentMonth + i;
-            let y = currentYear;
-            while (m <= 0) {
-                m += 12;
-                y -= 1;
-            }
-            while (m > 12) {
-                m -= 12;
-                y += 1;
-            }
-            poPeriods.push({ month: m, year: y, key: `${m}-${y}` });
-        }
-
-        const slStartM = salesPeriods[0]?.month || currentMonth;
-        const slStartY = salesPeriods[0]?.year || currentYear;
-        const slEndM = salesPeriods[salesPeriods.length - 1]?.month || currentMonth;
-        const slEndY = salesPeriods[salesPeriods.length - 1]?.year || currentYear;
-
-        const fcStartM = forecastPeriods[0]?.month || currentMonth;
-        const fcStartY = forecastPeriods[0]?.year || currentYear;
-        const fcEndM = forecastPeriods[forecastPeriods.length - 1]?.month || currentMonth;
-        const fcEndY = forecastPeriods[forecastPeriods.length - 1]?.year || currentYear;
-
-        const cleanSearch = search?.trim();
-        const searchRaw = cleanSearch ? `%${cleanSearch}%` : null;
-        const searchFilter = searchRaw
-            ? Prisma.sql`AND (
-                rm.name ILIKE ${searchRaw} 
-                OR rm.barcode ILIKE ${searchRaw} 
-                OR s.name ILIKE ${searchRaw} 
-                OR rmc.name ILIKE ${searchRaw}
-                OR urm.name ILIKE ${searchRaw}
-              )`
-            : Prisma.empty;
+        let backMonths = -1;
 
         const typeFilter = (() => {
             switch (type) {
@@ -142,14 +72,51 @@ export class RecomendationV2Service {
             }
         })();
 
-        // Fetch latest available inventory periods
-        const latestInv = await prisma.rawMaterialInventory.findFirst({
-            orderBy: [{ year: "desc" }, { month: "desc" }],
-            select: { month: true, year: true },
-        });
+        const fcStartM = forecastPeriods[0]?.month || currentMonth;
+        const fcStartY = forecastPeriods[0]?.year || currentYear;
+        const fcEndM = forecastPeriods[forecastPeriods.length - 1]?.month || currentMonth;
+        const fcEndY = forecastPeriods[forecastPeriods.length - 1]?.year || currentYear;
+
+        const slStartM = salesPeriods[0]?.month || currentMonth;
+        const slStartY = salesPeriods[0]?.year || currentYear;
+        const slEndM = salesPeriods[salesPeriods.length - 1]?.month || currentMonth;
+        const slEndY = salesPeriods[salesPeriods.length - 1]?.year || currentYear;
+
+        const cleanSearch = search?.trim();
+        const searchRaw = cleanSearch ? `%${cleanSearch}%` : null;
+        const searchFilter = searchRaw
+            ? Prisma.sql`AND (
+                rm.name ILIKE ${searchRaw}
+                OR rm.barcode ILIKE ${searchRaw}
+                OR s.name ILIKE ${searchRaw}
+                OR rmc.name ILIKE ${searchRaw}
+                OR urm.name ILIKE ${searchRaw}
+              )`
+            : Prisma.empty;
+
+        const [latestInv, latestFgInv, earliestPoResult] = await Promise.all([
+            prisma.rawMaterialInventory.findFirst({
+                orderBy: [{ year: "desc" }, { month: "desc" }],
+                select: { month: true, year: true },
+            }),
+            prisma.productInventory.findFirst({
+                orderBy: [{ year: "desc" }, { month: "desc" }],
+                select: { month: true, year: true },
+            }),
+            prisma.$queryRaw<any[]>`
+                SELECT MIN(po.order_date) as earliest
+                FROM "raw_material_open_pos" po
+                JOIN "raw_materials" rm ON rm.id = po.raw_material_id
+                LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
+                LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+                WHERE po.status NOT IN ('RECEIVED', 'CANCELLED')
+                  AND ${typeFilter}
+                  ${searchFilter}
+            `,
+        ]);
+
         let invMonth = currentMonth;
         let invYear = currentYear;
-
         if (latestInv) {
             const filterTime = currentYear * 12 + currentMonth;
             const latestTime = latestInv.year * 12 + latestInv.month;
@@ -159,13 +126,8 @@ export class RecomendationV2Service {
             }
         }
 
-        const latestFgInv = await prisma.productInventory.findFirst({
-            orderBy: [{ year: "desc" }, { month: "desc" }],
-            select: { month: true, year: true },
-        });
         let fgInvMonth = currentMonth;
         let fgInvYear = currentYear;
-
         if (latestFgInv) {
             const filterTime = currentYear * 12 + currentMonth;
             const latestTime = latestFgInv.year * 12 + latestFgInv.month;
@@ -173,6 +135,23 @@ export class RecomendationV2Service {
                 fgInvMonth = latestFgInv.month;
                 fgInvYear = latestFgInv.year;
             }
+        }
+
+        if (earliestPoResult[0]?.earliest) {
+            const d = new Date(earliestPoResult[0].earliest);
+            const mDiff = (currentYear * 12 + currentMonth) - (d.getFullYear() * 12 + d.getMonth() + 1);
+            if (mDiff > 1) {
+                backMonths = Math.max(-12, -mDiff);
+            }
+        }
+
+        const poPeriods: { month: number; year: number; key: string }[] = [];
+        for (let i = backMonths; i <= po_months; i++) {
+            let m = currentMonth + i;
+            let y = currentYear;
+            while (m <= 0) { m += 12; y -= 1; }
+            while (m > 12) { m -= 12; y += 1; }
+            poPeriods.push({ month: m, year: y, key: `${m}-${y}` });
         }
 
         const fcStart = fcStartY * 12 + fcStartM;
@@ -386,7 +365,8 @@ export class RecomendationV2Service {
                              json_build_object(
                                  'month', mr.month,
                                  'year', mr.year,
-                                 'needs', mr.total_needed
+                                 'needs', mr.total_needed,
+                                 'override_needs', o.quantity
                              )
                         ), '[]'::json)
                         FROM (
@@ -402,6 +382,10 @@ export class RecomendationV2Service {
                               AND (f.year * 12 + f.month) <= ${fcEndY * 12 + fcEndM}
                             GROUP BY f.month, f.year
                         ) mr
+                        LEFT JOIN "raw_material_need_overrides" o 
+                             ON o.raw_material_id = rm.id 
+                             AND o.month = mr.month 
+                             AND o.year = mr.year
                     ) AS needs_data,
 
                     -- Work Order Info
@@ -429,23 +413,35 @@ export class RecomendationV2Service {
                     AND mro.month = ${currentMonth} 
                     AND mro.year = ${currentYear}
                 LEFT JOIN LATERAL (
-                    SELECT COALESCE(SUM(f.final_forecast * rec.quantity * 
-                        CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
-                    ), 0) AS total_needed
-                    FROM "recipes" rec
-                    JOIN "forecasts" f ON f.product_id = rec.product_id
-                    JOIN "products" p ON p.id = f.product_id
-                    LEFT JOIN "product_size" ps ON ps.id = p.size_id
-                    WHERE rec.raw_mat_id = rm.id
-                      AND mro.horizon IS NOT NULL
-                      AND (f.year * 12 + f.month) >= ${currentYear * 12 + currentMonth}
-                      AND (f.year * 12 + f.month) <= (${currentYear} * 12 + ${currentMonth} + COALESCE(mro.horizon, 0) - 1)
+                    SELECT COALESCE(SUM(COALESCE(o.quantity, mr.calc_needed)), 0) AS total_needed
+                    FROM (
+                        SELECT f.month, f.year, SUM(f.final_forecast * rec.quantity * 
+                            CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                        ) as calc_needed
+                        FROM "recipes" rec
+                        JOIN "forecasts" f ON f.product_id = rec.product_id
+                        JOIN "products" p ON p.id = f.product_id
+                        LEFT JOIN "product_size" ps ON ps.id = p.size_id
+                        WHERE rec.raw_mat_id = rm.id
+                          AND mro.horizon IS NOT NULL
+                          AND (f.year * 12 + f.month) >= ${currentYear * 12 + currentMonth}
+                          AND (f.year * 12 + f.month) <= (${currentYear} * 12 + ${currentMonth} + COALESCE(mro.horizon, 0) - 1)
+                        GROUP BY f.month, f.year
+                    ) mr
+                    LEFT JOIN "raw_material_need_overrides" o 
+                         ON o.raw_material_id = rm.id 
+                         AND o.month = mr.month 
+                         AND o.year = mr.year
                 ) h_fc ON TRUE
                 LEFT JOIN rm_current_sales_agg cms ON cms.raw_mat_id = rm.id
                 LEFT JOIN rm_forecast_agg fa ON fa.raw_mat_id = rm.id
                 LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = rm.id
                 WHERE ${typeFilter}
                   AND rm.deleted_at IS NULL
+                  AND EXISTS (
+                      SELECT 1 FROM "recipes" r2
+                      WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
+                  )
                 --   AND rm.barcode IS DISTINCT FROM 'FO-ALK'
                   ${searchFilter}
             ) AS base
@@ -481,6 +477,10 @@ export class RecomendationV2Service {
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
+              AND EXISTS (
+                  SELECT 1 FROM "recipes" r2
+                  WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
+              )
             --   AND rm.barcode IS DISTINCT FROM 'FO-ALK'
               ${searchFilter}
         `;
@@ -499,7 +499,11 @@ export class RecomendationV2Service {
 
             const needs = forecastPeriods.map((p) => {
                 const found = needsRaw.find((n: any) => n.month === p.month && n.year === p.year);
-                return { ...p, quantity: Number(found?.needs || 0) };
+                return { 
+                    ...p, 
+                    quantity: Number(found?.needs || 0),
+                    override_needs: found?.override_needs != null ? Number(found.override_needs) : null
+                };
             });
 
             const open_pos = poPeriods.map((p) => {
@@ -598,6 +602,30 @@ export class RecomendationV2Service {
                 status: "DRAFT",
             },
         });
+    }
+
+    static async saveNeedOverride(body: RequestSaveNeedOverrideDTO) {
+        const { raw_material_id, month, year, quantity } = body;
+
+        return await prisma.rawMaterialNeedOverride.upsert({
+            where: {
+                raw_material_id_month_year: {
+                    raw_material_id,
+                    month,
+                    year,
+                },
+            },
+            update: { quantity },
+            create: { raw_material_id, month, year, quantity },
+        });
+    }
+
+    static async deleteNeedOverride(body: { raw_material_id: number; month: number; year: number }) {
+        const { raw_material_id, month, year } = body;
+        await prisma.rawMaterialNeedOverride.deleteMany({
+            where: { raw_material_id, month, year },
+        });
+        return { message: "Need override reset to system calculation" };
     }
 
     static async saveOpenPo(body: RequestSaveOpenPoDTO) {
@@ -873,6 +901,10 @@ export class RecomendationV2Service {
             LEFT JOIN fg_agg fg ON fg.raw_mat_id = rm.id
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
+              AND EXISTS (
+                  SELECT 1 FROM "recipes" r2
+                  WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
+              )
             --   AND rm.barcode IS DISTINCT FROM 'FO-ALK'
             ON CONFLICT (raw_mat_id, month, year) DO UPDATE SET
                 horizon = EXCLUDED.horizon,

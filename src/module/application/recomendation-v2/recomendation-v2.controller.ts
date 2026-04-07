@@ -8,6 +8,8 @@ import {
     RequestBulkSaveHorizonSchema,
     RequestSaveOpenPoSchema,
     RequestUpdateMoqSchema,
+    RequestSaveNeedOverrideSchema,
+    RequestDeleteNeedOverrideSchema,
 } from "./recomendation-v2.schema.js";
 
 export class RecomendationV2Controller {
@@ -98,6 +100,20 @@ export class RecomendationV2Controller {
         const body = await c.req.json();
         const validBody = RequestUpdateMoqSchema.parse(body);
         const result = await RecomendationV2Service.updateMoq(validBody);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async saveNeedOverride(c: Context) {
+        const body = await c.req.json();
+        const validBody = RequestSaveNeedOverrideSchema.parse(body);
+        const result = await RecomendationV2Service.saveNeedOverride(validBody);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async deleteNeedOverride(c: Context) {
+        const body = await c.req.json();
+        const validBody = RequestDeleteNeedOverrideSchema.parse(body);
+        const result = await RecomendationV2Service.deleteNeedOverride(validBody);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 }

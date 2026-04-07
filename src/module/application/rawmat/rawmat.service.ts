@@ -323,13 +323,14 @@ export class RawMaterialService {
         const hasVisibility = visibleCols.length > 0;
 
         const allColumns = [
-            { header: "No", key: "no", width: 5, id: "no" },
+            { header: "ID", key: "id", width: 10, id: "id" },
             { header: "Barcode", key: "barcode", width: 20, id: "barcode" },
             { header: "Nama Material", key: "name", width: 40, id: "name" },
             { header: "Kategori", key: "category", width: 25, id: "category" },
             { header: "Supplier", key: "supplier", width: 25, id: "supplier" },
             { header: "Satuan", key: "unit", width: 15, id: "unit" },
             { header: "Tipe", key: "type", width: 15, id: "type" },
+            { header: "Source", key: "source", width: 15, id: "source" },
             { header: "Harga", key: "price", width: 15, id: "price" },
             { header: "Min. Beli", key: "min_buy", width: 12, id: "min_buy" },
             { header: "Min. Stok", key: "min_stock", width: 12, id: "min_stock" },
@@ -339,7 +340,7 @@ export class RawMaterialService {
         ];
 
         const filteredColumns = hasVisibility
-            ? allColumns.filter((col) => col.id === "no" || visibleCols.includes(col.id))
+            ? allColumns.filter((col) => col.id === "id" || visibleCols.includes(col.id))
             : allColumns;
 
         sheet.columns = filteredColumns.map(({ header, key, width }) => ({ header, key, width }));
@@ -347,13 +348,14 @@ export class RawMaterialService {
         data.forEach((item, index) => {
             const typeLabel = item.type === "FO" ? "FO" : item.type === "PCKG" ? "PCKG" : "-";
             sheet.addRow({
-                no: index + 1,
+                id: item.id,
                 barcode: item.barcode || "-",
                 name: item.name,
                 category: item.raw_mat_category?.name || "-",
                 supplier: item.supplier?.name || "-",
                 unit: item.unit_raw_material.name,
                 type: typeLabel,
+                source: item.source,
                 price: item.price,
                 min_buy: item.min_buy || 0,
                 min_stock: item.min_stock || 0,
@@ -362,16 +364,6 @@ export class RawMaterialService {
                 updated_at: item.updated_at,
             });
         });
-
-        // Styling
-        sheet.getRow(1).font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } };
-        sheet.getRow(1).height = 25;
-        sheet.getRow(1).fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: "FF0070C0" },
-        };
-        sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
 
         return await workbook.csv.writeBuffer();
     }
