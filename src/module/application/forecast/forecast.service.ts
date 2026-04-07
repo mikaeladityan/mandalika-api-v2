@@ -1417,6 +1417,14 @@ export class ForecastService {
         return { count: result.count };
     }
 
+    static async resetByProduct(product_id: number) {
+        return await prisma.$transaction(async (tx) => {
+            const f = await tx.forecast.deleteMany({ where: { product_id } });
+            const s = await tx.safetyStock.deleteMany({ where: { product_id } });
+            return { forecast: f.count, safety_stock: s.count };
+        });
+    }
+
     static async destroyById(id: number) {
         try {
             await prisma.forecast.delete({ where: { id } });

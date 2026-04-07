@@ -89,6 +89,18 @@ export class ForecastController {
         return ApiResponse.sendSuccess(c, { id }, 200);
     }
 
+    static async resetByProduct(c: Context) {
+        const product_id = Number(c.req.param("product_id"));
+        const session = c.get("session");
+        const result = await ForecastService.resetByProduct(product_id);
+        await CreateLogger({
+            activity: "DELETE",
+            description: `${Table} Reset Product Forecast: ID ${product_id}. Rows removed: ${result.forecast} forecast, ${result.safety_stock} safety stock`,
+            email: session.email,
+        } satisfies CreateLoggingActivityDTO);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
     static async updateManual(c: Context) {
         const body = c.get("body");
         const session = c.get("session");
