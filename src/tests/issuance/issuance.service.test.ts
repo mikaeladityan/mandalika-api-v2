@@ -9,134 +9,79 @@ describe("IssuanceService", () => {
         vi.clearAllMocks();
     });
 
-    // ─── CREATE ───────────────────────────────────────────────────────────────
-
-    describe("create", () => {
-        const mockBody = { product_id: 1, quantity: 150, month: 3, year: 2025, type: IssuanceType.ALL };
-
-        it("should create issuance data successfully", async () => {
-            // @ts-ignore
-            prisma.product.findUnique.mockResolvedValue({ id: 1, name: "T-Shirt" });
-            // @ts-ignore
-            prisma.productIssuance.findUnique.mockResolvedValue(null);
-            // @ts-ignore
-            prisma.productIssuance.create.mockResolvedValue({ id: 1, ...mockBody });
-
-            await expect(IssuanceService.create(mockBody)).resolves.toBeUndefined();
-            // @ts-ignore
-            expect(prisma.productIssuance.create).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    data: expect.objectContaining({ product_id: 1, quantity: 150, month: 3, year: 2025 }),
-                }),
-            );
-        });
-
-        it("should use previous month and year when not provided", async () => {
-            // Service uses M-1 (previous month) as default when no month/year provided
-            const now = new Date();
-            const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-            const expectedMonth = d.getUTCMonth() + 1;
-            const expectedYear = d.getUTCFullYear();
-
-            // @ts-ignore
-            prisma.product.findUnique.mockResolvedValue({ id: 1, name: "T-Shirt" });
-            // @ts-ignore
-            prisma.productIssuance.findUnique.mockResolvedValue(null);
-            // @ts-ignore
-            prisma.productIssuance.create.mockResolvedValue({ id: 1 });
-
-            await IssuanceService.create({ product_id: 1, quantity: 100, type: IssuanceType.ALL });
-
-            // @ts-ignore
-            expect(prisma.productIssuance.create).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    data: expect.objectContaining({ month: expectedMonth, year: expectedYear }),
-                }),
-            );
-        });
-
-        it("should throw 404 if product not found", async () => {
-            // @ts-ignore
-            prisma.product.findUnique.mockResolvedValue(null);
-
-            await expect(IssuanceService.create({ product_id: 999, quantity: 100, type: IssuanceType.ALL })).rejects.toThrow(ApiError);
-            await expect(IssuanceService.create({ product_id: 999, quantity: 100, type: IssuanceType.ALL })).rejects.toThrow(
-                "Produk tersebut tidak ditemukan",
-            );
-        });
-
-        it("should throw 400 if issuance data already exists for the period", async () => {
-            // @ts-ignore
-            prisma.product.findUnique.mockResolvedValue({ id: 1, name: "T-Shirt" });
-            // @ts-ignore
-            prisma.productIssuance.findUnique.mockResolvedValue({ id: 1, product_id: 1, month: 3, year: 2025 });
-
-            await expect(IssuanceService.create(mockBody)).rejects.toThrow(ApiError);
-        });
-
-        it("should not call create if product not found", async () => {
-            // @ts-ignore
-            prisma.product.findUnique.mockResolvedValue(null);
-
-            await expect(IssuanceService.create({ product_id: 999, quantity: 100, type: IssuanceType.ALL })).rejects.toThrow(ApiError);
-            // @ts-ignore
-            expect(prisma.productIssuance.create).not.toHaveBeenCalled();
-        });
-    });
-
-    // ─── UPDATE ───────────────────────────────────────────────────────────────
-
-    describe("update", () => {
-        const mockBody = { product_id: 1, quantity: 200, month: 3, year: 2025, type: IssuanceType.ALL };
-
-        it("should update issuance quantity successfully", async () => {
-            // @ts-ignore
-            prisma.productIssuance.findUnique.mockResolvedValue({ id: 1, product_id: 1, month: 3, year: 2025 });
-            // @ts-ignore
-            prisma.productIssuance.update.mockResolvedValue({ id: 1, quantity: 200 });
-
-            await expect(IssuanceService.update(mockBody)).resolves.toBeUndefined();
-            // @ts-ignore
-            expect(prisma.productIssuance.update).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    where: { id: 1 },
-                    data: { quantity: 200 },
-                }),
-            );
-        });
-
-        it("should throw 400 if month is missing", async () => {
-            await expect(
-                IssuanceService.update({ product_id: 1, quantity: 200, year: 2025, type: IssuanceType.ALL }),
-            ).rejects.toThrow(ApiError);
-            await expect(
-                IssuanceService.update({ product_id: 1, quantity: 200, year: 2025, type: IssuanceType.ALL }),
-            ).rejects.toThrow("Bulan dan tahun wajib diisi untuk proses update");
-        });
-
-        it("should throw 400 if year is missing", async () => {
-            await expect(
-                IssuanceService.update({ product_id: 1, quantity: 200, month: 3, type: IssuanceType.ALL }),
-            ).rejects.toThrow(ApiError);
-        });
-
-        it("should throw 404 if issuance record not found", async () => {
-            // @ts-ignore
-            prisma.productIssuance.findUnique.mockResolvedValue(null);
-
-            await expect(IssuanceService.update(mockBody)).rejects.toThrow(ApiError);
-            await expect(IssuanceService.update(mockBody)).rejects.toThrow("Data pengeluaran tidak ditemukan");
-        });
-
-        it("should not call update if record not found", async () => {
-            // @ts-ignore
-            prisma.productIssuance.findUnique.mockResolvedValue(null);
-
-            await expect(IssuanceService.update(mockBody)).rejects.toThrow(ApiError);
-            // @ts-ignore
-            expect(prisma.productIssuance.update).not.toHaveBeenCalled();
-        });
-    });
+    // ─── SAVE (UPSERT) ───────────────────────────────────────────────────────
+ 
+     describe("save", () => {
+         const mockBody = { product_id: 1, quantity: 150, month: 3, year: 2025, type: IssuanceType.ALL };
+ 
+         it("should upsert issuance data successfully", async () => {
+             // @ts-ignore
+             prisma.product.findUnique.mockResolvedValue({ id: 1, name: "T-Shirt" });
+             // @ts-ignore
+             prisma.productIssuance.upsert.mockResolvedValue({ id: 1, ...mockBody });
+ 
+             await expect(IssuanceService.save(mockBody)).resolves.toBeUndefined();
+             // @ts-ignore
+             expect(prisma.productIssuance.upsert).toHaveBeenCalledWith(
+                 expect.objectContaining({
+                     where: expect.objectContaining({
+                         product_id_year_month_type: { product_id: 1, month: 3, year: 2025, type: IssuanceType.ALL }
+                     }),
+                     update: { quantity: 150 },
+                     create: expect.objectContaining({ product_id: 1, quantity: 150, month: 3, year: 2025 }),
+                 }),
+             );
+         });
+ 
+         it("should use resolved period when month/year not provided", async () => {
+             const now = new Date();
+             const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+             const expectedMonth = d.getUTCMonth() + 1;
+             const expectedYear = d.getUTCFullYear();
+ 
+             // @ts-ignore
+             prisma.product.findUnique.mockResolvedValue({ id: 1, name: "T-Shirt" });
+             // @ts-ignore
+             prisma.productIssuance.upsert.mockResolvedValue({ id: 1 });
+ 
+             await IssuanceService.save({ product_id: 1, quantity: 100, type: IssuanceType.ALL });
+ 
+             // @ts-ignore
+             expect(prisma.productIssuance.upsert).toHaveBeenCalledWith(
+                 expect.objectContaining({
+                     create: expect.objectContaining({ month: expectedMonth, year: expectedYear }),
+                 }),
+             );
+         });
+ 
+         it("should throw 404 if product not found", async () => {
+             // @ts-ignore
+             prisma.product.findUnique.mockResolvedValue(null);
+ 
+             await expect(IssuanceService.save({ product_id: 999, quantity: 100, type: IssuanceType.ALL })).rejects.toThrow(ApiError);
+             await expect(IssuanceService.save({ product_id: 999, quantity: 100, type: IssuanceType.ALL })).rejects.toThrow(
+                 "Produk tersebut tidak ditemukan",
+             );
+         });
+ 
+         it("should throw 400 if type is not ALL for historical data (<= Feb 2026)", async () => {
+             // @ts-ignore
+             prisma.product.findUnique.mockResolvedValue({ id: 1, name: "T-Shirt" });
+ 
+             await expect(
+                 IssuanceService.save({ product_id: 1, quantity: 100, month: 2, year: 2026, type: IssuanceType.OFFLINE }),
+             ).rejects.toThrow("sistem hanya menerima tipe pengeluaran 'ALL'");
+         });
+ 
+         it("should not call upsert if product not found", async () => {
+             // @ts-ignore
+             prisma.product.findUnique.mockResolvedValue(null);
+ 
+             await expect(IssuanceService.save({ product_id: 999, quantity: 100, type: IssuanceType.ALL })).rejects.toThrow(ApiError);
+             // @ts-ignore
+             expect(prisma.productIssuance.upsert).not.toHaveBeenCalled();
+         });
+     });
 
     // ─── DETAIL ───────────────────────────────────────────────────────────────
 
