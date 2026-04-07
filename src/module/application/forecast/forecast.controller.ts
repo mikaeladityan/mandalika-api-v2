@@ -4,9 +4,11 @@ import { CreateLogger } from "../log/log.service.js";
 import type { CreateLoggingActivityDTO } from "../log/log.schema.js";
 import { ForecastService } from "./forecast.service.js";
 import {
+    BulkManualForecastSchema,
     DeleteForecastByPeriodSchema,
     FinalizeForecastSchema,
     QueryForecastSchema,
+    UpdateManualForecastSchema,
 } from "./forecast.schema.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 
@@ -90,14 +92,29 @@ export class ForecastController {
     }
 
     static async updateManual(c: Context) {
-        const body = c.get("body");
+        const body = UpdateManualForecastSchema.parse(c.get("body"));
         const session = c.get("session");
-
+ 
         const result = await ForecastService.updateManual(body);
-
+ 
         await CreateLogger({
             activity: "UPDATE",
             description: `${Table} Manual Update: Product ID ${body.product_id} for ${body.month}/${body.year}`,
+            email: session.email,
+        } satisfies CreateLoggingActivityDTO);
+ 
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async bulkManualUpdate(c: Context) {
+        const body = BulkManualForecastSchema.parse(c.get("body"));
+        const session = c.get("session");
+
+        const result = await ForecastService.bulkUpdateManual(body);
+
+        await CreateLogger({
+            activity: "UPDATE",
+            description: `${Table} Bulk Manual Update: Product ID ${body.product_id} for ${body.items.length} months`,
             email: session.email,
         } satisfies CreateLoggingActivityDTO);
 

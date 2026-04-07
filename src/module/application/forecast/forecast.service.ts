@@ -9,6 +9,9 @@ import {
     ResponseForecastDTO,
     RunForecastDTO,
     UpdateManualForecastDTO,
+    BulkManualForecastDTO,
+    RequestAddRatioForecastDTO,
+    RequestReconcileDTO,
 } from "./forecast.schema.js";
 
 const PRODUCT_SELECT = {
@@ -675,6 +678,18 @@ export class ForecastService {
             safety_stock_records: safetyStockBatch.length,
         };
     }
+    private static isOthersProduct(slug: string | null) {
+        const tSlug = slug?.toLowerCase() || "";
+        return (
+            tSlug.includes("display") ||
+            tSlug.includes("kertas") ||
+            tSlug.includes("gift-set") ||
+            tSlug.includes("botol") ||
+            tSlug.includes("paper-bag") ||
+            tSlug.includes("kartu-garansi") ||
+            tSlug.includes("canvas-bag")
+        );
+    }
     static async updateManual(body: UpdateManualForecastDTO) {
         const { product_id, month, year, final_forecast, ratio } = body;
 
@@ -686,17 +701,7 @@ export class ForecastService {
 
         if (!product) throw new ApiError(404, "Produk tidak ditemukan.");
 
-        const tSlug = product?.product_type?.slug?.toLowerCase() || "";
-        const isOthersProduct =
-            tSlug.includes("display") ||
-            tSlug.includes("kertas") ||
-            tSlug.includes("gift-set") ||
-            tSlug.includes("botol") ||
-            tSlug.includes("paper-bag") ||
-            tSlug.includes("kartu-garansi") ||
-            tSlug.includes("canvas-bag");
-
-        if (!isOthersProduct) {
+        if (!ForecastService.isOthersProduct(product?.product_type?.slug || "")) {
             throw new ApiError(403, "Update manual hanya diizinkan untuk produk Others.");
         }
 
@@ -733,7 +738,7 @@ export class ForecastService {
 
         let resolvedFinal = resolvedBase * (1 + resolvedRatio / 100);
 
-        const shouldPropagate = isOthersProduct && final_forecast !== undefined;
+        const shouldPropagate = ForecastService.isOthersProduct(product?.product_type?.slug || "") && final_forecast !== undefined;
 
         if (!shouldPropagate) {
             // SINGLE UPDATE (Non-Display or Display Ratio-only)
@@ -914,6 +919,110 @@ export class ForecastService {
         }
 
         return { message: "Forecast berhasil diperbarui secara manual." };
+    }
+
+    static async bulkUpdateManual(body: BulkManualForecastDTO) {
+        const { product_id, items } = body;
+
+        const product = await prisma.product.findUnique({
+            where: { id: product_id },
+            include: { product_type: true },
+        });
+
+        if (!product) throw new ApiError(404, "Produk tidak ditemukan.");
+        if (!ForecastService.isOthersProduct(product?.product_type?.slug || "")) {
+            throw new ApiError(403, "Update manual hanya diizinkan untuk produk Others.");
+        }
+
+        const safetyPct = Number(product.safety_percentage ?? 0);
+        const windowSize = 4;
+        const nowIso = new Date().toISOString();
+
+        // 1. Get all base forecasts for fallback if not provided
+        const getBase = async (m: number, y: number) => {
+            const existing = await prisma.forecast.findUnique({
+                where: { product_id_month_year: { product_id, month: m, year: y } },
+            });
+            if (existing) return Number(existing.base_forecast);
+
+            const prevMonth = m === 1 ? 12 : m - 1;
+            const prevYear = m === 1 ? y - 1 : y;
+            const sales = await prisma.$queryRaw<any[]>(Prisma.sql`
+                SELECT 
+                    COALESCE(
+                        NULLIF(SUM(CASE WHEN (year * 12 + month) > 24314 AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (year * 12 + month) <= 24314 AND type = 'ALL' THEN quantity ELSE 0 END)
+                    ) as quantity
+                FROM product_issuances
+                WHERE product_id = ${product_id} AND month = ${prevMonth} AND year = ${prevYear}
+            `);
+            return Number(sales[0]?.quantity ?? 0);
+        };
+
+        const percentages = await prisma.forecastPercentage.findMany({
+            where: {
+                OR: items.map((m) => ({ month: m.month, year: m.year })),
+            },
+        });
+        const pctMap = new Map(percentages.map((p) => [`${p.year}-${p.month}`, p]));
+
+        await prisma.$transaction(async (tx) => {
+            for (const item of items) {
+                const { month, year, final_forecast, ratio } = item;
+                const base = await getBase(month, year);
+
+                const resolvedBase = final_forecast !== undefined ? final_forecast : base;
+                const resolvedRatio = ratio !== undefined ? ratio : 0;
+                const resolvedFinal = resolvedBase * (1 + resolvedRatio / 100);
+                const pct = pctMap.get(`${year}-${month}`);
+
+                await tx.forecast.upsert({
+                    where: { product_id_month_year: { product_id, month, year } },
+                    create: {
+                        product_id,
+                        month,
+                        year,
+                        base_forecast: resolvedBase,
+                        final_forecast: resolvedFinal,
+                        ratio: resolvedRatio,
+                        trend: ForecastService.trend(resolvedFinal, resolvedBase),
+                        status: "ADJUSTED",
+                        forecast_percentage_id: pct?.id ?? 1,
+                    },
+                    update: {
+                        base_forecast: resolvedBase,
+                        final_forecast: resolvedFinal,
+                        ratio: resolvedRatio,
+                        trend: ForecastService.trend(resolvedFinal, resolvedBase),
+                        status: "ADJUSTED",
+                    },
+                });
+
+                // Safety Stock
+                const avg = resolvedFinal;
+                await tx.safetyStock.upsert({
+                    where: { product_id_month_year: { product_id, month, year } },
+                    create: {
+                        product_id,
+                        month,
+                        year,
+                        horizon: windowSize,
+                        avg_forecast: avg,
+                        total_forecast: avg * windowSize,
+                        safety_stock_quantity: avg * safetyPct,
+                        safety_stock_ratio: safetyPct,
+                    },
+                    update: {
+                        avg_forecast: avg,
+                        total_forecast: avg * windowSize,
+                        safety_stock_quantity: avg * safetyPct,
+                        safety_stock_ratio: safetyPct,
+                    },
+                });
+            }
+        });
+
+        return { message: `Berhasil memperbarui ${items.length} bulan.` };
     }
 
     // ─── GET ──────────────────────────────────────────────────────────────────────

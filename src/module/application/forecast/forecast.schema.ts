@@ -64,6 +64,18 @@ export const UpdateManualForecastSchema = z.object({
     ratio: z.coerce.number().optional(),
 });
 
+// ─── Bulk Manual Update ───────────────────────────────────────────────────
+
+export const BulkManualForecastSchema = z.object({
+    product_id: z.coerce.number().int().positive(),
+    items: z.array(z.object({
+        month: z.coerce.number().int().min(1).max(12),
+        year: z.coerce.number().int().min(2000).max(2100),
+        final_forecast: z.coerce.number().min(0).optional(),
+        ratio: z.coerce.number().optional(),
+    }))
+});
+
 // ─── Types / DTOs ──────────────────────────────────────────────────────────────
 
 export type RunForecastDTO = z.infer<typeof RunForecastSchema>;
@@ -73,6 +85,7 @@ export type DeleteForecastByPeriodDTO = z.infer<typeof DeleteForecastByPeriodSch
 export type RequestReconcileDTO = z.infer<typeof RequestReconcileSchema>;
 export type RequestAddRatioForecastDTO = z.infer<typeof RequestAddRatioForecastSchema>;
 export type UpdateManualForecastDTO = z.infer<typeof UpdateManualForecastSchema>;
+export type BulkManualForecastDTO = z.infer<typeof BulkManualForecastSchema>;
 
 export type ResponseForecastDTO = {
     product_id: number;
