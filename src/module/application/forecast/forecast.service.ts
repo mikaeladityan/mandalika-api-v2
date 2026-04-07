@@ -101,6 +101,9 @@ export class ForecastService {
     }
 
     static async run(body: RunForecastDTO) {
+        if (body.is_others) {
+            throw new ApiError(400, "Forecasting untuk produk 'Others' tidak didukung. Silakan kelola secara manual.");
+        }
         const { product_id, start_year, start_month, horizon = 12 } = body;
 
         // 1. Resolve all months in the requested horizon
