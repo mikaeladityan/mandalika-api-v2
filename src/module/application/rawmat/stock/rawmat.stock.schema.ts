@@ -8,6 +8,7 @@ export const QueryRawMaterialStockSchema = z.object({
     search: z.string().optional(),
     month: z.coerce.number().int().min(1).max(12).optional(),
     year: z.coerce.number().int().min(2000).optional(),
+    warehouse_id: z.coerce.number().int().positive().optional(),
     sortBy: z
         .enum(["name", "barcode", "updated_at", "created_at", "category", "amount"])
         .default("updated_at"),
@@ -15,9 +16,10 @@ export const QueryRawMaterialStockSchema = z.object({
 });
 
 export const ResponseRawMaterialStockSchema = z.object({
-    barcode: z.string().nullable(),
+    id: z.number().optional(),
+    barcode: z.string(),
     name: z.string(),
-    category: z.string().nullable(),
+    category: z.string(),
     uom: z.string(),
     amount: z.number(),
     stocks: z.record(z.string(), z.number()).default({}),

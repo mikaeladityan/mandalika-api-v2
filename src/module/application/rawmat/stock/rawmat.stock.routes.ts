@@ -7,4 +7,5 @@ export const RawMaterialStockRoutes = new Hono();
 RawMaterialStockRoutes.route("/import", RawMaterialStockImportRoutes);
 
 RawMaterialStockRoutes.get("/warehouses", RawMaterialStockController.listWarehouses);
+RawMaterialStockRoutes.get("/export", RawMaterialStockController.export);
 RawMaterialStockRoutes.get("/", RawMaterialStockController.listRawMaterialStock);
