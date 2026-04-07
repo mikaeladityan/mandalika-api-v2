@@ -35,6 +35,7 @@ export class RawmatImportService {
                     category: "",
                     supplier: "",
                     country: "",
+                    source: "LOCAL",
                     lead_time: 0,
                     errors: ["Internal parsing error"],
                 };
@@ -51,14 +52,19 @@ export class RawmatImportService {
                     category: "",
                     supplier: "",
                     country: "",
+                    source: "LOCAL",
                     lead_time: 0,
                     errors: parsed.error.issues.map((e) => e.message),
                 };
             }
 
             const data = parsed.data;
-            const rawCountry = String(data["LOCAL/IMPORT"] || "LOCAL").toUpperCase().trim();
-            const country = rawCountry === "IMPORT" ? "IMPORT" : "LOCAL"; // Normalize LOKAL -> LOCAL
+            const inputCountry = String(data.COUNTRY || data["LOCAL/IMPORT"] || "LOCAL").toUpperCase().trim();
+            
+            // Logic: Indonesia/Indo/Local/Lokal -> LOCAL, others -> IMPORT
+            const source = (inputCountry === "IMPORT" || (inputCountry !== "LOCAL" && inputCountry !== "LOKAL" && !inputCountry.includes("INDONESIA") && !inputCountry.includes("INDO"))) 
+                ? "IMPORT" 
+                : "LOCAL";
             
             return {
                 barcode: data.BARCODE.trim(),
@@ -69,7 +75,8 @@ export class RawmatImportService {
                 unit: (data.UOM || "UNIT").toUpperCase().trim(),
                 category: data.CATEGORY.toUpperCase().trim(),
                 supplier: (data.SUPPLIER || "UNKNOWN").toUpperCase().trim(),
-                country,
+                country: inputCountry,
+                source,
                 lead_time: data["LEAD TIME"] ?? 0,
                 errors: [],
             };
@@ -193,7 +200,7 @@ export class RawmatImportService {
                     supplierSlugMap.set(slug, {
                         name: d.supplier.trim(),
                         lowerName: d.supplier.trim().toLowerCase(),
-                        country: d.country?.toUpperCase() === "IMPORT" ? "IMPORT" : "LOCAL",
+                        country: d.country,
                     });
                 }
             }
@@ -259,7 +266,6 @@ export class RawmatImportService {
                             ${allCountries}::text[]
                         ) AS t(name, slug, country)
                         ON CONFLICT (slug) DO UPDATE SET 
-                            country = EXCLUDED.country,
                             updated_at = NOW()
                         RETURNING id, slug
                     `;
@@ -278,6 +284,7 @@ export class RawmatImportService {
             const categoryIds: number[] = []; // 0 = NULL
             const supplierIds: number[] = []; // 0 = NULL
             const leadTimes: number[]   = []; // 0 = NULL
+            const sources: string[]     = [];
 
             // Dedup data by barcode (non-empty) to avoid "affect row a second time" error
             const dedupped = new Map<string, RawmatImportPreviewDTO>();
@@ -301,6 +308,7 @@ export class RawmatImportService {
                 categoryIds.push(row.category ? (categorySlugToId.get(normalizeSlug(row.category)) ?? 0) : 0);
                 supplierIds.push(row.supplier ? (supplierSlugToId.get(normalizeSlug(row.supplier)) ?? 0) : 0);
                 leadTimes.push(row.lead_time || 0);
+                sources.push(row.source);
             }
 
             // ── 5. Single batch upsert raw_materials (1 query) ────────────────────
@@ -311,7 +319,7 @@ export class RawmatImportService {
                 INSERT INTO raw_materials (
                     barcode, name, price, min_buy, min_stock,
                     unit_id, raw_mat_categories_id, supplier_id, lead_time,
-                    created_at, updated_at
+                    source, created_at, updated_at
                 )
                 SELECT
                     NULLIF(b, ''),
@@ -323,6 +331,7 @@ export class RawmatImportService {
                     NULLIF(ci, 0)::int,
                     NULLIF(si, 0)::int,
                     NULLIF(lt, 0)::int,
+                    s::"RawMaterialSource",
                     NOW(),
                     NOW()
                 FROM unnest(
@@ -334,8 +343,9 @@ export class RawmatImportService {
                     ${unitIds}::int[],
                     ${categoryIds}::int[],
                     ${supplierIds}::int[],
-                    ${leadTimes}::int[]
-                ) AS t(b, n, p, mb, ms, ui, ci, si, lt)
+                    ${leadTimes}::int[],
+                    ${sources}::text[]
+                ) AS t(b, n, p, mb, ms, ui, ci, si, lt, s)
                 ON CONFLICT (barcode) DO UPDATE SET
                     name                  = EXCLUDED.name,
                     price                 = EXCLUDED.price,
@@ -345,6 +355,7 @@ export class RawmatImportService {
                     raw_mat_categories_id = EXCLUDED.raw_mat_categories_id,
                     supplier_id           = EXCLUDED.supplier_id,
                     lead_time             = EXCLUDED.lead_time,
+                    source                = EXCLUDED.source,
                     updated_at            = NOW()
             `;
         }, { maxWait: 30000, timeout: 60000 });

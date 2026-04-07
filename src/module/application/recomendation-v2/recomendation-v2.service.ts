@@ -62,9 +62,9 @@ export class RecomendationV2Service {
         if (type === 'ffo') {
             dynamicTypeFilter = Prisma.sql`rmc.slug ILIKE '%fragrance-oil%' OR rmc.slug ILIKE '%ffo%'`;
         } else if (type === 'lokal') {
-            dynamicTypeFilter = Prisma.sql`s.country ILIKE '%indonesia%' OR s.country ILIKE '%indo%'`;
+            dynamicTypeFilter = Prisma.sql`rm.source = 'LOCAL'`;
         } else if (type === 'impor') {
-            dynamicTypeFilter = Prisma.sql`s.country NOT ILIKE '%indonesia%' AND s.country NOT ILIKE '%indo%'`;
+            dynamicTypeFilter = Prisma.sql`rm.source = 'IMPORT'`;
         }
 
         let dynamicSearchFilter = Prisma.sql``;
@@ -134,9 +134,9 @@ export class RecomendationV2Service {
                 case "ffo":
                     return Prisma.sql`(rmc.slug ILIKE '%fragrance-oil%' OR rmc.slug ILIKE '%ffo%')`;
                 case "lokal":
-                    return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND (s.country ILIKE 'LOCAL' OR s.country IS NULL)`;
+                    return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND rm.source = 'LOCAL'`;
                 case "impor":
-                    return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND s.country ILIKE 'IMPORT'`;
+                    return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND rm.source = 'IMPORT'`;
                 default:
                     return Prisma.sql`1=1`;
             }
@@ -706,9 +706,9 @@ export class RecomendationV2Service {
                 case "ffo":
                     return Prisma.sql`(rmc.slug ILIKE '%fragrance-oil%' OR rmc.slug ILIKE '%ffo%')`;
                 case "lokal":
-                    return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND (s.country ILIKE 'LOCAL' OR s.country IS NULL)`;
+                    return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND rm.source = 'LOCAL'`;
                 case "impor":
-                    return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND s.country ILIKE 'IMPORT'`;
+                    return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND rm.source = 'IMPORT'`;
                 default:
                     return Prisma.sql`1=1`;
             }

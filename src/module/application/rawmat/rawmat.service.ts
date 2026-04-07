@@ -38,6 +38,7 @@ type RawRow = {
     sup_id: number | null;
     sup_name: string | null;
     sup_country: string | null;
+    source: "LOCAL" | "IMPORT";
 };
 
 const SORT_MAP: Record<string, string> = {
@@ -56,6 +57,7 @@ function toDTO(r: RawRow): ResponseRawMaterialDTO {
         id: r.id,
         barcode: r.barcode,
         name: r.name,
+        source: r.source,
         price: r.price,
         min_buy: r.min_buy,
         min_stock: r.min_stock,
@@ -116,6 +118,7 @@ export class RawMaterialService {
                     min_stock: data.min_stock ?? null,
                     lead_time: data.lead_time ?? null,
                     type: (data.type as MaterialType) ?? null,
+                    source: data.source as any,
                     unit_raw_material: unitRelation,
                     ...(categoryRelation && { raw_mat_category: categoryRelation }),
                     ...(data.supplier_id && {
@@ -149,6 +152,7 @@ export class RawMaterialService {
                 ...(payload.min_stock !== undefined && { min_stock: payload.min_stock }),
                 ...(payload.lead_time !== undefined && { lead_time: payload.lead_time }),
                 ...(payload.type !== undefined && { type: payload.type as MaterialType }),
+                ...(payload.source !== undefined && { source: payload.source as any }),
             };
 
             if (payload.supplier_id === null) {
@@ -183,7 +187,7 @@ export class RawMaterialService {
                 rm.price::float8 AS price,
                 rm.min_buy::float8 AS min_buy,
                 rm.min_stock::float8 AS min_stock,
-                rm.lead_time, rm.type,
+                rm.lead_time, rm.type, rm.source,
                 rm.created_at, rm.updated_at, rm.deleted_at,
                 urm.id AS unit_id, urm.name AS unit_name, urm.slug AS unit_slug,
                 rmc.id AS cat_id, rmc.name AS cat_name, rmc.slug AS cat_slug,
@@ -260,7 +264,7 @@ export class RawMaterialService {
                     rm.price::float8 AS price,
                     rm.min_buy::float8 AS min_buy,
                     rm.min_stock::float8 AS min_stock,
-                    rm.lead_time, rm.type,
+                    rm.lead_time, rm.type, rm.source,
                     rm.created_at, rm.updated_at, rm.deleted_at,
                     urm.id AS unit_id, urm.name AS unit_name, urm.slug AS unit_slug,
                     rmc.id AS cat_id, rmc.name AS cat_name, rmc.slug AS cat_slug,

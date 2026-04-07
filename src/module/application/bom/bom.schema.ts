@@ -77,6 +77,7 @@ export type ResponseMaterialBOMDetailDTO = {
         category: string;
         supplier: string;
         supplier_country: string;
+        source: "LOCAL" | "IMPORT";
         unit: string;
     };
     inventory: {

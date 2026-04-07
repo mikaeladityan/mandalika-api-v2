@@ -211,6 +211,7 @@ model RawMaterial {
   updated_at              DateTime?               @updatedAt
   lead_time               Int?
   type                    MaterialType?
+  source                  RawMaterialSource       @default(LOCAL)
   purchase_drafts         MaterialPurchaseDraft[]
   rawmaterial_inventories RawMaterialInventory[]
   open_pos                RawMaterialOpenPo[]
@@ -791,6 +792,11 @@ enum StatusProduction {
   PENDING
   PROCESSING
   FINISH
+}
+
+enum RawMaterialSource {
+  LOCAL
+  IMPORT
 }
 
 enum STATUS {

@@ -8,16 +8,22 @@ const sanitizeNumber = (val: unknown) => {
     return Number(val);
 };
 
+const sanitizeString = (val: unknown) => {
+    if (val === null || val === undefined || val === "") return undefined;
+    return String(val);
+};
+
 export const RawmatImportRowSchema = z.object({
     BARCODE: z.string().min(1, "Barcode wajib diisi"),
     "MATERIAL NAME": z.any(),
     CATEGORY: z.string().min(1, "Kategori wajib diisi"),
-    UOM: z.coerce.string().optional(),
+    UOM: z.preprocess(sanitizeString, z.string().optional()),
     MOQ: z.preprocess(sanitizeNumber, z.coerce.number().optional()),
     "MIN STOK": z.preprocess(sanitizeNumber, z.coerce.number().optional()),
     "LEAD TIME": z.preprocess(sanitizeNumber, z.coerce.number().optional()),
-    SUPPLIER: z.coerce.string().optional(),
-    "LOCAL/IMPORT": z.coerce.string().optional(),
+    SUPPLIER: z.preprocess(sanitizeString, z.string().optional()),
+    "LOCAL/IMPORT": z.preprocess(sanitizeString, z.string().optional()),
+    COUNTRY: z.preprocess(sanitizeString, z.string().optional()),
     PRICE: z.preprocess(sanitizeNumber, z.coerce.number().optional()),
 });
 
@@ -32,6 +38,7 @@ export type RawmatImportPreviewDTO = {
     category: string;
     supplier: string;
     country: string;
+    source: "LOCAL" | "IMPORT";
     lead_time: number;
     errors: string[];
 };
