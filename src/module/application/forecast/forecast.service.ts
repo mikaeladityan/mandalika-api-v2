@@ -26,7 +26,20 @@ export class ForecastService {
     static async export(query: QueryForecastDTO) {
         const { data } = await ForecastService.get({ ...query, take: 10000, page: 1 });
 
-        const monthsShort = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+        const monthsShort = [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "Mei",
+            "Jun",
+            "Jul",
+            "Agu",
+            "Sep",
+            "Okt",
+            "Nov",
+            "Des",
+        ];
 
         const esc = (v: string | number | null | undefined): string => {
             const s = String(v ?? "");
@@ -35,9 +48,10 @@ export class ForecastService {
                 : s;
         };
 
-        const periods = data.length > 0
-            ? data[0].monthly_data.map((m) => ({ month: m.month, year: m.year }))
-            : [];
+        const periods =
+            data.length > 0
+                ? data[0]?.monthly_data.map((m) => ({ month: m.month, year: m.year }))
+                : [];
 
         // Column order mirrors the frontend table
         const headers = [
@@ -46,7 +60,8 @@ export class ForecastService {
             "TYPE",
             "EDAR (%)",
             "SIZE",
-            ...periods.map((p) => `FC ${monthsShort[p.month - 1]}'${String(p.year).slice(-2)}`),
+            ...(periods?.map((p) => `FC ${monthsShort[p.month - 1]}'${String(p.year).slice(-2)}`) ||
+                []),
             "TOTAL FORECAST",
             "JUMLAH FORECAST",
             "% SAFETY",
@@ -61,11 +76,16 @@ export class ForecastService {
                 item.product_name.toUpperCase(),
                 item.product_type.toUpperCase(),
                 item.distribution_percentage ?? "",
-                item.product_size.toUpperCase().replace(/PCS|ML/g, "").trim(),
-                ...periods.map((p) => {
-                    const m = item.monthly_data.find((md) => md.month === p.month && md.year === p.year);
+                item.product_size
+                    .toUpperCase()
+                    .replace(/PCS|ML/g, "")
+                    .trim(),
+                ...(periods?.map((p) => {
+                    const m = item.monthly_data.find(
+                        (md) => md.month === p.month && md.year === p.year,
+                    );
                     return m ? Math.round(Number(m.final_forecast ?? m.base_forecast)) : 0;
-                }),
+                }) || []),
                 Math.round(Number(item.safety_stock_summary?.total_forecast ?? 0)),
                 Math.round(Number(item.safety_stock_summary?.total_demand ?? 0)),
                 item.safety_percentage ?? 0,
@@ -268,7 +288,7 @@ export class ForecastService {
                     p.product_type?.slug?.toLowerCase() === "edp" &&
                     (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
             );
-            
+
             if (hampersEdp && regEdp) {
                 const hSA = inputMap.get(hampersEdp.id) ?? 0;
                 const rSA = inputMap.get(regEdp.id) ?? 0;
@@ -277,14 +297,14 @@ export class ForecastService {
 
             const hampersParf = group.find(
                 (p) =>
-                    (p.product_type?.slug?.toLowerCase() === "hampers-parfum" || 
-                     p.product_type?.slug?.toLowerCase() === "hampers-perfume") &&
+                    (p.product_type?.slug?.toLowerCase() === "hampers-parfum" ||
+                        p.product_type?.slug?.toLowerCase() === "hampers-perfume") &&
                     (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
             );
             const regParf = group.find(
                 (p) =>
                     (p.product_type?.slug?.toLowerCase() === "parfum" ||
-                     p.product_type?.slug?.toLowerCase() === "perfume") &&
+                        p.product_type?.slug?.toLowerCase() === "perfume") &&
                     (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
             );
 
@@ -317,9 +337,15 @@ export class ForecastService {
                 const isOthersSlug = (s: string | undefined | null) => {
                     if (!s) return false;
                     const sl = s.toLowerCase();
-                    return sl.includes("display") || sl.includes("kertas") || sl.includes("gift-set") ||
-                        sl.includes("botol") || sl.includes("paper-bag") || sl.includes("kartu-garansi") ||
-                        sl.includes("canvas-bag");
+                    return (
+                        sl.includes("display") ||
+                        sl.includes("kertas") ||
+                        sl.includes("gift-set") ||
+                        sl.includes("botol") ||
+                        sl.includes("paper-bag") ||
+                        sl.includes("kartu-garansi") ||
+                        sl.includes("canvas-bag")
+                    );
                 };
 
                 const edpAnchors = group.filter((p) => {
@@ -355,7 +381,7 @@ export class ForecastService {
                 // ═══ TWO-PASS APPROACH for Hampers Mirroring ═══
                 // Map to store computed final_forecast per product id within this group+month
                 const computedFinalMap = new Map<number, number>();
-                
+
                 // --- PASS 1: Process hampers variants + atomizer + others first ---
                 for (const product of group) {
                     const slug = product.product_type?.slug?.toLowerCase();
@@ -363,15 +389,16 @@ export class ForecastService {
                     const distPct = Number(product.distribution_percentage ?? 0);
                     const input = currentInputMap.get(product.id) ?? 0;
 
-                    const isRegularEdpParfum = 
+                    const isRegularEdpParfum =
                         (slug === "edp" || slug === "parfum" || slug === "perfume") &&
                         (size === 100 || size === 110 || size === 120 || size === 2);
 
                     // In Pass 1, skip regular EDP/Parfum that need mirroring (defer to Pass 2)
-                    const needsMirrorInPass1 = isRegularEdpParfum && (
-                        ( (slug === "edp") && edpMirrorAromas.has(aromaName) ) ||
-                        ( (slug === "parfum" || slug === "perfume") && parfumMirrorAromas.has(aromaName) )
-                    );
+                    const needsMirrorInPass1 =
+                        isRegularEdpParfum &&
+                        ((slug === "edp" && edpMirrorAromas.has(aromaName)) ||
+                            ((slug === "parfum" || slug === "perfume") &&
+                                parfumMirrorAromas.has(aromaName)));
 
                     if (needsMirrorInPass1) {
                         continue;
@@ -384,19 +411,24 @@ export class ForecastService {
                     if (!body.is_others && isOthersSlug(slug)) {
                         base_forecast = 0;
                         final_forecast = 0;
-                    } 
+                    }
                     // If this is an others-run, it only processes others (already filtered by query)
                     // but we ensure non-regular items that skipped mirroring still happen here.
 
-
                     const isEdpParfumAnchor =
-                        (slug === "edp" || slug === "hampers-edp" ||
-                            slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") &&
+                        (slug === "edp" ||
+                            slug === "hampers-edp" ||
+                            slug === "parfum" ||
+                            slug === "perfume" ||
+                            slug === "hampers-parfum") &&
                         (size === 100 || size === 110 || size === 120);
                     const is2mlMirror =
                         size === 2 &&
-                        (slug === "edp" || slug === "hampers-edp" ||
-                            slug === "parfum" || slug === "perfume" || slug === "hampers-parfum");
+                        (slug === "edp" ||
+                            slug === "hampers-edp" ||
+                            slug === "parfum" ||
+                            slug === "perfume" ||
+                            slug === "hampers-parfum");
 
                     if (slug === "atomizer") {
                         base_forecast = atomBase;
@@ -428,13 +460,20 @@ export class ForecastService {
 
                     if (!body.is_others && isOthersSlug(slug)) continue;
 
-                    const isRegularEdp = slug === "edp" && (size === 100 || size === 110 || size === 120);
+                    const isRegularEdp =
+                        slug === "edp" && (size === 100 || size === 110 || size === 120);
                     const isRegularEdp2ml = slug === "edp" && size === 2;
-                    const isRegularParfum = (slug === "parfum" || slug === "perfume") && (size === 100 || size === 110 || size === 120);
-                    const isRegularParfum2ml = (slug === "parfum" || slug === "perfume") && size === 2;
+                    const isRegularParfum =
+                        (slug === "parfum" || slug === "perfume") &&
+                        (size === 100 || size === 110 || size === 120);
+                    const isRegularParfum2ml =
+                        (slug === "parfum" || slug === "perfume") && size === 2;
 
-                    const needsEdpMirror = (isRegularEdp || isRegularEdp2ml) && edpMirrorAromas.has(aromaName);
-                    const needsParfumMirror = (isRegularParfum || isRegularParfum2ml) && parfumMirrorAromas.has(aromaName);
+                    const needsEdpMirror =
+                        (isRegularEdp || isRegularEdp2ml) && edpMirrorAromas.has(aromaName);
+                    const needsParfumMirror =
+                        (isRegularParfum || isRegularParfum2ml) &&
+                        parfumMirrorAromas.has(aromaName);
 
                     if (!needsEdpMirror && !needsParfumMirror) continue;
 
@@ -444,24 +483,33 @@ export class ForecastService {
 
                     if (needsEdpMirror) {
                         const hEdp = group.find(
-                            (p) => p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
-                                (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+                            (p) =>
+                                p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
+                                (p.size?.size === 100 ||
+                                    p.size?.size === 110 ||
+                                    p.size?.size === 120),
                         );
                         if (hEdp) {
                             // Direct copy of hampers' final_forecast value
-                            final_forecast = computedFinalMap.get(hEdp.id) ?? (atomFinal * Number(hEdp.distribution_percentage ?? 0));
+                            final_forecast =
+                                computedFinalMap.get(hEdp.id) ??
+                                atomFinal * Number(hEdp.distribution_percentage ?? 0);
                         }
                     } else if (needsParfumMirror) {
-                        const hParf = group.find(
-                            (p) => {
-                                const s = p.product_type?.slug?.toLowerCase();
-                                return (s === "hampers-parfum" || s === "hampers-perfume") &&
-                                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120);
-                            }
-                        );
+                        const hParf = group.find((p) => {
+                            const s = p.product_type?.slug?.toLowerCase();
+                            return (
+                                (s === "hampers-parfum" || s === "hampers-perfume") &&
+                                (p.size?.size === 100 ||
+                                    p.size?.size === 110 ||
+                                    p.size?.size === 120)
+                            );
+                        });
                         if (hParf) {
                             // Direct copy of hampers' final_forecast value
-                            final_forecast = computedFinalMap.get(hParf.id) ?? (atomFinal * Number(hParf.distribution_percentage ?? 0));
+                            final_forecast =
+                                computedFinalMap.get(hParf.id) ??
+                                atomFinal * Number(hParf.distribution_percentage ?? 0);
                         }
                     }
 
@@ -1182,7 +1230,10 @@ export class ForecastService {
         });
     }
     private static getAromaBaseName(name: string): string {
-        return name.replace(/^hampers\s+/i, "").trim().toUpperCase();
+        return name
+            .replace(/^hampers\s+/i, "")
+            .trim()
+            .toUpperCase();
     }
 
     private static async loadVariantsByProductId(
@@ -1211,24 +1262,80 @@ export class ForecastService {
                     is_others
                         ? {
                               OR: [
-                                  { product_type: { slug: { contains: "display", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "display", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "kertas", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "gift-set", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "botol", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "paper-bag", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "kartu-garansi", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "canvas-bag", mode: "insensitive" },
+                                      },
+                                  },
                               ],
                           }
                         : {
                               NOT: [
-                                  { product_type: { slug: { contains: "display", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
-                                  { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "display", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "kertas", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "gift-set", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "botol", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "paper-bag", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "kartu-garansi", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "canvas-bag", mode: "insensitive" },
+                                      },
+                                  },
                               ],
                           },
                 ],
