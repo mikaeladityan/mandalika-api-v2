@@ -93,6 +93,7 @@ export const QueryProductSchema = z.object({
         .default("forecast_default"),
     sortOrder: z.enum(["asc", "desc"]).default("asc"),
     visibleColumns: z.string().optional(),
+    is_others: z.boolean().optional(),
 });
 
 export type RequestProductDTO = z.infer<typeof RequestProductSchema>;
