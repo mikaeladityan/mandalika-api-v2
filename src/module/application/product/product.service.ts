@@ -248,7 +248,7 @@ export class ProductService {
         if (search) {
             const searchPattern = `%${search}%`;
             conditions.push(
-                Prisma.sql`(p.name ILIKE ${searchPattern} OR p.code ILIKE ${searchPattern})`,
+                Prisma.sql`(p.name ILIKE ${searchPattern} OR p.code ILIKE ${searchPattern} OR pt.name ILIKE ${searchPattern})`,
             );
         }
 
@@ -329,7 +329,9 @@ export class ProductService {
         `;
 
         const countTask = prisma.$queryRaw<[{ count: bigint }]>`
-            SELECT COUNT(*)::bigint FROM products p ${whereClause}
+            SELECT COUNT(*)::bigint FROM products p 
+            LEFT JOIN product_types pt ON p.type_id = pt.id
+            ${whereClause}
         `;
 
         const [products, countResult] = await Promise.all([dataTask, countTask]);

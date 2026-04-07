@@ -977,10 +977,13 @@ export class ForecastService {
                           },
                       ],
                   }),
+            ...(query.type_id && { type_id: query.type_id }),
+            ...(query.size_id && { size_id: query.size_id }),
             ...(query.search && {
                 OR: [
                     { name: { contains: query.search, mode: "insensitive" } },
                     { code: { contains: query.search, mode: "insensitive" } },
+                    { product_type: { name: { contains: query.search, mode: "insensitive" } } },
                 ],
             }),
         };
@@ -1092,13 +1095,21 @@ export class ForecastService {
                         : Prisma.sql`pt.slug IS NULL OR (pt.slug NOT ILIKE '%display%' AND pt.slug NOT ILIKE '%kertas%' AND pt.slug NOT ILIKE '%gift-set%' AND pt.slug NOT ILIKE '%botol%' AND pt.slug NOT ILIKE '%paper-bag%' AND pt.slug NOT ILIKE '%kartu-garansi%' AND pt.slug NOT ILIKE '%canvas-bag%')`
                 }
               )
-            ${searchRaw ? Prisma.sql`AND (p.name ILIKE ${searchRaw} OR p.code ILIKE ${searchRaw})` : Prisma.empty}
+            ${searchRaw ? Prisma.sql`AND (p.name ILIKE ${searchRaw} OR p.code ILIKE ${searchRaw} OR pt.name ILIKE ${searchRaw})` : Prisma.empty}
             ${query.type_id ? Prisma.sql`AND p.type_id = ${query.type_id}` : Prisma.empty}
             ${query.size_id ? Prisma.sql`AND p.size_id = ${query.size_id}` : Prisma.empty}
             ORDER BY 
                 ${
                     query.is_others
-                        ? Prisma.sql`p.name ASC, p.id ASC`
+                        ? Prisma.sql`
+                        CASE 
+                            WHEN pt.slug ILIKE '%display%' AND pt.slug NOT ILIKE '%tester%' THEN 1
+                            WHEN pt.slug ILIKE '%tester%' THEN 2
+                            ELSE 3
+                        END ASC,
+                        p.name ASC, 
+                        p.id ASC
+                    `
                         : Prisma.sql`
                         group_sort_priority DESC,
                         p.name ASC, 

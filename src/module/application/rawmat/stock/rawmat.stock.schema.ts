@@ -25,5 +25,23 @@ export const ResponseRawMaterialStockSchema = z.object({
     stocks: z.record(z.string(), z.number()).default({}),
 });
 
+export const RequestRawMaterialStockSchema = z.object({
+    barcode: z.string(),
+    amount: z.number(),
+    warehouse_id: z.number(),
+    month: z.number().min(1).max(12),
+    year: z.number().min(2000),
+});
+
+export const RequestUpsertRawMaterialStockSchema = z.object({
+    raw_material_id: z.number(),
+    warehouse_id: z.number(),
+    quantity: z.number(),
+    month: z.number().min(1).max(12),
+    year: z.number().min(2000),
+});
+
 export type QueryRawMaterialStockDTO = z.infer<typeof QueryRawMaterialStockSchema>;
 export type ResponseRawMaterialStockDTO = z.infer<typeof ResponseRawMaterialStockSchema>;
+export type RequestRawMaterialStockDTO = z.infer<typeof RequestRawMaterialStockSchema>;
+export type RequestUpsertRawMaterialStockDTO = z.infer<typeof RequestUpsertRawMaterialStockSchema>;

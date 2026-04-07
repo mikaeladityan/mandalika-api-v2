@@ -32,6 +32,17 @@ export class RawMaterialStockController {
         return ApiResponse.sendSuccess(c, result, 200);
     }
 
+    static async listRawMaterials(c: Context) {
+        const result = await RawMaterialStockService.listRawMaterials();
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async upsertStock(c: Context) {
+        const data = await c.req.json();
+        const result = await RawMaterialStockService.upsertStock(data);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
     static async export(c: Context) {
         const query = c.req.query();
         const params: QueryRawMaterialStockDTO = {

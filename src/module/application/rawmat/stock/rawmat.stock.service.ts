@@ -1,7 +1,11 @@
 import prisma from "../../../../config/prisma.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
-import { QueryRawMaterialStockDTO, ResponseRawMaterialStockDTO } from "./rawmat.stock.schema.js";
+import {
+    QueryRawMaterialStockDTO,
+    RequestUpsertRawMaterialStockDTO,
+    ResponseRawMaterialStockDTO,
+} from "./rawmat.stock.schema.js";
 
 export class RawMaterialStockService {
     private static async getLatestPeriod() {
@@ -15,6 +19,47 @@ export class RawMaterialStockService {
         }
 
         return latest;
+    }
+
+    static async listRawMaterials() {
+        return prisma.rawMaterial.findMany({
+            where: {
+                deleted_at: null,
+            },
+            select: {
+                id: true,
+                name: true,
+                barcode: true,
+            },
+            orderBy: {
+                name: "asc",
+            },
+        });
+    }
+
+    static async upsertStock(data: RequestUpsertRawMaterialStockDTO) {
+        return prisma.rawMaterialInventory.upsert({
+            where: {
+                raw_material_id_warehouse_id_date_month_year: {
+                    raw_material_id: data.raw_material_id,
+                    warehouse_id: data.warehouse_id,
+                    date: 1,
+                    month: data.month,
+                    year: data.year,
+                },
+            },
+            update: {
+                quantity: data.quantity,
+            },
+            create: {
+                raw_material_id: data.raw_material_id,
+                warehouse_id: data.warehouse_id,
+                quantity: data.quantity,
+                date: 1,
+                month: data.month,
+                year: data.year,
+            },
+        });
     }
 
     static async listRawMaterialStock(query: QueryRawMaterialStockDTO): Promise<{
