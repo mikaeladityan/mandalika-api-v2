@@ -79,17 +79,28 @@ describe("RecipeService", () => {
             expect(prisma.$transaction).toHaveBeenCalled();
         });
 
-        it("should throw 400 if raw_material has duplicate ids", async () => {
+        it("should allow duplicate raw_material_ids (Hampers use case)", async () => {
             const body = {
                 product_id: 1,
                 raw_material: [
-                    { raw_material_id: 1, quantity: 2 },
-                    { raw_material_id: 1, quantity: 3 },
+                    { raw_material_id: 1, quantity: 0.3 },
+                    { raw_material_id: 1, quantity: 4.65 },
                 ],
             };
 
-            await expect(RecipeService.upsert(body)).rejects.toThrow(ApiError);
-            await expect(RecipeService.upsert(body)).rejects.toThrow("Raw material tidak boleh duplikasi");
+            // @ts-ignore
+            prisma.product.findUnique.mockResolvedValue({ id: 1 });
+            // @ts-ignore - only 1 unique ID expected
+            prisma.rawMaterial.findMany.mockResolvedValue([{ id: 1 }]);
+
+            const result = await RecipeService.upsert(body);
+
+            expect(result).toMatchObject({
+                product_id: 1,
+                total_material: 2,
+            });
+            // @ts-ignore
+            expect(prisma.$transaction).toHaveBeenCalled();
         });
 
         it("should throw 404 if product not found", async () => {
@@ -165,7 +176,11 @@ describe("RecipeService", () => {
                 .mockResolvedValueOnce(mockRawQueryCount)
                 .mockResolvedValueOnce([mockRawRecipeRow]);
 
-            const result = await RecipeService.list({ sortBy: "product", sortOrder: "asc", product_id: 1 });
+            const result = await RecipeService.list({
+                sortBy: "product",
+                sortOrder: "asc",
+                product_id: 1,
+            });
             expect(result.len).toBe(1);
         });
 
@@ -177,7 +192,11 @@ describe("RecipeService", () => {
                 .mockResolvedValueOnce(mockRawQueryCount)
                 .mockResolvedValueOnce([mockRawRecipeRow]);
 
-            const result = await RecipeService.list({ sortBy: "product", sortOrder: "desc", raw_mat_id: 1 });
+            const result = await RecipeService.list({
+                sortBy: "product",
+                sortOrder: "desc",
+                raw_mat_id: 1,
+            });
             expect(result.len).toBe(1);
         });
 
@@ -210,7 +229,15 @@ describe("RecipeService", () => {
         });
 
         it("should handle product_type and unit as null", async () => {
-            const rowNoType = { ...mockRawRecipeRow, pt_id: null, pt_name: null, pt_slug: null, unit_id: null, unit_name: null, unit_slug: null };
+            const rowNoType = {
+                ...mockRawRecipeRow,
+                pt_id: null,
+                pt_name: null,
+                pt_slug: null,
+                unit_id: null,
+                unit_name: null,
+                unit_slug: null,
+            };
             // @ts-ignore
             prisma.rawMaterialInventory.findFirst.mockResolvedValue(null);
             // @ts-ignore
@@ -257,19 +284,21 @@ describe("RecipeService", () => {
         });
 
         it("should return empty recipes array if product has no BOM", async () => {
-            const rowNoRecipe = [{
-                product_id: 1,
-                code: "TSHIRT",
-                name: "T-Shirt",
-                type_name: "Apparel",
-                unit_name: "pcs",
-                raw_mat_id: null,
-                barcode: null,
-                rm_name: null,
-                rm_price: null,
-                rm_quantity: null,
-                urm_name: null,
-            }];
+            const rowNoRecipe = [
+                {
+                    product_id: 1,
+                    code: "TSHIRT",
+                    name: "T-Shirt",
+                    type_name: "Apparel",
+                    unit_name: "pcs",
+                    raw_mat_id: null,
+                    barcode: null,
+                    rm_name: null,
+                    rm_price: null,
+                    rm_quantity: null,
+                    urm_name: null,
+                },
+            ];
             // @ts-ignore
             (prisma.$queryRaw as any).mockResolvedValueOnce(rowNoRecipe);
 

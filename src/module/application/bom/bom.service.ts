@@ -77,6 +77,7 @@ export class BOMService {
                 r.id,
                 r.version as recipe_version,
                 r.quantity::float8 as recipe_qty,
+                r.use_size_calc,
                 p.id as p_id, p.code as p_code, p.name as p_name, p.gender::text as p_gender,
                 p.safety_percentage::float8 as p_safety_percentage,
                 pt.name as pt_name, ps.size as ps_val, u.name as u_name,
@@ -208,15 +209,7 @@ export class BOMService {
 
             const group = groupedMap.get(r.p_id) as any;
             const itemForecast = group.forecast;
-
-            // FO Logic: Name starts with Fragrance Oil, Code FO-*, UoM ML
-            // Formula: Forecast * Size * Recipe_Qty
             const pSize = Number(r.ps_val) || 0;
-            const isFO =
-                (r.rm_name?.toLowerCase().includes("fragrance oil") ||
-                    r.rm_name?.toLowerCase().includes("fregance oil") ||
-                    r.rm_barcode?.startsWith("FO-")) &&
-                r.urm_name?.toUpperCase() === "ML";
 
             group.items.push({
                 id: r.id,
@@ -231,18 +224,18 @@ export class BOMService {
                     period: f.period,
                     month: f.month,
                     year: f.year,
-                    value: isFO
+                    value: r.use_size_calc
                         ? Math.floor(Math.round(f.value) * pSize * r.recipe_qty)
                         : Math.floor(Math.round(f.value) * r.recipe_qty),
                 })),
-                safety_stock_x_bom: isFO
+                safety_stock_x_bom: r.use_size_calc
                     ? Math.floor(Math.round(group.safety_stock) * pSize * r.recipe_qty)
                     : Math.floor(Math.round(group.safety_stock) * r.recipe_qty),
                 need_produce_x_bom: group.need_produce.map((np: any) => ({
                     period: np.period,
                     month: np.month,
                     year: np.year,
-                    value: isFO ? np.value * pSize * r.recipe_qty : np.value * r.recipe_qty,
+                    value: r.use_size_calc ? np.value * pSize * r.recipe_qty : np.value * r.recipe_qty,
                 })),
             });
         });
@@ -360,15 +353,10 @@ export class BOMService {
 
                 // Consistent FO Logic
                 const pSize = Number(r.products.size?.size) || 0;
-                const isFO =
-                    (rawMat.name.toLowerCase().includes("fragrance oil") ||
-                        rawMat.name.toLowerCase().includes("fregance oil") ||
-                        rawMat.barcode?.startsWith("FO-")) &&
-                    rawMat.unit_raw_material.name?.toUpperCase() === "ML";
 
                 forecastRange.forEach((p) => {
                     const fVal = forecastMap.get(`${r.product_id}-${p.month}-${p.year}`) || 0;
-                    const req = isFO
+                    const req = r.use_size_calc
                         ? Math.floor(fVal * pSize * Number(r.quantity))
                         : Math.floor(fVal * Number(r.quantity));
                     monthly_data[p.key] = req;

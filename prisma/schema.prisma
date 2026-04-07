@@ -310,10 +310,12 @@ model Recipes {
   description   String?
   is_active     Boolean     @default(true)
   version       Int         @default(1)
+  use_size_calc Boolean     @default(true)
   products      Product     @relation(fields: [product_id], references: [id], onDelete: Cascade)
   raw_materials RawMaterial @relation(fields: [raw_mat_id], references: [id], onDelete: Cascade)
 
-  @@unique([product_id, raw_mat_id, version])
+  @@index([product_id])
+  @@index([product_id, raw_mat_id])
   @@map("recipes")
 }
 

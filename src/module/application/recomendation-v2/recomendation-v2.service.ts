@@ -191,12 +191,12 @@ export class RecomendationV2Service {
                         rm.id AS raw_mat_id,
                         -- Forecast needed for the ENTIRE horizon
                         COALESCE(SUM(f.final_forecast * rec.quantity * 
-                            CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                            CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                         ), 0) AS total_forecast_needed,
                         -- Forecast needed for ONLY the current month (M)
                         COALESCE(SUM(
                             CASE WHEN f.month = ${currentMonth} AND f.year = ${currentYear} 
-                            THEN f.final_forecast * rec.quantity * CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                            THEN f.final_forecast * rec.quantity * CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                             ELSE 0 END
                         ), 0) AS m1_forecast_needed
                     FROM "raw_materials" rm
@@ -215,12 +215,12 @@ export class RecomendationV2Service {
                         -- Dynamic Safety Stock x Recipe
                         COALESCE(SUM(
                             dss.dynamic_ss_qty * rec.quantity * 
-                            CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                            CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                         ), 0) AS dynamic_ss_x_resep,
                         -- FG Stock (Physical FG) x Recipe
                         COALESCE(SUM(
                             COALESCE(pi_agg.total_qty, 0) * rec.quantity * 
-                            CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                            CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                         ), 0) AS stock_fg_x_resep
                     FROM "raw_materials" rm
                     JOIN "recipes" rec ON rec.raw_mat_id = rm.id AND rec.is_active = true
@@ -239,7 +239,7 @@ export class RecomendationV2Service {
                 rm_current_sales_agg AS (
                     SELECT
                         rec.raw_mat_id,
-                        SUM(pi.quantity * rec.quantity * CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END) as current_month_sales
+                        SUM(pi.quantity * rec.quantity * CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END) as current_month_sales
                     FROM "product_issuances" pi
                     JOIN "recipes" rec ON rec.product_id = pi.product_id AND rec.is_active = true
                     JOIN "raw_materials" rm ON rm.id = rec.raw_mat_id
@@ -337,7 +337,7 @@ export class RecomendationV2Service {
                         ), '[]'::json)
                         FROM (
                             SELECT ag_sub.month, ag_sub.year, SUM(ag_sub.total_month_qty * rec.quantity * 
-                                CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                                CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                             ) as qty
                             FROM (
                                 SELECT 
@@ -371,7 +371,7 @@ export class RecomendationV2Service {
                         ), '[]'::json)
                         FROM (
                             SELECT f.month, f.year, SUM(f.final_forecast * rec.quantity * 
-                                CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                                CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                             ) as total_needed
                             FROM "forecasts" f
                             JOIN "recipes" rec ON rec.product_id = f.product_id AND rec.is_active = true
@@ -416,7 +416,7 @@ export class RecomendationV2Service {
                     SELECT COALESCE(SUM(COALESCE(o.quantity, mr.calc_needed)), 0) AS total_needed
                     FROM (
                         SELECT f.month, f.year, SUM(f.final_forecast * rec.quantity * 
-                            CASE WHEN rm.type = 'FO' OR urm.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                            CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                         ) as calc_needed
                         FROM "recipes" rec
                         JOIN "forecasts" f ON f.product_id = rec.product_id

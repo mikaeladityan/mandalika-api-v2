@@ -2,7 +2,6 @@ import prisma from "../../../config/prisma.js";
 import { Prisma } from "../../../generated/prisma/client.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
-import ExcelJS from "exceljs";
 import {
     DeleteForecastByPeriodDTO,
     FinalizeForecastDTO,
@@ -27,119 +26,58 @@ export class ForecastService {
     static async export(query: QueryForecastDTO) {
         const { data } = await ForecastService.get({ ...query, take: 10000, page: 1 });
 
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet("Forecast Report");
+        const monthsShort = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
-        const monthsShort = [
-            "Jan",
-            "Feb",
-            "Mar",
-            "Apr",
-            "Mei",
-            "Jun",
-            "Jul",
-            "Agu",
-            "Sep",
-            "Okt",
-            "Nov",
-            "Des",
+        const esc = (v: string | number | null | undefined): string => {
+            const s = String(v ?? "");
+            return s.includes(",") || s.includes('"') || s.includes("\n")
+                ? `"${s.replace(/"/g, '""')}"`
+                : s;
+        };
+
+        const periods = data.length > 0
+            ? data[0].monthly_data.map((m) => ({ month: m.month, year: m.year }))
+            : [];
+
+        // Column order mirrors the frontend table
+        const headers = [
+            "CODE",
+            "PRODUCT NAME",
+            "TYPE",
+            "EDAR (%)",
+            "SIZE",
+            ...periods.map((p) => `FC ${monthsShort[p.month - 1]}'${String(p.year).slice(-2)}`),
+            "TOTAL FORECAST",
+            "JUMLAH FORECAST",
+            "% SAFETY",
+            "SAFETY STOCK",
+            "STOCK",
+            "NEED PRODUCE",
         ];
 
-        const fixedColumns = [
-            { header: "CODE", key: "product_code", width: 15 },
-            { header: "PRODUCT NAME", key: "product_name", width: 40 },
-            { header: "TYPE", key: "product_type", width: 15 },
-            { header: "SIZE", key: "product_size", width: 10 },
-            { header: "STOCK", key: "current_stock", width: 12 },
-            { header: "SAFETY STOCK", key: "safety_stock_quantity", width: 18 },
-            { header: "SS RATIO", key: "safety_stock_ratio", width: 12 },
-        ];
-
-        const dynamicColumns: any[] = [];
-        if (data.length > 0) {
-            data[0]?.monthly_data.forEach((m) => {
-                const periodLabel = `${monthsShort[m.month - 1]} ${String(m.year).slice(-2)}`;
-                dynamicColumns.push({
-                    header: `BASE FC\n(${periodLabel})`,
-                    key: `base_${m.month}_${m.year}`,
-                    width: 15,
-                });
-                dynamicColumns.push({
-                    header: `FINAL FC\n(${periodLabel})`,
-                    key: `final_${m.month}_${m.year}`,
-                    width: 15,
-                });
-            });
-        }
-
-        sheet.columns = [...fixedColumns, ...dynamicColumns];
-
-        // Format Header
-        const headerRow = sheet.getRow(1);
-        headerRow.height = 40;
-        headerRow.eachCell((cell) => {
-            cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
-            cell.fill = {
-                type: "pattern",
-                pattern: "solid",
-                fgColor: { argb: "FF4F46E5" }, // Indigo-600
-            };
-            cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-            cell.border = {
-                top: { style: "thin", color: { argb: "FF4338CA" } },
-                left: { style: "thin", color: { argb: "FF4338CA" } },
-                bottom: { style: "thin", color: { argb: "FF4338CA" } },
-                right: { style: "thin", color: { argb: "FF4338CA" } },
-            };
+        const rows = data.map((item) => {
+            const values: (string | number)[] = [
+                item.product_code ?? "",
+                item.product_name.toUpperCase(),
+                item.product_type.toUpperCase(),
+                item.distribution_percentage ?? "",
+                item.product_size.toUpperCase().replace(/PCS|ML/g, "").trim(),
+                ...periods.map((p) => {
+                    const m = item.monthly_data.find((md) => md.month === p.month && md.year === p.year);
+                    return m ? Math.round(Number(m.final_forecast ?? m.base_forecast)) : 0;
+                }),
+                Math.round(Number(item.safety_stock_summary?.total_forecast ?? 0)),
+                Math.round(Number(item.safety_stock_summary?.total_demand ?? 0)),
+                item.safety_percentage ?? 0,
+                Math.round(Number(item.safety_stock_summary?.safety_stock_quantity ?? 0)),
+                Math.round(item.current_stock),
+                Math.round(item.need_produce),
+            ];
+            return values.map(esc).join(",");
         });
 
-        // Add Data
-        data.forEach((item) => {
-            const rowData: any = {
-                product_code: item.product_code,
-                product_name: item.product_name.toUpperCase(),
-                product_type: item.product_type,
-                product_size: item.product_size,
-                current_stock: item.current_stock,
-                safety_stock_quantity: item.safety_stock_summary?.safety_stock_quantity || 0,
-                safety_stock_ratio: `${item.safety_stock_summary?.safety_stock_ratio || 0}%`,
-            };
-
-            item.monthly_data.forEach((m) => {
-                rowData[`base_${m.month}_${m.year}`] = m.base_forecast;
-                rowData[`final_${m.month}_${m.year}`] = m.final_forecast;
-            });
-
-            const row = sheet.addRow(rowData);
-
-            // Zebra Striping & Alignment
-            const isEven = sheet.rowCount % 2 === 0;
-            row.eachCell((cell, colNumber) => {
-                cell.border = {
-                    top: { style: "thin", color: { argb: "FFE2E8F0" } },
-                    left: { style: "thin", color: { argb: "FFE2E8F0" } },
-                    bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
-                    right: { style: "thin", color: { argb: "FFE2E8F0" } },
-                };
-
-                if (isEven) {
-                    cell.fill = {
-                        type: "pattern",
-                        pattern: "solid",
-                        fgColor: { argb: "FFF8FAFC" },
-                    };
-                }
-
-                // Numeric Alignment for values
-                if (colNumber > 4) {
-                    cell.alignment = { horizontal: "right", vertical: "middle" };
-                } else {
-                    cell.alignment = { horizontal: "left", vertical: "middle" };
-                }
-            });
-        });
-
-        return await workbook.csv.writeBuffer();
+        const csv = [headers.map(esc).join(","), ...rows].join("\n");
+        return Buffer.from("\uFEFF" + csv, "utf-8"); // BOM for Excel UTF-8 compatibility
     }
 
     static async run(body: RunForecastDTO) {
