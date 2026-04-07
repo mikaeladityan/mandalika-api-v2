@@ -1047,7 +1047,7 @@ export class RecomendationV2Service {
                 h > 0 && hasNeeds
                     ? (row.needs || [])
                           .slice(0, h)
-                          .reduce((sum: number, n: any) => sum + (n.quantity || 0), 0)
+                          .reduce((sum: number, n: any) => sum + (n.override_needs ?? n.quantity ?? 0), 0)
                     : null;
 
             const formattedRow: any = {
@@ -1071,7 +1071,7 @@ export class RecomendationV2Service {
 
             // Map Needs
             row.needs?.forEach((n: any) => {
-                formattedRow[`need_${n.key}`] = Math.round(n.quantity || 0);
+                formattedRow[`need_${n.key}`] = Math.round(n.override_needs ?? n.quantity ?? 0);
             });
 
             const excelRow = sheet.addRow(formattedRow);
