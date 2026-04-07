@@ -1076,36 +1076,7 @@ export class RecomendationV2Service {
 
             const excelRow = sheet.addRow(formattedRow);
 
-            // Horizon Highlighting (Amber background like in frontend)
-            const horizon = row.work_order_horizon || 0;
-            if (horizon > 0 && needStartCol > 0) {
-                for (let i = 0; i < horizon; i++) {
-                    const column = filteredColumns[needStartCol - 1 + i];
-                    if (column && column.key.startsWith("need_")) {
-                        const cell = excelRow.getCell(needStartCol + i);
-                        if (cell) {
-                            cell.fill = {
-                                type: "pattern",
-                                pattern: "solid",
-                                fgColor: { argb: "FFFFFF00" }, // Solid Yellow for horizon
-                            };
-                            cell.font = { bold: true };
-                        }
-                    }
-                }
-            }
         });
-
-        // Styling Header (Yellow Background)
-        sheet.getRow(1).font = { bold: true, size: 12 };
-        sheet.getRow(1).height = 25;
-        sheet.getRow(1).fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: "FF0070C0" }, // Professional Blue
-        };
-        sheet.getRow(1).font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } }; // White text for blue header
-        sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
 
         const buffer = await workbook.csv.writeBuffer();
         return buffer;
