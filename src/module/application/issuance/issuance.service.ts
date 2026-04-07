@@ -27,7 +27,7 @@ export class IssuanceService {
         });
     }
 
-    static async create(body: RequestIssuanceDTO): Promise<void> {
+    static async save(body: RequestIssuanceDTO): Promise<void> {
         const { product_id, quantity, month: rawMonth, year: rawYear, type } = body;
 
         const product = await this.findProduct(product_id);
@@ -43,40 +43,17 @@ export class IssuanceService {
             );
         }
 
-        const exist = await this.findIssuanceByPeriod(product_id, month, year, type);
-        if (exist) {
-            throw new ApiError(
-                400,
-                `Data pengeluaran ${product.name.toUpperCase()} tipe ${type} pada periode ${month}/${year} sudah tersedia`,
-            );
-        }
-
-        await prisma.productIssuance.create({
-            data: { product_id, quantity, month, year, type },
-        });
-    }
-
-    static async update(body: RequestIssuanceDTO): Promise<void> {
-        const { product_id, quantity, month, year, type } = body;
-
-        if (!month || !year) {
-            throw new ApiError(400, "Bulan dan tahun wajib diisi untuk proses update");
-        }
-
-        const forceAll = (year * 12 + month) <= IssuanceService.THRESHOLD_PERIOD;
-        if (forceAll && type !== IssuanceType.ALL) {
-            throw new ApiError(
-                400,
-                `Untuk periode ${month}/${year} dan sebelumnya, sistem hanya menerima tipe pengeluaran 'ALL'`,
-            );
-        }
-
-        const issuance = await this.findIssuanceByPeriod(product_id, month, year, type);
-        if (!issuance) throw new ApiError(404, "Data pengeluaran tidak ditemukan");
-
-        await prisma.productIssuance.update({
-            where: { id: issuance.id },
-            data: { quantity },
+        await prisma.productIssuance.upsert({
+            where: {
+                product_id_year_month_type: {
+                    product_id,
+                    month,
+                    year,
+                    type,
+                },
+            },
+            update: { quantity },
+            create: { product_id, quantity, month, year, type },
         });
     }
 
