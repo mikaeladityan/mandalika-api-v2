@@ -3,11 +3,8 @@ import { validateBody } from "../../../middleware/validation.js";
 import { ForecastPercentageRoutes } from "./percentages/percentages.routes.js";
 import { ForecastController } from "./forecast.controller.js";
 import {
-    BulkManualForecastSchema,
     DeleteForecastByPeriodSchema,
     FinalizeForecastSchema,
-    RequestAddRatioForecastSchema,
-    RequestReconcileSchema,
     RunForecastSchema,
     UpdateManualForecastSchema,
 } from "./forecast.schema.js";
@@ -21,7 +18,6 @@ ForecastRoutes.post("/run", validateBody(RunForecastSchema), ForecastController.
 ForecastRoutes.patch("/finalize", validateBody(FinalizeForecastSchema), ForecastController.finalize);
 ForecastRoutes.delete("/period", validateBody(DeleteForecastByPeriodSchema), ForecastController.deleteByPeriod);
 ForecastRoutes.patch("/manual-update", validateBody(UpdateManualForecastSchema), ForecastController.updateManual);
-ForecastRoutes.patch("/bulk-manual-update", validateBody(BulkManualForecastSchema), ForecastController.bulkManualUpdate);
 
 ForecastRoutes.get("/export", ForecastController.export);
 ForecastRoutes.get("/", ForecastController.list);

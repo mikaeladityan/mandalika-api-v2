@@ -231,12 +231,11 @@ export class ProductService {
             status,
             type_id,
             size_id,
-            is_others,
         } = query;
         const { skip, take: limit } = GetPagination(page, take);
- 
+
         const conditions: Prisma.Sql[] = [];
- 
+
         if (type_id) conditions.push(Prisma.sql`p.type_id = ${type_id}`);
         if (size_id) conditions.push(Prisma.sql`p.size_id = ${size_id}`);
         if (gender) conditions.push(Prisma.sql`p.gender = ${gender}::"GENDER"`);
@@ -245,28 +244,7 @@ export class ProductService {
         } else {
             conditions.push(Prisma.sql`p.status != 'DELETE'`);
         }
- 
-        if (is_others !== undefined) {
-            const othersPattern = [
-                "%display%",
-                "%kertas%",
-                "%gift-set%",
-                "%botol%",
-                "%paper-bag%",
-                "%kartu-garansi%",
-                "%canvas-bag%",
-            ];
-            const patternSql = Prisma.join(
-                othersPattern.map((p) => Prisma.sql`pt.slug ILIKE ${p}`),
-                " OR ",
-            );
-            if (is_others) {
-                conditions.push(Prisma.sql`(${patternSql})`);
-            } else {
-                conditions.push(Prisma.sql`NOT (${patternSql})`);
-            }
-        }
- 
+
         if (search) {
             const searchPattern = `%${search}%`;
             conditions.push(
