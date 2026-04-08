@@ -23,16 +23,16 @@ export class ConsolidationService {
 
             if (query.type === "ffo") {
                 type_condition.raw_mat_category = ffoFilter;
-            } else if (query.type === "lokal") {
-                type_condition.source = "LOCAL";
-                type_condition.raw_mat_category = {
-                    NOT: ffoFilter,
-                };
-            } else if (query.type === "impor") {
-                type_condition.source = "IMPORT";
-                type_condition.raw_mat_category = {
-                    NOT: ffoFilter,
-                };
+            } else if (query.type === "lokal" || query.type === "impor") {
+                type_condition.source = query.type === "lokal" ? "LOCAL" : "IMPORT";
+                type_condition.OR = [
+                    { raw_mat_categories_id: null },
+                    {
+                        raw_mat_category: {
+                            NOT: ffoFilter,
+                        },
+                    },
+                ];
             }
         }
 
@@ -145,16 +145,16 @@ export class ConsolidationService {
 
             if (query.type === "ffo") {
                 type_condition.raw_mat_category = ffoFilter;
-            } else if (query.type === "lokal") {
-                type_condition.source = "LOCAL";
-                type_condition.raw_mat_category = {
-                    NOT: ffoFilter,
-                };
-            } else if (query.type === "impor") {
-                type_condition.source = "IMPORT";
-                type_condition.raw_mat_category = {
-                    NOT: ffoFilter,
-                };
+            } else if (query.type === "lokal" || query.type === "impor") {
+                type_condition.source = query.type === "lokal" ? "LOCAL" : "IMPORT";
+                type_condition.OR = [
+                    { raw_mat_categories_id: null },
+                    {
+                        raw_mat_category: {
+                            NOT: ffoFilter,
+                        },
+                    },
+                ];
             }
         }
 
