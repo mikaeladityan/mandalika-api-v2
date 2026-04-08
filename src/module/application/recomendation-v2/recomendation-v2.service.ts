@@ -287,7 +287,7 @@ export class RecomendationV2Service {
                         (total_forecast_horizon_dynamic + safety_stock_x_resep)
                         - (current_stock + open_po)
                     )
-                END AS recommendation_val
+                END AS recommendation_quantity
             FROM (
                 SELECT
                     fm.id AS material_id,
@@ -465,7 +465,7 @@ export class RecomendationV2Service {
                                 : query.sortBy === "forecast_needed"
                                   ? Prisma.sql`forecast_needed ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
                                   : query.sortBy === "recommendation_quantity"
-                                    ? Prisma.sql`recommendation_val ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
+                                    ? Prisma.sql`recommendation_quantity ${query.order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
                                     : (type === 'ffo' 
                                         ? Prisma.sql`current_month_sales DESC, material_name ASC` 
                                         : Prisma.sql`material_name ASC`)
@@ -540,7 +540,7 @@ export class RecomendationV2Service {
                 safety_stock_x_resep: Number(r.safety_stock_x_resep),
                 forecast_needed: Number(r.forecast_needed),
                 total_needed_horizon: Number(r.total_forecast_horizon_dynamic),
-                recommendation_quantity: Number(r.recommendation_val),
+                recommendation_quantity: Number(r.recommendation_quantity),
 
                 // Work Order / Consolidation data
                 work_order_id: workOrder?.id || null,
