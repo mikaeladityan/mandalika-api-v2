@@ -15,6 +15,8 @@ SupplierRoutes.put(
 
 SupplierRoutes.delete("/:id", SupplierController.delete);
 
+SupplierRoutes.post("/bulk-delete", SupplierController.bulkDelete);
+
 SupplierRoutes.post("/", validateBody(RequestSupplierSchema), SupplierController.create);
 
 SupplierRoutes.get("/", SupplierController.list);

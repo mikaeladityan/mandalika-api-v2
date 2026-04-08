@@ -12,6 +12,30 @@ export class ConsolidationService {
         const currentMonth = month ?? now.getMonth() + 1;
         const currentYear = year ?? now.getFullYear();
 
+        const type_condition: any = {};
+        if (query.type) {
+            const ffoFilter = {
+                OR: [
+                    { slug: { contains: "fragrance-oil", mode: "insensitive" } },
+                    { slug: { contains: "ffo", mode: "insensitive" } },
+                ],
+            };
+
+            if (query.type === "ffo") {
+                type_condition.raw_mat_category = ffoFilter;
+            } else if (query.type === "lokal") {
+                type_condition.source = "LOCAL";
+                type_condition.raw_mat_category = {
+                    NOT: ffoFilter,
+                };
+            } else if (query.type === "impor") {
+                type_condition.source = "IMPORT";
+                type_condition.raw_mat_category = {
+                    NOT: ffoFilter,
+                };
+            }
+        }
+
         const query_condition: any = {
             status: "DRAFT",
             month: currentMonth,
@@ -21,18 +45,16 @@ export class ConsolidationService {
             },
         };
 
-        if (query.supplier_id) {
+        if (query.supplier_id || query.type || search) {
             query_condition.raw_material = {
-                supplier_id: query.supplier_id,
-            };
-        }
-
-        if (search) {
-            query_condition.raw_material = {
-                name: {
-                    contains: search,
-                    mode: "insensitive",
-                },
+                ...(query.supplier_id && { supplier_id: query.supplier_id }),
+                ...(query.type && type_condition),
+                ...(search && {
+                    name: {
+                        contains: search,
+                        mode: "insensitive",
+                    },
+                }),
             };
         }
 
@@ -112,6 +134,30 @@ export class ConsolidationService {
         const currentMonth = month ?? now.getMonth() + 1;
         const currentYear = year ?? now.getFullYear();
 
+        const type_condition: any = {};
+        if (query.type) {
+            const ffoFilter = {
+                OR: [
+                    { slug: { contains: "fragrance-oil", mode: "insensitive" } },
+                    { slug: { contains: "ffo", mode: "insensitive" } },
+                ],
+            };
+
+            if (query.type === "ffo") {
+                type_condition.raw_mat_category = ffoFilter;
+            } else if (query.type === "lokal") {
+                type_condition.source = "LOCAL";
+                type_condition.raw_mat_category = {
+                    NOT: ffoFilter,
+                };
+            } else if (query.type === "impor") {
+                type_condition.source = "IMPORT";
+                type_condition.raw_mat_category = {
+                    NOT: ffoFilter,
+                };
+            }
+        }
+
         const query_condition: any = {
             status: "DRAFT",
             month: currentMonth,
@@ -121,18 +167,16 @@ export class ConsolidationService {
             },
         };
 
-        if (query.supplier_id) {
+        if (query.supplier_id || query.type || search) {
             query_condition.raw_material = {
-                supplier_id: query.supplier_id,
-            };
-        }
-
-        if (search) {
-            query_condition.raw_material = {
-                name: {
-                    contains: search,
-                    mode: "insensitive",
-                },
+                ...(query.supplier_id && { supplier_id: query.supplier_id }),
+                ...(query.type && type_condition),
+                ...(search && {
+                    name: {
+                        contains: search,
+                        mode: "insensitive",
+                    },
+                }),
             };
         }
 

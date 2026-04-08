@@ -82,6 +82,28 @@ export class SupplierService {
         return prisma.supplier.delete({ where: { id } });
     }
 
+    static async bulkDelete(ids: number[]) {
+        const suppliers = await prisma.supplier.findMany({
+            where: { id: { in: ids } },
+            include: { _count: { select: { raw_materials: true } } },
+        });
+
+        if (suppliers.length !== ids.length) {
+            throw new ApiError(404, "Beberapa supplier tidak ditemukan");
+        }
+
+        const usedSuppliers = suppliers.filter((s) => (s as any)._count.raw_materials > 0);
+        if (usedSuppliers.length > 0) {
+            const names = usedSuppliers.map((s) => s.name).join(", ");
+            throw new ApiError(
+                400,
+                `Beberapa supplier (${names}) masih digunakan oleh Raw Material`,
+            );
+        }
+
+        return prisma.supplier.deleteMany({ where: { id: { in: ids } } });
+    }
+
     static async list({
         page = 1,
         take = 10,

@@ -36,6 +36,19 @@ export class SupplierController {
         return ApiResponse.sendSuccess(c, undefined, 201);
     }
 
+    static async bulkDelete(c: Context) {
+        const body = await c.req.json();
+        const { ids } = body;
+
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return ApiResponse.sendError(c, 400, "IDs supplier wajib diisi");
+        }
+
+        await SupplierService.bulkDelete(ids.map(Number));
+
+        return ApiResponse.sendSuccess(c, undefined, 201);
+    }
+
     static async list(c: Context) {
         const query = c.req.query();
 

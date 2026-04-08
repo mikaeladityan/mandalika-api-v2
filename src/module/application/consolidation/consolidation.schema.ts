@@ -11,6 +11,7 @@ export const QueryConsolidationSchema = z.object({
     order: z.enum(["asc", "desc"]).optional(),
     visibleColumns: z.string().optional(),
     columnOrder: z.string().optional(),
+    type: z.enum(["ffo", "lokal", "impor"]).optional(),
 });
 
 export type QueryConsolidationDTO = z.infer<typeof QueryConsolidationSchema>;
