@@ -22,7 +22,7 @@ export class RecomendationV2Service {
             month,
             year,
             type,
-            sales_months = 3,
+            sales_months = 4,
             forecast_months = 3,
             po_months = 3,
         } = query;
