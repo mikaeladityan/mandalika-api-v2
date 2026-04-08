@@ -84,14 +84,13 @@ export class RecomendationV2Service {
         const slEndY = salesPeriods[salesPeriods.length - 1]?.year || currentYear;
 
         const cleanSearch = search?.trim();
-        const searchRaw = cleanSearch ? `%${cleanSearch}%` : null;
-        const searchFilter = searchRaw
+        const searchFilter = cleanSearch
             ? Prisma.sql`AND (
-                rm.name ILIKE ${searchRaw}
-                OR rm.barcode ILIKE ${searchRaw}
-                OR s.name ILIKE ${searchRaw}
-                OR rmc.name ILIKE ${searchRaw}
-                OR urm.name ILIKE ${searchRaw}
+                rm.name ILIKE '%' || ${cleanSearch} || '%'
+                OR rm.barcode ILIKE '%' || ${cleanSearch} || '%'
+                OR s.name ILIKE '%' || ${cleanSearch} || '%'
+                OR rmc.name ILIKE '%' || ${cleanSearch} || '%'
+                OR urm.name ILIKE '%' || ${cleanSearch} || '%'
               )`
             : Prisma.empty;
 
@@ -169,6 +168,30 @@ export class RecomendationV2Service {
         // Main Query with calculation and sorting
         const rows = await prisma.$queryRaw<any[]>`
             WITH 
+                -- Optimization: Filter materials first to limit the workload for aggregate CTEs
+                filtered_materials AS (
+                    SELECT 
+                        rm.id, 
+                        rm.barcode, 
+                        rm.name, 
+                        s.name as s_name, 
+                        urm.name as u_name, 
+                        rm.min_buy, 
+                        rm.lead_time,
+                        rm.raw_mat_categories_id
+                    FROM "raw_materials" rm
+                    LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+                    LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
+                    LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
+                    WHERE ${typeFilter}
+                      AND rm.deleted_at IS NULL
+                      AND EXISTS (
+                          SELECT 1 FROM "recipes" r2
+                          WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
+                      )
+                      ${searchFilter}
+                ),
+
                 -- Pre-calculate product-level safety stock using FIXED 4-month average
                 prod_stats AS (
                     SELECT 
@@ -177,8 +200,10 @@ export class RecomendationV2Service {
                         p.safety_percentage
                     FROM "forecasts" f
                     JOIN "products" p ON p.id = f.product_id
+                    JOIN "recipes" rec ON rec.product_id = f.product_id AND rec.is_active = true
                     WHERE (f.year * 12 + f.month) >= ${ssStart}
                       AND (f.year * 12 + f.month) <= ${ssEnd}
+                      AND EXISTS (SELECT 1 FROM filtered_materials fm WHERE fm.id = rec.raw_mat_id)
                     GROUP BY f.product_id, p.safety_percentage
                 ),
                 prod_dynamic_ss AS (
@@ -189,44 +214,38 @@ export class RecomendationV2Service {
                 ),
                 rm_forecast_agg AS (
                     SELECT
-                        rm.id AS raw_mat_id,
-                        -- Forecast needed for the ENTIRE horizon
+                        fm.id AS raw_mat_id,
                         COALESCE(SUM(FLOOR(f.final_forecast * rec.quantity * 
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ), 0) AS total_forecast_needed,
-                        -- Forecast needed for ONLY the current month (M)
                         COALESCE(SUM(
                             CASE WHEN f.month = ${currentMonth} AND f.year = ${currentYear} 
                             THEN FLOOR(f.final_forecast * rec.quantity * CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                             ELSE 0 END
                         ), 0) AS m1_forecast_needed
-                    FROM "raw_materials" rm
-                    JOIN "recipes" rec ON rec.raw_mat_id = rm.id AND rec.is_active = true
+                    FROM filtered_materials fm
+                    JOIN "recipes" rec ON rec.raw_mat_id = fm.id AND rec.is_active = true
                     JOIN "forecasts" f ON f.product_id = rec.product_id
-                    LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
                     JOIN "products" p ON p.id = f.product_id
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE (f.year * 12 + f.month) >= ${fcStart}
                       AND (f.year * 12 + f.month) <= ${fcEnd}
-                    GROUP BY rm.id
+                    GROUP BY fm.id
                 ),
                 rm_stock_ss_agg AS (
                     SELECT
-                        rm.id AS raw_mat_id,
-                        -- Dynamic Safety Stock x Recipe
+                        fm.id AS raw_mat_id,
                         COALESCE(SUM(
                             FLOOR(dss.dynamic_ss_qty * rec.quantity * 
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ), 0) AS dynamic_ss_x_resep,
-                        -- FG Stock (Physical FG) x Recipe
                         COALESCE(SUM(
                             FLOOR(COALESCE(pi_agg.total_qty, 0) * rec.quantity * 
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ), 0) AS stock_fg_x_resep
-                    FROM "raw_materials" rm
-                    JOIN "recipes" rec ON rec.raw_mat_id = rm.id AND rec.is_active = true
+                    FROM filtered_materials fm
+                    JOIN "recipes" rec ON rec.raw_mat_id = fm.id AND rec.is_active = true
                     JOIN "products" p ON p.id = rec.product_id
-                    LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     LEFT JOIN prod_dynamic_ss dss ON dss.product_id = p.id
                     LEFT JOIN (
@@ -235,27 +254,25 @@ export class RecomendationV2Service {
                          WHERE month = ${fgInvMonth} AND year = ${fgInvYear}
                          GROUP BY product_id
                     ) pi_agg ON pi_agg.product_id = p.id
-                    GROUP BY rm.id
+                    GROUP BY fm.id
                 ),
                 rm_current_sales_agg AS (
                     SELECT
-                        rec.raw_mat_id,
+                        fm.id as raw_mat_id,
                         SUM(FLOOR(pi.quantity * rec.quantity * CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)) as current_month_sales
                     FROM "product_issuances" pi
                     JOIN "recipes" rec ON rec.product_id = pi.product_id AND rec.is_active = true
-                    JOIN "raw_materials" rm ON rm.id = rec.raw_mat_id
-                    LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
-                    JOIN "products" p ON p.id = pi.product_id
+                    JOIN filtered_materials fm ON fm.id = rec.raw_mat_id
+                    LEFT JOIN "products" p ON p.id = pi.product_id
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE pi.month = ${prevMonth} AND pi.year = ${prevYear}
                       AND (
                           ( (pi.year * 12 + pi.month) > ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type != 'ALL') OR
                           ( (pi.year * 12 + pi.month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type = 'ALL')
                       )
-                    GROUP BY rec.raw_mat_id
+                    GROUP BY fm.id
                 )
 
-            -- Main query joins CTEs and calculates dynamic recommendations
             SELECT 
                 *,
                 rank() OVER (
@@ -273,20 +290,20 @@ export class RecomendationV2Service {
                 END AS recommendation_val
             FROM (
                 SELECT
-                    rm.id AS material_id,
-                    rm.barcode AS barcode,
-                    rm.name AS material_name,
-                    s.name AS supplier_name,
-                    urm.name AS uom,
-                    rm.min_buy AS moq,
-                    rm.lead_time AS lead_time,
+                    fm.id AS material_id,
+                    fm.barcode AS barcode,
+                    fm.name AS material_name,
+                    fm.s_name AS supplier_name,
+                    fm.u_name AS uom,
+                    fm.min_buy AS moq,
+                    fm.lead_time AS lead_time,
                     mro.horizon AS work_order_horizon,
 
                     -- Physical Stock
                     COALESCE((
                         SELECT SUM(rmi.quantity)
                         FROM "raw_material_inventories" rmi
-                        WHERE rmi.raw_material_id = rm.id
+                        WHERE rmi.raw_material_id = fm.id
                           AND rmi.month = ${invMonth}
                           AND rmi.year = ${invYear}
                     ), 0) AS current_stock,
@@ -295,16 +312,16 @@ export class RecomendationV2Service {
                     COALESCE((
                         SELECT SUM(po.quantity)
                         FROM "raw_material_open_pos" po
-                        WHERE po.raw_material_id = rm.id AND po.status != 'RECEIVED'
+                        WHERE po.raw_material_id = fm.id AND po.status != 'RECEIVED'
                     ), 0) AS open_po,
 
-                    -- Open PO per month (M-1, M, M+1...M+Horizon)
+                    -- Open PO per month
                     (
                         SELECT COALESCE(json_agg(
                              json_build_object(
-                                 'month', p_data.m,
-                                  'year', p_data.y,
-                                  'quantity', p_data.qty
+                                  'month', p_data.m,
+                                   'year', p_data.y,
+                                   'quantity', p_data.qty
                              )
                         ), '[]'::json)
                         FROM (
@@ -313,7 +330,7 @@ export class RecomendationV2Service {
                                 EXTRACT(YEAR FROM po.order_date)::int as y,
                                 SUM(po.quantity) as qty
                             FROM "raw_material_open_pos" po
-                            WHERE po.raw_material_id = rm.id AND po.status != 'RECEIVED'
+                            WHERE po.raw_material_id = fm.id AND po.status != 'RECEIVED'
                             GROUP BY 1, 2
                         ) p_data
                     ) AS po_data,
@@ -322,7 +339,6 @@ export class RecomendationV2Service {
                     COALESCE(sa.dynamic_ss_x_resep, 0) AS safety_stock_x_resep,
                     COALESCE(sa.stock_fg_x_resep, 0) AS stock_fg_x_resep,
                     
-                    -- Sum from current month up to the set horizon
                     COALESCE(h_fc.total_needed, 0) AS total_forecast_horizon_dynamic,
                     COALESCE(fa.total_forecast_needed, 0) AS total_forecast_horizon_max,
                     COALESCE(cms.current_month_sales, 0) as current_month_sales,
@@ -355,7 +371,7 @@ export class RecomendationV2Service {
                             JOIN "recipes" rec ON rec.product_id = ag_sub.product_id AND rec.is_active = true
                             JOIN "products" p ON p.id = ag_sub.product_id
                             LEFT JOIN "product_size" ps ON ps.id = p.size_id
-                            WHERE rec.raw_mat_id = rm.id
+                            WHERE rec.raw_mat_id = fm.id
                             GROUP BY ag_sub.month, ag_sub.year
                         ) ag
                     ) AS sales_data,
@@ -378,13 +394,13 @@ export class RecomendationV2Service {
                             JOIN "recipes" rec ON rec.product_id = f.product_id AND rec.is_active = true
                             JOIN "products" p ON p.id = f.product_id
                             LEFT JOIN "product_size" ps ON ps.id = p.size_id
-                            WHERE rec.raw_mat_id = rm.id
+                            WHERE rec.raw_mat_id = fm.id
                               AND (f.year * 12 + f.month) >= ${fcStartY * 12 + fcStartM}
                               AND (f.year * 12 + f.month) <= ${fcEndY * 12 + fcEndM}
                             GROUP BY f.month, f.year
                         ) mr
                         LEFT JOIN "raw_material_need_overrides" o 
-                             ON o.raw_material_id = rm.id 
+                             ON o.raw_material_id = fm.id 
                              AND o.month = mr.month 
                              AND o.year = mr.year
                     ) AS needs_data,
@@ -399,18 +415,15 @@ export class RecomendationV2Service {
                             'horizon', mro_sub.horizon
                         )
                         FROM "material_purchase_drafts" mro_sub
-                        WHERE mro_sub.raw_mat_id = rm.id
+                        WHERE mro_sub.raw_mat_id = fm.id
                           AND mro_sub.month = ${currentMonth}
                           AND mro_sub.year = ${currentYear}
                         LIMIT 1
                     ) AS work_order_data
 
-                FROM "raw_materials" rm
-                LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
-                LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-                LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+                FROM filtered_materials fm
                 LEFT JOIN "material_purchase_drafts" mro 
-                    ON mro.raw_mat_id = rm.id 
+                    ON mro.raw_mat_id = fm.id 
                     AND mro.month = ${currentMonth} 
                     AND mro.year = ${currentYear}
                 LEFT JOIN LATERAL (
@@ -423,28 +436,21 @@ export class RecomendationV2Service {
                         JOIN "forecasts" f ON f.product_id = rec.product_id
                         JOIN "products" p ON p.id = f.product_id
                         LEFT JOIN "product_size" ps ON ps.id = p.size_id
-                        WHERE rec.raw_mat_id = rm.id
+                        WHERE rec.raw_mat_id = fm.id
                           AND mro.horizon IS NOT NULL
                           AND (f.year * 12 + f.month) >= ${currentYear * 12 + currentMonth}
                           AND (f.year * 12 + f.month) <= (${currentYear} * 12 + ${currentMonth} + COALESCE(mro.horizon, 0) - 1)
                         GROUP BY f.month, f.year
                     ) mr
                     LEFT JOIN "raw_material_need_overrides" o 
-                         ON o.raw_material_id = rm.id 
+                         ON o.raw_material_id = fm.id 
                          AND o.month = mr.month 
                          AND o.year = mr.year
                 ) h_fc ON TRUE
-                LEFT JOIN rm_current_sales_agg cms ON cms.raw_mat_id = rm.id
-                LEFT JOIN rm_forecast_agg fa ON fa.raw_mat_id = rm.id
-                LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = rm.id
-                WHERE ${typeFilter}
-                  AND rm.deleted_at IS NULL
-                  AND EXISTS (
-                      SELECT 1 FROM "recipes" r2
-                      WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
-                  )
-                --   AND rm.barcode IS DISTINCT FROM 'FO-ALK'
-                  ${searchFilter}
+                LEFT JOIN rm_current_sales_agg fa_sales ON fa_sales.raw_mat_id = fm.id
+                LEFT JOIN rm_forecast_agg fa ON fa.raw_mat_id = fm.id
+                LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = fm.id
+                LEFT JOIN rm_current_sales_agg cms ON cms.raw_mat_id = fm.id
             ) AS base
             ORDER BY 
                 CASE WHEN barcode = 'FO-ALK' THEN 1 ELSE 0 END ASC,
