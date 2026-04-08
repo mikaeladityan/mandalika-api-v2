@@ -10,6 +10,7 @@ import {
     RunForecastDTO,
     UpdateManualForecastDTO,
 } from "./forecast.schema.js";
+import { ISSUANCE_THRESHOLD_PERIOD } from "../issuance/issuance.service.js";
 
 const PRODUCT_SELECT = {
     id: true,
@@ -234,8 +235,8 @@ export class ForecastService {
             SELECT 
                 product_id,
                 COALESCE(
-                    NULLIF(SUM(CASE WHEN (year * 12 + month) > 24314 AND type != 'ALL' THEN quantity ELSE 0 END), 0),
-                    SUM(CASE WHEN (year * 12 + month) <= 24314 AND type = 'ALL' THEN quantity ELSE 0 END)
+                    NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                    SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
                 ) as total_quantity
             FROM product_issuances
             WHERE product_id IN (${Prisma.join(products.map((p) => p.id))})
@@ -716,8 +717,8 @@ export class ForecastService {
             const sales = await prisma.$queryRaw<any[]>(Prisma.sql`
                 SELECT 
                     COALESCE(
-                        NULLIF(SUM(CASE WHEN (year * 12 + month) > 24314 AND type != 'ALL' THEN quantity ELSE 0 END), 0),
-                        SUM(CASE WHEN (year * 12 + month) <= 24314 AND type = 'ALL' THEN quantity ELSE 0 END)
+                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
                     ) as quantity
                 FROM product_issuances
                 WHERE product_id = ${product_id} AND month = ${prevMonth} AND year = ${prevYear}

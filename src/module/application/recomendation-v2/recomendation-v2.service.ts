@@ -10,6 +10,7 @@ import {
     RequestSaveNeedOverrideDTO,
 } from "./recomendation-v2.schema.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
+import { ISSUANCE_THRESHOLD_PERIOD } from "../issuance/issuance.service.js";
 import ExcelJS from "exceljs";
 
 export class RecomendationV2Service {
@@ -248,8 +249,8 @@ export class RecomendationV2Service {
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE pi.month = ${prevMonth} AND pi.year = ${prevYear}
                       AND (
-                          ( (pi.year * 12 + pi.month) > 24314 AND pi.type != 'ALL') OR
-                          ( (pi.year * 12 + pi.month) <= 24314 AND pi.type = 'ALL')
+                          ( (pi.year * 12 + pi.month) > ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type != 'ALL') OR
+                          ( (pi.year * 12 + pi.month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type = 'ALL')
                       )
                     GROUP BY rec.raw_mat_id
                 )
@@ -343,8 +344,8 @@ export class RecomendationV2Service {
                                 SELECT 
                                     product_id, year, month,
                                     COALESCE(
-                                        NULLIF(SUM(CASE WHEN (year * 12 + month) > 24314 AND type != 'ALL' THEN quantity ELSE 0 END), 0),
-                                        SUM(CASE WHEN (year * 12 + month) <= 24314 AND type = 'ALL' THEN quantity ELSE 0 END)
+                                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                                        SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
                                     ) as total_month_qty
                                 FROM "product_issuances"
                                 WHERE (year * 12 + month) >= ${slStartY * 12 + slStartM}

@@ -102,6 +102,12 @@ export type ResponseMaterialBOMDetailDTO = {
         product_type: string;
         recipe_version: number;
         monthly_data: Record<string, number>;
+        sales_history: Array<{
+            period: string;
+            month: number;
+            year: number;
+            value: number;
+        }>;
         exploded_at: Date;
     }>;
 };

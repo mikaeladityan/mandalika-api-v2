@@ -5,8 +5,11 @@ import { GetPagination } from "../../../lib/utils/pagination.js";
 
 import { QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO } from "./issuance.schema.js";
 
+// Periode <= threshold → ambil type='ALL'; periode > threshold → SUM semua type non-ALL
+export const ISSUANCE_THRESHOLD_PERIOD = 2026 * 12 + 2; // February 2026
+
 export class IssuanceService {
-    static readonly THRESHOLD_PERIOD = 2026 * 12 + 2; // February 2026
+    static readonly THRESHOLD_PERIOD = ISSUANCE_THRESHOLD_PERIOD;
 
     private static resolvePeriod(month?: number, year?: number) {
         const now = new Date();

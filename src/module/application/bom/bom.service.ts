@@ -7,6 +7,7 @@ import {
     ResponseGroupedBOMDTO,
     ResponseMaterialBOMDetailDTO,
 } from "./bom.schema.js";
+import { ISSUANCE_THRESHOLD_PERIOD } from "../issuance/issuance.service.js";
 
 export class BOMService {
     static async list(query: QueryBOMDTO): Promise<ResponseBOMListDTO> {
@@ -119,8 +120,8 @@ export class BOMService {
                 SELECT 
                     product_id, year, month,
                     COALESCE(
-                        NULLIF(SUM(CASE WHEN (year * 12 + month) > 24314 AND type != 'ALL' THEN quantity ELSE 0 END), 0),
-                        SUM(CASE WHEN (year * 12 + month) <= 24314 AND type = 'ALL' THEN quantity ELSE 0 END)
+                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
                     ) as quantity
                 FROM product_issuances
                 WHERE product_id IN (${Prisma.join(productIds)})
@@ -269,6 +270,13 @@ export class BOMService {
         const currentYear = now.getUTCFullYear();
         const currentMonth = now.getUTCMonth() + 1;
 
+        // Sales Range: Last 3 months (excluding current month)
+        const salesRange = Array.from({ length: 3 }, (_, i) => {
+            const d = new Date(Date.UTC(currentYear, currentMonth - 2 - i, 1));
+            return { month: d.getUTCMonth() + 1, year: d.getUTCFullYear() };
+        }).reverse();
+        const salesPeriodVals = salesRange.map((s) => s.year * 12 + s.month);
+
         // 1. Check if this is a Material Code (Exploration View needed by detail.tsx)
         const rawMat = await prisma.rawMaterial.findFirst({
             where: { barcode: String(id) },
@@ -346,6 +354,25 @@ export class BOMService {
                 ),
             );
 
+            // Fetch Sales History (Product Issuance) for all products
+            const salesData = await prisma.$queryRaw<any[]>(Prisma.sql`
+                SELECT 
+                    product_id, year, month,
+                    COALESCE(
+                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
+                    ) as quantity
+                FROM product_issuances
+                WHERE product_id IN (${Prisma.join(productIds)})
+                  AND (year * 12 + month) IN (${Prisma.join(salesPeriodVals)})
+                GROUP BY product_id, year, month
+            `);
+
+            const salesMap = new Map<string, number>();
+            salesData.forEach((s) =>
+                salesMap.set(`${s.product_id}-${s.year}-${s.month}`, Number(s.quantity)),
+            );
+
             let totalRequirement = 0;
             const details = recipes.map((r) => {
                 const monthly_data: Record<string, number> = {};
@@ -398,6 +425,20 @@ export class BOMService {
                     };
                 });
 
+                // Calculate product-specific Sales History (Material Equivalent)
+                const productSalesHistory = salesRange.map((s) => {
+                    const sVal = salesMap.get(`${r.product_id}-${s.year}-${s.month}`) || 0;
+                    const val = r.use_size_calc
+                        ? Math.floor(sVal * pSize * Number(r.quantity))
+                        : Math.floor(sVal * Number(r.quantity));
+                    return {
+                        period: `${s.month}/${s.year}`,
+                        month: s.month,
+                        year: s.year,
+                        value: val,
+                    };
+                });
+
                 totalRequirement += productTotal;
 
                 return {
@@ -407,6 +448,7 @@ export class BOMService {
                     product_type: r.products.product_type?.name || "-",
                     recipe_version: r.version,
                     monthly_data,
+                    sales_history: productSalesHistory,
                     safety_stock: Math.floor(productSS),
                     need_produce: productNeedProduce,
                     exploded_at: now,
