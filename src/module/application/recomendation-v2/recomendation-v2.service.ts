@@ -209,7 +209,7 @@ export class RecomendationV2Service {
                 prod_dynamic_ss AS (
                     SELECT 
                         product_id,
-                        (total_forecast_horizon / ${FIXED_SS_MONTHS}::numeric * safety_percentage) as dynamic_ss_qty
+                        ROUND(total_forecast_horizon / ${FIXED_SS_MONTHS}::numeric * safety_percentage) as dynamic_ss_qty
                     FROM prod_stats
                 ),
                 rm_forecast_agg AS (

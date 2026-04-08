@@ -397,7 +397,7 @@ export class BOMService {
                     .sort((a, b) => (a.year * 12 + a.month) - (b.year * 12 + b.month))
                     .slice(0, FIXED_SS_MONTHS);
                 const sumProductForecast = ssProductForecasts.reduce(
-                    (sum, f) => sum + Math.round(Number(f.final_forecast)),
+                    (sum, f) => sum + Number(f.final_forecast),
                     0,
                 );
                 const avgProductForecast = sumProductForecast / FIXED_SS_MONTHS;
