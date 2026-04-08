@@ -200,10 +200,14 @@ export class RecomendationV2Service {
                         p.safety_percentage
                     FROM "forecasts" f
                     JOIN "products" p ON p.id = f.product_id
-                    JOIN "recipes" rec ON rec.product_id = f.product_id AND rec.is_active = true
                     WHERE (f.year * 12 + f.month) >= ${ssStart}
                       AND (f.year * 12 + f.month) <= ${ssEnd}
-                      AND EXISTS (SELECT 1 FROM filtered_materials fm WHERE fm.id = rec.raw_mat_id)
+                      AND EXISTS (
+                          SELECT 1 FROM "recipes" rec 
+                          WHERE rec.product_id = f.product_id 
+                          AND rec.is_active = true
+                          AND EXISTS (SELECT 1 FROM filtered_materials fm WHERE fm.id = rec.raw_mat_id)
+                      )
                     GROUP BY f.product_id, p.safety_percentage
                 ),
                 prod_dynamic_ss AS (
