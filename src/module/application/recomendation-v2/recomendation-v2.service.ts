@@ -1060,9 +1060,9 @@ export class RecomendationV2Service {
                 open_po: openPo,
                 total_stock: currentStock + openPo,
                 total_needed: totalNeeded !== null ? Math.round(totalNeeded) : null,
-                // Only show Work Order Qty if it's already ordered (ACC)
+                // Show Work Order Qty even if it is still a DRAFT
                 work_order_quantity:
-                    row.work_order_status === "ACC" ? row.work_order_quantity : null,
+                    row.work_order_quantity ? Math.round(row.work_order_quantity) : null,
             };
 
             // Map Sales
