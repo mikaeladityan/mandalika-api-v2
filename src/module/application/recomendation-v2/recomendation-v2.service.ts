@@ -267,7 +267,7 @@ export class RecomendationV2Service {
                     WHEN work_order_horizon IS NULL THEN 0
                     ELSE GREATEST(0,
                         (total_forecast_horizon_dynamic + safety_stock_x_resep)
-                        - (current_stock)
+                        - (current_stock + open_po)
                     )
                 END AS recommendation_val
             FROM (
@@ -877,7 +877,7 @@ export class RecomendationV2Service {
                 COALESCE(mro.quantity,
                     GREATEST(0,
                         COALESCE(fc.total, 0)
-                        - (COALESCE(inv.total, 0) - COALESCE(ss.total, 0))
+                        - (COALESCE(inv.total, 0) - COALESCE(ss.total, 0) + COALESCE(po.total, 0))
                     )
                 ) AS quantity,
                 ${horizon} AS horizon,
