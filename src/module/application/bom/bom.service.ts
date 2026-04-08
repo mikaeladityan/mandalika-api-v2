@@ -417,11 +417,16 @@ export class BOMService {
                     const fValAtMonth = fMatch ? Math.round(Number(fMatch.final_forecast)) : 0;
                     const needAtMonth = Math.max(0, fValAtMonth - runningStockDetail);
                     runningStockDetail = Math.max(0, runningStockDetail - fValAtMonth);
+                    
+                    const val = r.use_size_calc
+                        ? needAtMonth * pSize * Number(r.quantity)
+                        : needAtMonth * Number(r.quantity);
+
                     return {
                         period: p.key,
                         month: p.month,
                         year: p.year,
-                        value: Math.round(needAtMonth),
+                        value: Math.round(val),
                     };
                 });
 
@@ -449,7 +454,9 @@ export class BOMService {
                     recipe_version: r.version,
                     monthly_data,
                     sales_history: productSalesHistory,
-                    safety_stock: Math.floor(productSS),
+                    safety_stock: Math.floor(r.use_size_calc 
+                        ? productSS * pSize * Number(r.quantity) 
+                        : productSS * Number(r.quantity)),
                     need_produce: productNeedProduce,
                     exploded_at: now,
                 };
