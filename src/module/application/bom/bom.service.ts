@@ -19,8 +19,8 @@ export class BOMService {
         const currentYear = now.getUTCFullYear();
         const currentMonth = now.getUTCMonth() + 1;
 
-        // Sales: Last 3 months (excluding current month)
-        const salesRange = Array.from({ length: 3 }, (_, i) => {
+        // Sales: Last 4 months (excluding current month)
+        const salesRange = Array.from({ length: 4 }, (_, i) => {
             const d = new Date(Date.UTC(currentYear, currentMonth - 2 - i, 1));
             return { month: d.getUTCMonth() + 1, year: d.getUTCFullYear() };
         }).reverse();
@@ -270,8 +270,8 @@ export class BOMService {
         const currentYear = now.getUTCFullYear();
         const currentMonth = now.getUTCMonth() + 1;
 
-        // Sales Range: Last 3 months (excluding current month)
-        const salesRange = Array.from({ length: 3 }, (_, i) => {
+        // Sales Range: Last 4 months (excluding current month)
+        const salesRange = Array.from({ length: 4 }, (_, i) => {
             const d = new Date(Date.UTC(currentYear, currentMonth - 2 - i, 1));
             return { month: d.getUTCMonth() + 1, year: d.getUTCFullYear() };
         }).reverse();
