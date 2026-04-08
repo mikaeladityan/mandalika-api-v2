@@ -274,7 +274,7 @@ export class ForecastService {
         let currentInputMap = new Map<number, number>(inputMap);
         let previousTheoreticalAtomFinal = new Map<string, number>();
 
-        // Track aromas where regular variants have 0 SA, but hampers variants have >0 SA in M1
+        // Track aromas where regular variants should mirror hampers variants
         const edpMirrorAromas = new Set<string>();
         const parfumMirrorAromas = new Set<string>();
 
@@ -282,41 +282,20 @@ export class ForecastService {
             if (!group.length) continue;
             const aromaName = ForecastService.getAromaBaseName(group[0]!.name);
 
-            const hampersEdp = group.find(
+            const hasHampersEdp = group.some(
                 (p) =>
                     p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
                     (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
             );
-            const regEdp = group.find(
-                (p) =>
-                    p.product_type?.slug?.toLowerCase() === "edp" &&
-                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
-            );
+            if (hasHampersEdp) edpMirrorAromas.add(aromaName);
 
-            if (hampersEdp && regEdp) {
-                const hSA = inputMap.get(hampersEdp.id) ?? 0;
-                const rSA = inputMap.get(regEdp.id) ?? 0;
-                if (rSA === 0 && hSA > 0) edpMirrorAromas.add(aromaName);
-            }
-
-            const hampersParf = group.find(
+            const hasHampersParf = group.some(
                 (p) =>
                     (p.product_type?.slug?.toLowerCase() === "hampers-parfum" ||
                         p.product_type?.slug?.toLowerCase() === "hampers-perfume") &&
                     (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
             );
-            const regParf = group.find(
-                (p) =>
-                    (p.product_type?.slug?.toLowerCase() === "parfum" ||
-                        p.product_type?.slug?.toLowerCase() === "perfume") &&
-                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
-            );
-
-            if (hampersParf && regParf) {
-                const hSA = inputMap.get(hampersParf.id) ?? 0;
-                const rSA = inputMap.get(regParf.id) ?? 0;
-                if (rSA === 0 && hSA > 0) parfumMirrorAromas.add(aromaName);
-            }
+            if (hasHampersParf) parfumMirrorAromas.add(aromaName);
         }
 
         for (let i = 0; i < monthsRange.length; i++) {
@@ -426,7 +405,7 @@ export class ForecastService {
                             slug === "perfume" ||
                             slug === "hampers-parfum") &&
                         (size === 100 || size === 110 || size === 120);
-                    const is2mlMirror =
+                    const isVial2ml =
                         size === 2 &&
                         (slug === "edp" ||
                             slug === "hampers-edp" ||
@@ -437,9 +416,23 @@ export class ForecastService {
                     if (slug === "atomizer") {
                         base_forecast = atomBase;
                         final_forecast = atomFinal;
-                    } else if (isEdpParfumAnchor || is2mlMirror) {
+                    } else if (isEdpParfumAnchor) {
                         base_forecast = input * (1 + pctValue);
                         final_forecast = atomFinal * distPct;
+                    } else if (isVial2ml) {
+                        // Pass 1: Handle only Hampers 2ML or Regular 2ML that doesn't need mirroring
+                        // (Mirroring check is already done at the start of loop)
+                        base_forecast = input * (1 + pctValue);
+                        // Copy from its corresponding 100-120ml variant in this group
+                        const parent = group.find(p => 
+                            p.product_type?.slug?.toLowerCase() === slug && 
+                            (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120)
+                        );
+                        if (parent) {
+                            final_forecast = computedFinalMap.get(parent.id) ?? (atomFinal * Number(parent.distribution_percentage ?? 0));
+                        } else {
+                            final_forecast = atomFinal * distPct;
+                        }
                     }
 
                     computedFinalMap.set(product.id, final_forecast);
@@ -494,7 +487,7 @@ export class ForecastService {
                                     p.size?.size === 120),
                         );
                         if (hEdp) {
-                            // Direct copy of hampers' final_forecast value
+                            // Direct copy of hampers' final_forecast value for both 100ml and 2ml
                             final_forecast =
                                 computedFinalMap.get(hEdp.id) ??
                                 atomFinal * Number(hEdp.distribution_percentage ?? 0);
@@ -510,7 +503,7 @@ export class ForecastService {
                             );
                         });
                         if (hParf) {
-                            // Direct copy of hampers' final_forecast value
+                            // Direct copy of hampers' final_forecast value for both 100ml and 2ml
                             final_forecast =
                                 computedFinalMap.get(hParf.id) ??
                                 atomFinal * Number(hParf.distribution_percentage ?? 0);
