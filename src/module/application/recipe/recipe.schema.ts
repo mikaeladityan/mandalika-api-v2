@@ -51,9 +51,22 @@ export const QueryRecipeSchema = z.object({
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
+export const RequestDeleteRecipeSchema = z.object({
+    product_ids: z.array(z.number()).optional(),
+    versions: z
+        .array(
+            z.object({
+                product_id: z.number(),
+                version: z.number(),
+            }),
+        )
+        .optional(),
+});
+
 export type RequestRecipeDTO = z.input<typeof RequestRecipeSchema>;
 export type ResponseRecipeDTO = z.output<typeof ResponseRecipeSchema>;
 export type QueryRecipeDTO = z.input<typeof QueryRecipeSchema>;
+export type RequestDeleteRecipeDTO = z.input<typeof RequestDeleteRecipeSchema>;
 
 // POV Product
 export type ResponseDetailRecipeDTO = {

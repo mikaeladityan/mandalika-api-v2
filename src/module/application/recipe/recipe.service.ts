@@ -4,12 +4,35 @@ import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import {
     QueryRecipeDTO,
+    RequestDeleteRecipeDTO,
     RequestRecipeDTO,
     ResponseDetailRecipeDTO,
     ResponseRecipeDTO,
 } from "./recipe.schema.js";
 
 export class RecipeService {
+    static async destroy(body: RequestDeleteRecipeDTO) {
+        const { product_ids, versions } = body;
+
+        return await prisma.$transaction(async (tx) => {
+            if (product_ids && product_ids.length > 0) {
+                await tx.recipes.deleteMany({
+                    where: { product_id: { in: product_ids } },
+                });
+            }
+
+            if (versions && versions.length > 0) {
+                for (const v of versions) {
+                    await tx.recipes.deleteMany({
+                        where: { product_id: v.product_id, version: v.version },
+                    });
+                }
+            }
+
+            return { message: "Resep berhasil dihapus" };
+        });
+    }
+
     static async upsert(body: RequestRecipeDTO) {
         const product = await prisma.product.findUnique({
             where: { id: body.product_id },

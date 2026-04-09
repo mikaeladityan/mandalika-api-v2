@@ -10,6 +10,12 @@ export class RecipeController {
         return ApiResponse.sendSuccess(c, rest, 201);
     }
 
+    static async destroy(c: Context) {
+        const body = c.get("body");
+        const rest = await RecipeService.destroy(body);
+        return ApiResponse.sendSuccess(c, rest, 200);
+    }
+
     static async list(c: Context) {
         const { page, sortBy, sortOrder, take, search, product_id, raw_mat_id } = c.req.query();
 
