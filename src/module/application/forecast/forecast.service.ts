@@ -103,7 +103,10 @@ export class ForecastService {
 
     static async run(body: RunForecastDTO) {
         if (body.is_others) {
-            throw new ApiError(400, "Forecasting untuk produk 'Others' tidak didukung. Silakan kelola secara manual.");
+            throw new ApiError(
+                400,
+                "Forecasting untuk produk 'Others' tidak didukung. Silakan kelola secara manual.",
+            );
         }
         const { product_id, start_year, start_month, horizon = 12 } = body;
 
@@ -149,11 +152,6 @@ export class ForecastService {
                                     },
                                     {
                                         product_type: {
-                                            slug: { contains: "gift-set", mode: "insensitive" },
-                                        },
-                                    },
-                                    {
-                                        product_type: {
                                             slug: { contains: "botol", mode: "insensitive" },
                                         },
                                     },
@@ -187,11 +185,6 @@ export class ForecastService {
                                     {
                                         product_type: {
                                             slug: { contains: "kertas", mode: "insensitive" },
-                                        },
-                                    },
-                                    {
-                                        product_type: {
-                                            slug: { contains: "gift-set", mode: "insensitive" },
                                         },
                                     },
                                     {
@@ -323,7 +316,6 @@ export class ForecastService {
                     return (
                         sl.includes("display") ||
                         sl.includes("kertas") ||
-                        sl.includes("gift-set") ||
                         sl.includes("botol") ||
                         sl.includes("paper-bag") ||
                         sl.includes("kartu-garansi") ||
@@ -424,12 +416,17 @@ export class ForecastService {
                         // (Mirroring check is already done at the start of loop)
                         base_forecast = input * (1 + pctValue);
                         // Copy from its corresponding 100-120ml variant in this group
-                        const parent = group.find(p => 
-                            p.product_type?.slug?.toLowerCase() === slug && 
-                            (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120)
+                        const parent = group.find(
+                            (p) =>
+                                p.product_type?.slug?.toLowerCase() === slug &&
+                                (p.size?.size === 100 ||
+                                    p.size?.size === 110 ||
+                                    p.size?.size === 120),
                         );
                         if (parent) {
-                            final_forecast = computedFinalMap.get(parent.id) ?? (atomFinal * Number(parent.distribution_percentage ?? 0));
+                            final_forecast =
+                                computedFinalMap.get(parent.id) ??
+                                atomFinal * Number(parent.distribution_percentage ?? 0);
                         } else {
                             final_forecast = atomFinal * distPct;
                         }
@@ -687,7 +684,6 @@ export class ForecastService {
         const isOthersProduct =
             tSlug.includes("display") ||
             tSlug.includes("kertas") ||
-            tSlug.includes("gift-set") ||
             tSlug.includes("botol") ||
             tSlug.includes("paper-bag") ||
             tSlug.includes("kartu-garansi") ||
@@ -824,7 +820,7 @@ export class ForecastService {
                     const isTargetMonth = m.month === month && m.year === year;
                     const existing = existingMap.get(`${m.year}-${m.month}`);
 
-                    // Rule based on user prompt: 
+                    // Rule based on user prompt:
                     // Update only if it's the target month OR future months are "empty/draft" (Initial like behavior)
                     const shouldProcess = isTargetMonth || !existing || existing.status === "DRAFT";
 
@@ -948,7 +944,6 @@ export class ForecastService {
                       OR: [
                           { product_type: { slug: { contains: "display", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
-                          { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
                           {
                               product_type: {
@@ -971,7 +966,6 @@ export class ForecastService {
                       NOT: [
                           { product_type: { slug: { contains: "display", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
-                          { product_type: { slug: { contains: "gift-set", mode: "insensitive" } } },
                           { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
                           {
                               product_type: {
@@ -1104,8 +1098,8 @@ export class ForecastService {
               AND (
                 ${
                     query.is_others
-                        ? Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%gift-set%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%'`
-                        : Prisma.sql`pt.slug IS NULL OR (pt.slug NOT ILIKE '%display%' AND pt.slug NOT ILIKE '%kertas%' AND pt.slug NOT ILIKE '%gift-set%' AND pt.slug NOT ILIKE '%botol%' AND pt.slug NOT ILIKE '%paper-bag%' AND pt.slug NOT ILIKE '%kartu-garansi%' AND pt.slug NOT ILIKE '%canvas-bag%')`
+                        ? Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%'`
+                        : Prisma.sql`pt.slug IS NULL OR (pt.slug NOT ILIKE '%display%' AND pt.slug NOT ILIKE '%kertas%' AND pt.slug NOT ILIKE '%botol%' AND pt.slug NOT ILIKE '%paper-bag%' AND pt.slug NOT ILIKE '%kartu-garansi%' AND pt.slug NOT ILIKE '%canvas-bag%')`
                 }
               )
             ${searchRaw ? Prisma.sql`AND (p.name ILIKE ${searchRaw} OR p.code ILIKE ${searchRaw} OR pt.name ILIKE ${searchRaw})` : Prisma.empty}
@@ -1298,11 +1292,6 @@ export class ForecastService {
                                   },
                                   {
                                       product_type: {
-                                          slug: { contains: "gift-set", mode: "insensitive" },
-                                      },
-                                  },
-                                  {
-                                      product_type: {
                                           slug: { contains: "botol", mode: "insensitive" },
                                       },
                                   },
@@ -1333,11 +1322,6 @@ export class ForecastService {
                                   {
                                       product_type: {
                                           slug: { contains: "kertas", mode: "insensitive" },
-                                      },
-                                  },
-                                  {
-                                      product_type: {
-                                          slug: { contains: "gift-set", mode: "insensitive" },
                                       },
                                   },
                                   {
