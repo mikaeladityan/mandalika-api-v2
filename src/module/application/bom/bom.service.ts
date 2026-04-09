@@ -81,7 +81,7 @@ export class BOMService {
                 r.use_size_calc,
                 p.id as p_id, p.code as p_code, p.name as p_name, p.gender::text as p_gender,
                 p.safety_percentage::float8 as p_safety_percentage,
-                pt.name as pt_name, ps.size as ps_val, u.name as u_name,
+                pt.slug as pt_slug, pt.name as pt_name, ps.size as ps_val, u.name as u_name,
                 rm.id as rm_id, rm.barcode as rm_barcode, rm.name as rm_name, 
                 urm.name as urm_name,
                 
@@ -173,7 +173,20 @@ export class BOMService {
                 const ssForecasts = fscRange.slice(0, FIXED_SS_MONTHS);
                 const totalForecastForSS = ssForecasts.reduce((acc, f) => acc + f.value, 0);
                 const avgForecastForSS = totalForecastForSS / FIXED_SS_MONTHS;
-                const calculatedSS = avgForecastForSS * Number(r.p_safety_percentage || 0);
+                
+                const isOthers = r.pt_slug && (
+                    r.pt_slug.includes("display") || 
+                    r.pt_slug.includes("kertas") || 
+                    r.pt_slug.includes("botol") || 
+                    r.pt_slug.includes("paper-bag") || 
+                    r.pt_slug.includes("kartu-garansi") || 
+                    r.pt_slug.includes("canvas-bag")
+                );
+                const safetyPct = (r.p_safety_percentage && r.p_safety_percentage > 0)
+                    ? Number(r.p_safety_percentage)
+                    : (isOthers ? 0.25 : 0);
+
+                const calculatedSS = avgForecastForSS * safetyPct;
 
                 // Calculate Need Produce for entire horizon
                 let runningStock = Number(r.p_current_stock ?? 0);
@@ -396,12 +409,25 @@ export class BOMService {
                 const ssProductForecasts = productForecasts
                     .sort((a, b) => (a.year * 12 + a.month) - (b.year * 12 + b.month))
                     .slice(0, FIXED_SS_MONTHS);
-                const sumProductForecast = ssProductForecasts.reduce(
+                const totalProductForecast = ssProductForecasts.reduce(
                     (sum, f) => sum + Number(f.final_forecast),
                     0,
                 );
-                const avgProductForecast = sumProductForecast / FIXED_SS_MONTHS;
-                const productSS = Math.round(avgProductForecast * Number(r.products.safety_percentage || 0));
+                const avgProductForecast = totalProductForecast / FIXED_SS_MONTHS;
+                
+                const ptSlug = r.products.product_type?.slug?.toLowerCase() || "";
+                const isOthers = ptSlug.includes("display") || 
+                                ptSlug.includes("kertas") || 
+                                ptSlug.includes("botol") || 
+                                ptSlug.includes("paper-bag") || 
+                                ptSlug.includes("kartu-garansi") || 
+                                ptSlug.includes("canvas-bag");
+                
+                const safetyPct = (r.products.safety_percentage && Number(r.products.safety_percentage) > 0)
+                    ? Number(r.products.safety_percentage)
+                    : (isOthers ? 0.25 : 0);
+
+                const productSS = Math.round(avgProductForecast * safetyPct);
 
                 // Calculate product-specific Need Produce for entire Horizon
                 const productStockDetail = r.products.product_inventories.reduce(

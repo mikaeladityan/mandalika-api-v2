@@ -198,9 +198,15 @@ export class RecomendationV2Service {
                     SELECT 
                         f.product_id,
                         SUM(f.final_forecast) as total_forecast_horizon,
-                        p.safety_percentage
+                        CASE 
+                            WHEN (pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%') 
+                                 AND COALESCE(p.safety_percentage, 0) = 0 
+                            THEN 0.25 
+                            ELSE COALESCE(p.safety_percentage, 0) 
+                        END as safety_percentage
                     FROM "forecasts" f
                     JOIN "products" p ON p.id = f.product_id
+                    LEFT JOIN "product_types" pt ON pt.id = p.type_id
                     WHERE (f.year * 12 + f.month) >= ${ssStart}
                       AND (f.year * 12 + f.month) <= ${ssEnd}
                       AND EXISTS (
@@ -209,7 +215,7 @@ export class RecomendationV2Service {
                           AND rec.is_active = true
                           AND EXISTS (SELECT 1 FROM filtered_materials fm WHERE fm.id = rec.raw_mat_id)
                       )
-                    GROUP BY f.product_id, p.safety_percentage
+                    GROUP BY f.product_id, p.safety_percentage, pt.slug
                 ),
                 prod_dynamic_ss AS (
                     SELECT 
