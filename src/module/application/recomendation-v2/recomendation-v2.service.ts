@@ -46,7 +46,7 @@ export class RecomendationV2Service {
             salesPeriods.push({ month: m, year: y, key: `${m}-${y}` });
         }
 
-        const forecastPeriods: { month: number; year: number; key: string }[] = [];
+        const forecastPeriodsRaw: { month: number; year: number; key: string }[] = [];
         for (let i = 0; i < forecast_months; i++) {
             let m = currentMonth + i;
             let y = currentYear;
@@ -54,8 +54,20 @@ export class RecomendationV2Service {
                 m -= 12;
                 y += 1;
             }
-            forecastPeriods.push({ month: m, year: y, key: `${m}-${y}` });
+            forecastPeriodsRaw.push({ month: m, year: y, key: `${m}-${y}` });
         }
+
+        const forecastPercentages = await prisma.forecastPercentage.findMany({
+            where: {
+                OR: forecastPeriodsRaw.map((p) => ({ month: p.month, year: p.year })),
+            },
+        });
+        const pctMap = new Map(forecastPercentages.map((p) => [`${p.month}-${p.year}`, p.value]));
+
+        const forecastPeriods = forecastPeriodsRaw.map((p) => ({
+            ...p,
+            percentage: Number(pctMap.get(p.key) ?? 0) * 100,
+        }));
 
         // Dynamic back horizon for Open PO
         let backMonths = -1;
