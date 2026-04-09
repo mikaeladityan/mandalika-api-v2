@@ -109,6 +109,7 @@ export class RecomendationV2Service {
                 JOIN "raw_materials" rm ON rm.id = po.raw_material_id
                 LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
                 LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+                LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
                 WHERE po.status NOT IN ('RECEIVED', 'CANCELLED')
                   AND ${typeFilter}
                   ${searchFilter}
