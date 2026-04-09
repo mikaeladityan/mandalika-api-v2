@@ -39,7 +39,11 @@ export class BOMService {
         const forecastOrSql = Prisma.join(forecastConditions, " OR ");
 
         // 2. Build Query Conditions
-        const conditions: Prisma.Sql[] = [Prisma.sql`rm.deleted_at IS NULL`];
+        const conditions: Prisma.Sql[] = [
+            Prisma.sql`rm.deleted_at IS NULL`,
+            Prisma.sql`p.status = 'ACTIVE'::"STATUS"`,
+            Prisma.sql`p.deleted_at IS NULL`,
+        ];
         if (search) {
             const pat = `%${search}%`;
             conditions.push(
@@ -327,7 +331,11 @@ export class BOMService {
 
             // Fetch product usages
             const recipes = await prisma.recipes.findMany({
-                where: { raw_mat_id: rawMat.id, is_active: true },
+                where: {
+                    raw_mat_id: rawMat.id,
+                    is_active: true,
+                    products: { status: "ACTIVE", deleted_at: null },
+                },
                 include: {
                     products: {
                         include: {

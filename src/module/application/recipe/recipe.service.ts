@@ -102,7 +102,11 @@ export class RecipeService {
         const activeMonth = latestPeriod?.month ?? new Date().getMonth() + 1;
         const activeYear = latestPeriod?.year ?? new Date().getFullYear();
 
-        const conditions: Prisma.Sql[] = [Prisma.sql`rm.deleted_at IS NULL`];
+        const conditions: Prisma.Sql[] = [
+            Prisma.sql`rm.deleted_at IS NULL`,
+            Prisma.sql`p.status = 'ACTIVE'::"STATUS"`,
+            Prisma.sql`p.deleted_at IS NULL`,
+        ];
 
         if (product_id) conditions.push(Prisma.sql`r.product_id = ${product_id}`);
         if (raw_mat_id) conditions.push(Prisma.sql`r.raw_mat_id = ${raw_mat_id}`);

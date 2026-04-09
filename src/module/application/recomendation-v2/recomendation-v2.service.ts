@@ -199,6 +199,7 @@ export class RecomendationV2Service {
                     LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
                     WHERE ${typeFilter}
                       AND rm.deleted_at IS NULL
+                      AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
                       AND EXISTS (
                           SELECT 1 FROM "recipes" r2
                           WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
@@ -208,17 +209,17 @@ export class RecomendationV2Service {
 
                 -- Pre-calculate product-level safety stock using FIXED 4-month average
                 prod_stats AS (
-                    SELECT 
+                    SELECT
                         f.product_id,
                         SUM(f.final_forecast) as total_forecast_horizon,
-                        CASE 
-                            WHEN (pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%') 
-                                 AND COALESCE(p.safety_percentage, 0) = 0 
-                            THEN 0.25 
-                            ELSE COALESCE(p.safety_percentage, 0) 
+                        CASE
+                            WHEN (pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%')
+                                 AND COALESCE(p.safety_percentage, 0) = 0
+                            THEN 0.25
+                            ELSE COALESCE(p.safety_percentage, 0)
                         END as safety_percentage
                     FROM "forecasts" f
-                    JOIN "products" p ON p.id = f.product_id
+                    JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                     LEFT JOIN "product_types" pt ON pt.id = p.type_id
                     WHERE (f.year * 12 + f.month) >= ${ssStart}
                       AND (f.year * 12 + f.month) <= ${ssEnd}
@@ -239,18 +240,18 @@ export class RecomendationV2Service {
                 rm_forecast_agg AS (
                     SELECT
                         fm.id AS raw_mat_id,
-                        COALESCE(SUM(FLOOR(f.final_forecast * rec.quantity * 
+                        COALESCE(SUM(FLOOR(f.final_forecast * rec.quantity *
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ), 0) AS total_forecast_needed,
                         COALESCE(SUM(
-                            CASE WHEN f.month = ${currentMonth} AND f.year = ${currentYear} 
+                            CASE WHEN f.month = ${currentMonth} AND f.year = ${currentYear}
                             THEN FLOOR(f.final_forecast * rec.quantity * CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                             ELSE 0 END
                         ), 0) AS m1_forecast_needed
                     FROM filtered_materials fm
                     JOIN "recipes" rec ON rec.raw_mat_id = fm.id AND rec.is_active = true
                     JOIN "forecasts" f ON f.product_id = rec.product_id
-                    JOIN "products" p ON p.id = f.product_id
+                    JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE (f.year * 12 + f.month) >= ${fcStart}
                       AND (f.year * 12 + f.month) <= ${fcEnd}
@@ -260,16 +261,16 @@ export class RecomendationV2Service {
                     SELECT
                         fm.id AS raw_mat_id,
                         COALESCE(SUM(
-                            FLOOR(dss.dynamic_ss_qty * rec.quantity * 
+                            FLOOR(dss.dynamic_ss_qty * rec.quantity *
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ), 0) AS dynamic_ss_x_resep,
                         COALESCE(SUM(
-                            FLOOR(COALESCE(pi_agg.total_qty, 0) * rec.quantity * 
+                            FLOOR(COALESCE(pi_agg.total_qty, 0) * rec.quantity *
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ), 0) AS stock_fg_x_resep
                     FROM filtered_materials fm
                     JOIN "recipes" rec ON rec.raw_mat_id = fm.id AND rec.is_active = true
-                    JOIN "products" p ON p.id = rec.product_id
+                    JOIN "products" p ON p.id = rec.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     LEFT JOIN prod_dynamic_ss dss ON dss.product_id = p.id
                     LEFT JOIN (
@@ -287,7 +288,7 @@ export class RecomendationV2Service {
                     FROM "product_issuances" pi
                     JOIN "recipes" rec ON rec.product_id = pi.product_id AND rec.is_active = true
                     JOIN filtered_materials fm ON fm.id = rec.raw_mat_id
-                    LEFT JOIN "products" p ON p.id = pi.product_id
+                    JOIN "products" p ON p.id = pi.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE pi.month = ${prevMonth} AND pi.year = ${prevYear}
                       AND (
@@ -393,7 +394,7 @@ export class RecomendationV2Service {
                                 GROUP BY product_id, year, month
                             ) ag_sub
                             JOIN "recipes" rec ON rec.product_id = ag_sub.product_id AND rec.is_active = true
-                            JOIN "products" p ON p.id = ag_sub.product_id
+                            JOIN "products" p ON p.id = ag_sub.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                             LEFT JOIN "product_size" ps ON ps.id = p.size_id
                             WHERE rec.raw_mat_id = fm.id
                             GROUP BY ag_sub.month, ag_sub.year
@@ -416,16 +417,16 @@ export class RecomendationV2Service {
                             ) as total_needed
                             FROM "forecasts" f
                             JOIN "recipes" rec ON rec.product_id = f.product_id AND rec.is_active = true
-                            JOIN "products" p ON p.id = f.product_id
+                            JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                             LEFT JOIN "product_size" ps ON ps.id = p.size_id
                             WHERE rec.raw_mat_id = fm.id
                               AND (f.year * 12 + f.month) >= ${fcStartY * 12 + fcStartM}
                               AND (f.year * 12 + f.month) <= ${fcEndY * 12 + fcEndM}
                             GROUP BY f.month, f.year
                         ) mr
-                        LEFT JOIN "raw_material_need_overrides" o 
-                             ON o.raw_material_id = fm.id 
-                             AND o.month = mr.month 
+                        LEFT JOIN "raw_material_need_overrides" o
+                             ON o.raw_material_id = fm.id
+                             AND o.month = mr.month
                              AND o.year = mr.year
                     ) AS needs_data,
 
@@ -458,7 +459,7 @@ export class RecomendationV2Service {
                         ) as calc_needed
                         FROM "recipes" rec
                         JOIN "forecasts" f ON f.product_id = rec.product_id
-                        JOIN "products" p ON p.id = f.product_id
+                        JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                         LEFT JOIN "product_size" ps ON ps.id = p.size_id
                         WHERE rec.raw_mat_id = fm.id
                           AND mro.horizon IS NOT NULL
@@ -508,11 +509,11 @@ export class RecomendationV2Service {
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
+              AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
               AND EXISTS (
                   SELECT 1 FROM "recipes" r2
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
               )
-            --   AND rm.barcode IS DISTINCT FROM 'FO-ALK'
               ${searchFilter}
         `;
 
@@ -851,7 +852,7 @@ export class RecomendationV2Service {
                     JOIN "recipes" rec ON rec.product_id = f.product_id AND rec.is_active = true
                     JOIN "raw_materials" rm2 ON rm2.id = rec.raw_mat_id
                     LEFT JOIN "unit_raw_materials" urm2 ON urm2.id = rm2.unit_id
-                    JOIN "products" p ON p.id = f.product_id
+                    JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE (f.year * 12 + f.month) >= ${fcStart} AND (f.year * 12 + f.month) <= ${fcEnd}
                     GROUP BY rec.raw_mat_id
@@ -873,7 +874,7 @@ export class RecomendationV2Service {
                     FROM "recipes" rec
                     JOIN "raw_materials" rm2 ON rm2.id = rec.raw_mat_id
                     LEFT JOIN "unit_raw_materials" urm2 ON urm2.id = rm2.unit_id
-                    JOIN "products" p ON p.id = rec.product_id
+                    JOIN "products" p ON p.id = rec.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE rec.is_active = true
                     GROUP BY rec.raw_mat_id
@@ -885,7 +886,7 @@ export class RecomendationV2Service {
                     FROM "recipes" rec
                     JOIN "raw_materials" rm2 ON rm2.id = rec.raw_mat_id
                     LEFT JOIN "unit_raw_materials" urm2 ON urm2.id = rm2.unit_id
-                    JOIN "products" p ON p.id = rec.product_id
+                    JOIN "products" p ON p.id = rec.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     JOIN (
                         SELECT product_id, SUM(quantity) AS total_qty
@@ -932,11 +933,11 @@ export class RecomendationV2Service {
             LEFT JOIN fg_agg fg ON fg.raw_mat_id = rm.id
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
+              AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
               AND EXISTS (
                   SELECT 1 FROM "recipes" r2
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
               )
-            --   AND rm.barcode IS DISTINCT FROM 'FO-ALK'
             ON CONFLICT (raw_mat_id, month, year) DO UPDATE SET
                 horizon = EXCLUDED.horizon,
                 quantity = EXCLUDED.quantity,
