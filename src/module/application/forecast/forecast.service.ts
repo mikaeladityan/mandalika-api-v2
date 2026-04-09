@@ -228,20 +228,26 @@ export class ForecastService {
         });
 
         const salesData = await prisma.$queryRaw<any[]>(Prisma.sql`
-            SELECT
-                product_id,
-                COALESCE(
-                    NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
-                    SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
-                ) as total_quantity
-            FROM product_issuances
-            WHERE product_id IN (${Prisma.join(products.map((p) => p.id))})
-              AND (${Prisma.join(
-                  prevMonths.map(
-                      (pm) => Prisma.sql`(year = ${pm.year} AND month = ${pm.month})`,
-                  ),
-                  " OR ",
-              )})
+            SELECT product_id, SUM(month_qty) as total_quantity
+            FROM (
+                SELECT
+                    product_id,
+                    year,
+                    month,
+                    COALESCE(
+                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL'::"IssuanceType" THEN quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL'::"IssuanceType" THEN quantity ELSE 0 END)
+                    ) as month_qty
+                FROM product_issuances
+                WHERE product_id IN (${Prisma.join(products.map((p) => p.id))})
+                  AND (${Prisma.join(
+                      prevMonths.map(
+                          (pm) => Prisma.sql`(year = ${pm.year} AND month = ${pm.month})`,
+                      ),
+                      " OR ",
+                  )})
+                GROUP BY product_id, year, month
+            ) sub
             GROUP BY product_id
         `);
 
@@ -714,19 +720,25 @@ export class ForecastService {
                 return { month: d.getMonth() + 1, year: d.getFullYear() };
             });
             const sales = await prisma.$queryRaw<any[]>(Prisma.sql`
-                SELECT
-                    COALESCE(
-                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
-                        SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
-                    ) as quantity
-                FROM product_issuances
-                WHERE product_id = ${product_id}
-                  AND (${Prisma.join(
-                      prevPeriods.map(
-                          (pm) => Prisma.sql`(year = ${pm.year} AND month = ${pm.month})`,
-                      ),
-                      " OR ",
-                  )})
+                SELECT SUM(month_qty) as quantity
+                FROM (
+                    SELECT
+                        year,
+                        month,
+                        COALESCE(
+                            NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL'::"IssuanceType" THEN quantity ELSE 0 END), 0),
+                            SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL'::"IssuanceType" THEN quantity ELSE 0 END)
+                        ) as month_qty
+                    FROM product_issuances
+                    WHERE product_id = ${product_id}
+                      AND (${Prisma.join(
+                          prevPeriods.map(
+                              (pm) => Prisma.sql`(year = ${pm.year} AND month = ${pm.month})`,
+                          ),
+                          " OR ",
+                      )})
+                    GROUP BY year, month
+                ) sub
             `);
             return Number(sales[0]?.quantity ?? 0) / AVG_MONTHS;
         };
