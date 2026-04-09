@@ -394,26 +394,20 @@ export class RecomendationV2Service {
                                  'month', mr.month,
                                  'year', mr.year,
                                  'needs', mr.total_needed,
-                                 'override_needs', o.quantity,
-                                 'forecast_percentage', mr.forecast_percentage
+                                 'override_needs', o.quantity
                              )
                         ), '[]'::json)
                         FROM (
-                            SELECT 
-                                f.month, 
-                                f.year, 
-                                SUM(FLOOR(f.final_forecast * rec.quantity * 
-                                    CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
-                                ) as total_needed,
-                                MAX(COALESCE(fp.value, 0)) as forecast_percentage
+                            SELECT f.month, f.year, SUM(FLOOR(f.final_forecast * rec.quantity * 
+                                CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
+                            ) as total_needed
                             FROM "forecasts" f
                             JOIN "recipes" rec ON rec.product_id = f.product_id AND rec.is_active = true
                             JOIN "products" p ON p.id = f.product_id
                             LEFT JOIN "product_size" ps ON ps.id = p.size_id
-                            LEFT JOIN "forecasts_percentages" fp ON fp.month = f.month AND fp.year = f.year
                             WHERE rec.raw_mat_id = fm.id
                               AND (f.year * 12 + f.month) >= ${fcStartY * 12 + fcStartM}
-                              AND (f.year * 12 + f.month) <= ${fcEndY * 12 + fcStartM}
+                              AND (f.year * 12 + f.month) <= ${fcEndY * 12 + fcEndM}
                             GROUP BY f.month, f.year
                         ) mr
                         LEFT JOIN "raw_material_need_overrides" o 
