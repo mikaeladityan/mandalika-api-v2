@@ -220,12 +220,15 @@ export class ForecastService {
             throw new ApiError(404, "Tidak ada produk aktif ditemukan.");
         }
 
-        // 3. Load actual sales for the base month (M-1 of start_month)
-        const prevMonth = start_month === 1 ? 12 : start_month - 1;
-        const prevYear = start_month === 1 ? start_year - 1 : start_year;
+        // 3. Load actual sales for the base period (average of M-1, M-2, M-3)
+        const AVG_MONTHS = 3;
+        const prevMonths = Array.from({ length: AVG_MONTHS }, (_, i) => {
+            const d = new Date(start_year, start_month - 1 - (i + 1), 1);
+            return { month: d.getMonth() + 1, year: d.getFullYear() };
+        });
 
         const salesData = await prisma.$queryRaw<any[]>(Prisma.sql`
-            SELECT 
+            SELECT
                 product_id,
                 COALESCE(
                     NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
@@ -233,13 +236,17 @@ export class ForecastService {
                 ) as total_quantity
             FROM product_issuances
             WHERE product_id IN (${Prisma.join(products.map((p) => p.id))})
-              AND year = ${prevYear}
-              AND month = ${prevMonth}
+              AND (${Prisma.join(
+                  prevMonths.map(
+                      (pm) => Prisma.sql`(year = ${pm.year} AND month = ${pm.month})`,
+                  ),
+                  " OR ",
+              )})
             GROUP BY product_id
         `);
 
         const inputMap = new Map<number, number>(
-            salesData.map((s) => [s.product_id, Number(s.total_quantity ?? 0)]),
+            salesData.map((s) => [s.product_id, Number(s.total_quantity ?? 0) / AVG_MONTHS]),
         );
 
         // 4. Calculate sequentially through the horizon
@@ -700,19 +707,28 @@ export class ForecastService {
             });
             if (existing) return Number(existing.base_forecast);
 
-            // Fallback to recent sales
-            const prevMonth = m === 1 ? 12 : m - 1;
-            const prevYear = m === 1 ? y - 1 : y;
+            // Fallback to average of 3 previous months' sales
+            const AVG_MONTHS = 3;
+            const prevPeriods = Array.from({ length: AVG_MONTHS }, (_, i) => {
+                const d = new Date(y, m - 1 - (i + 1), 1);
+                return { month: d.getMonth() + 1, year: d.getFullYear() };
+            });
             const sales = await prisma.$queryRaw<any[]>(Prisma.sql`
-                SELECT 
+                SELECT
                     COALESCE(
                         NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
                         SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
                     ) as quantity
                 FROM product_issuances
-                WHERE product_id = ${product_id} AND month = ${prevMonth} AND year = ${prevYear}
+                WHERE product_id = ${product_id}
+                  AND (${Prisma.join(
+                      prevPeriods.map(
+                          (pm) => Prisma.sql`(year = ${pm.year} AND month = ${pm.month})`,
+                      ),
+                      " OR ",
+                  )})
             `);
-            return Number(sales[0]?.quantity ?? 0);
+            return Number(sales[0]?.quantity ?? 0) / AVG_MONTHS;
         };
 
         const currentBase = await getBase(month, year);
