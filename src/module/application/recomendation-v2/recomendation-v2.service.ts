@@ -46,7 +46,7 @@ export class RecomendationV2Service {
             salesPeriods.push({ month: m, year: y, key: `${m}-${y}` });
         }
 
-        const forecastPeriodsRaw: { month: number; year: number; key: string }[] = [];
+        const forecastPeriods: { month: number; year: number; key: string }[] = [];
         for (let i = 0; i < forecast_months; i++) {
             let m = currentMonth + i;
             let y = currentYear;
@@ -54,20 +54,8 @@ export class RecomendationV2Service {
                 m -= 12;
                 y += 1;
             }
-            forecastPeriodsRaw.push({ month: m, year: y, key: `${m}-${y}` });
+            forecastPeriods.push({ month: m, year: y, key: `${m}-${y}` });
         }
-
-        const forecastPercentages = await prisma.forecastPercentage.findMany({
-            where: {
-                OR: forecastPeriodsRaw.map((p) => ({ month: p.month, year: p.year })),
-            },
-        });
-        const pctMap = new Map(forecastPercentages.map((p) => [`${p.month}-${p.year}`, p.value]));
-
-        const forecastPeriods = forecastPeriodsRaw.map((p) => ({
-            ...p,
-            percentage: Number(pctMap.get(p.key) ?? 0) * 100,
-        }));
 
         // Dynamic back horizon for Open PO
         let backMonths = -1;
@@ -106,7 +94,7 @@ export class RecomendationV2Service {
               )`
             : Prisma.empty;
 
-        const [latestInv, latestFgInv, earliestPoResult] = await Promise.all([
+        const [latestInv, latestFgInv, earliestPoResult, forecastPercent] = await Promise.all([
             prisma.rawMaterialInventory.findFirst({
                 orderBy: [{ year: "desc" }, { month: "desc" }],
                 select: { month: true, year: true },
@@ -126,6 +114,10 @@ export class RecomendationV2Service {
                   AND ${typeFilter}
                   ${searchFilter}
             `,
+            prisma.forecastPercentage.findFirst({
+                where: { month: currentMonth, year: currentYear },
+                select: { value: true },
+            }),
         ]);
 
         let invMonth = currentMonth;
@@ -585,6 +577,7 @@ export class RecomendationV2Service {
                 sales_periods: salesPeriods,
                 forecast_periods: forecastPeriods,
                 po_periods: poPeriods,
+                forecast_percentage: forecastPercent ? Number(forecastPercent.value) : 0,
             },
         };
     }
