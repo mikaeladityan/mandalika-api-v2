@@ -46,7 +46,7 @@ export class RecomendationV2Service {
             salesPeriods.push({ month: m, year: y, key: `${m}-${y}` });
         }
 
-        const forecastPeriods: { month: number; year: number; key: string }[] = [];
+        const forecastPeriods: { month: number; year: number; key: string; percentage?: number }[] = [];
         for (let i = 0; i < forecast_months; i++) {
             let m = currentMonth + i;
             let y = currentYear;
@@ -56,6 +56,19 @@ export class RecomendationV2Service {
             }
             forecastPeriods.push({ month: m, year: y, key: `${m}-${y}` });
         }
+
+        // Fetch forecast percentages for the horizon
+        const percentages = await prisma.forecastPercentage.findMany({
+            where: {
+                OR: forecastPeriods.map(p => ({ month: p.month, year: p.year }))
+            }
+        });
+
+        // Map percentages back to periods
+        forecastPeriods.forEach(p => {
+            const found = percentages.find(pct => pct.month === p.month && pct.year === p.year);
+            if (found) p.percentage = Number(found.value);
+        });
 
         // Dynamic back horizon for Open PO
         let backMonths = -1;
@@ -94,7 +107,7 @@ export class RecomendationV2Service {
               )`
             : Prisma.empty;
 
-        const [latestInv, latestFgInv, earliestPoResult, forecastPercent] = await Promise.all([
+        const [latestInv, latestFgInv, earliestPoResult] = await Promise.all([
             prisma.rawMaterialInventory.findFirst({
                 orderBy: [{ year: "desc" }, { month: "desc" }],
                 select: { month: true, year: true },
@@ -114,10 +127,6 @@ export class RecomendationV2Service {
                   AND ${typeFilter}
                   ${searchFilter}
             `,
-            prisma.forecastPercentage.findFirst({
-                where: { month: currentMonth, year: currentYear },
-                select: { value: true },
-            }),
         ]);
 
         let invMonth = currentMonth;
@@ -577,7 +586,6 @@ export class RecomendationV2Service {
                 sales_periods: salesPeriods,
                 forecast_periods: forecastPeriods,
                 po_periods: poPeriods,
-                forecast_percentage: forecastPercent ? Number(forecastPercent.value) : 0,
             },
         };
     }
