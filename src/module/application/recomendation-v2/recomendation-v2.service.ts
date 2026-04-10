@@ -200,6 +200,7 @@ export class RecomendationV2Service {
                     WHERE ${typeFilter}
                       AND rm.deleted_at IS NULL
                       AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
+                      AND rm.name NOT ILIKE '%(DISPLAY)%'
                       AND EXISTS (
                           SELECT 1 FROM "recipes" r2
                           WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
@@ -510,6 +511,7 @@ export class RecomendationV2Service {
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
               AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
+              AND rm.name NOT ILIKE '%(DISPLAY)%'
               AND EXISTS (
                   SELECT 1 FROM "recipes" r2
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
@@ -934,6 +936,7 @@ export class RecomendationV2Service {
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
               AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
+              AND rm.name NOT ILIKE '%(DISPLAY)%'
               AND EXISTS (
                   SELECT 1 FROM "recipes" r2
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
