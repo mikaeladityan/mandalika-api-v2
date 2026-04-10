@@ -1012,13 +1012,16 @@ export class RecomendationV2Service {
             });
         });
 
-        // Dynamic Need Headers
+        // Dynamic Need Headers (with forecast percentage)
         meta.forecast_periods?.forEach((p: any) => {
             const yearShort = String(p.year).slice(-2);
+            const pctLabel = p.percentage !== undefined && p.percentage !== null
+                ? ` (${p.percentage > 0 ? "+" : ""}${(p.percentage * 100).toFixed(0)}%)`
+                : "";
             allColumns.push({
-                header: `NEED BUY ${monthsShort[p.month - 1]?.toLocaleUpperCase()}${yearShort}`,
+                header: `NEED BUY ${monthsShort[p.month - 1]?.toLocaleUpperCase()}${yearShort}${pctLabel}`,
                 key: `need_${p.key}`,
-                width: 15,
+                width: 18,
                 uiId: "needs_buy",
             });
         });
