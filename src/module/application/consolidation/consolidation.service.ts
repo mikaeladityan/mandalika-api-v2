@@ -111,7 +111,7 @@ export class ConsolidationService {
 
         const parsedData = data.map((item) => {
             const basePrice = Number(item.raw_material?.price) || 0;
-            const price = query.type === "impor" ? basePrice * 17000 : basePrice;
+            const price = query.type === "impor" ? basePrice / 17000 : basePrice;
 
             return {
                 recommendation_id: item.id,
@@ -229,7 +229,7 @@ export class ConsolidationService {
             }
 
             const basePrice = Number(item.raw_material?.price) || 0;
-            const itemPrice = query.type === "impor" ? basePrice * 17000 : basePrice;
+            const itemPrice = query.type === "impor" ? basePrice / 17000 : basePrice;
             const itemQty = Number(item.quantity) || 0;
             const subtotal = itemPrice * itemQty;
 
