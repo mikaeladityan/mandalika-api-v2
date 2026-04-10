@@ -109,25 +109,20 @@ export class ConsolidationService {
             take: limit,
         });
 
-        const parsedData = data.map((item) => {
-            const basePrice = Number(item.raw_material?.price) || 0;
-            const price = query.type === "impor" ? basePrice / 17000 : basePrice;
-
-            return {
-                recommendation_id: item.id,
-                material_id: item.raw_mat_id,
-                barcode: item.raw_material?.barcode || null,
-                material_name: item.raw_material?.name || "Unknown",
-                supplier_name: item.raw_material?.supplier?.name || "-",
-                quantity: Number(item.quantity) || 0,
-                uom: item.raw_material?.unit_raw_material?.name || "UNIT",
-                price: price,
-                moq: item.raw_material?.min_buy ? Number(item.raw_material.min_buy) : null,
-                pic_id: item.pic_id,
-                status: item.status,
-                created_at: item.created_at,
-            };
-        });
+        const parsedData = data.map((item) => ({
+            recommendation_id: item.id,
+            material_id: item.raw_mat_id,
+            barcode: item.raw_material?.barcode || null,
+            material_name: item.raw_material?.name || "Unknown",
+            supplier_name: item.raw_material?.supplier?.name || "-",
+            quantity: Number(item.quantity) || 0,
+            uom: item.raw_material?.unit_raw_material?.name || "UNIT",
+            price: Number(item.raw_material?.price) || 0,
+            moq: item.raw_material?.min_buy ? Number(item.raw_material.min_buy) : null,
+            pic_id: item.pic_id,
+            status: item.status,
+            created_at: item.created_at,
+        }));
 
         return { data: parsedData, len: total };
     }
@@ -228,8 +223,7 @@ export class ConsolidationService {
                 };
             }
 
-            const basePrice = Number(item.raw_material?.price) || 0;
-            const itemPrice = query.type === "impor" ? basePrice / 17000 : basePrice;
+            const itemPrice = Number(item.raw_material?.price) || 0;
             const itemQty = Number(item.quantity) || 0;
             const subtotal = itemPrice * itemQty;
 
@@ -274,8 +268,10 @@ export class ConsolidationService {
             { header: "Quantity", key: "quantity", width: 12, uiId: "quantity" },
             { header: "MOQ", key: "moq", width: 10, uiId: "moq" },
             { header: "UOM", key: "uom", width: 10, uiId: "uom" },
-            { header: "Harga Satuan", key: "price", width: 15, uiId: "price" },
-            { header: "Total Harga", key: "total_price", width: 18, uiId: "subtotal" }, // 'subtotal' or whatever it is in frontend
+            { header: query.type === "impor" ? "Harga Satuan (IDR)" : "Harga Satuan", key: "price", width: 15, uiId: "price" },
+            ...(query.type === "impor" ? [{ header: "Harga Satuan (USD)", key: "price_usd", width: 15, uiId: "price" }] : []),
+            { header: query.type === "impor" ? "Total Harga (IDR)" : "Total Harga", key: "total_price", width: 18, uiId: "subtotal" },
+            ...(query.type === "impor" ? [{ header: "Total Harga (USD)", key: "total_price_usd", width: 18, uiId: "subtotal" }] : []),
             { header: "Status", key: "status", width: 12, uiId: "status" },
             { header: "Tanggal Pengajuan", key: "created_at", width: 25, uiId: "created_at" },
             { header: "PIC", key: "pic_id", width: 15, uiId: "pic_id" },
@@ -324,7 +320,9 @@ export class ConsolidationService {
                 moq: item.moq || 0,
                 uom: item.uom?.toUpperCase(),
                 price: item.price,
+                ...(query.type === "impor" ? { price_usd: (item.price || 0) / 17000 } : {}),
                 total_price: totalPrice,
+                ...(query.type === "impor" ? { total_price_usd: totalPrice / 17000 } : {}),
                 status: "DRAFT",
                 created_at: item.created_at
                     ? new Date(item.created_at).toLocaleString("id-ID")
@@ -345,7 +343,9 @@ export class ConsolidationService {
             moq: "",
             uom: "",
             price: "",
+            ...(query.type === "impor" ? { price_usd: "" } : {}),
             total_price: grandTotal,
+            ...(query.type === "impor" ? { total_price_usd: grandTotal / 17000 } : {}),
             status: "",
             created_at: "",
             pic_id: "",
