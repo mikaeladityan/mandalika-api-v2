@@ -109,20 +109,25 @@ export class ConsolidationService {
             take: limit,
         });
 
-        const parsedData = data.map((item) => ({
-            recommendation_id: item.id,
-            material_id: item.raw_mat_id,
-            barcode: item.raw_material?.barcode || null,
-            material_name: item.raw_material?.name || "Unknown",
-            supplier_name: item.raw_material?.supplier?.name || "-",
-            quantity: Number(item.quantity) || 0,
-            uom: item.raw_material?.unit_raw_material?.name || "UNIT",
-            price: Number(item.raw_material?.price) || 0,
-            moq: item.raw_material?.min_buy ? Number(item.raw_material.min_buy) : null,
-            pic_id: item.pic_id,
-            status: item.status,
-            created_at: item.created_at,
-        }));
+        const parsedData = data.map((item) => {
+            const basePrice = Number(item.raw_material?.price) || 0;
+            const price = query.type === "impor" ? basePrice * 17000 : basePrice;
+
+            return {
+                recommendation_id: item.id,
+                material_id: item.raw_mat_id,
+                barcode: item.raw_material?.barcode || null,
+                material_name: item.raw_material?.name || "Unknown",
+                supplier_name: item.raw_material?.supplier?.name || "-",
+                quantity: Number(item.quantity) || 0,
+                uom: item.raw_material?.unit_raw_material?.name || "UNIT",
+                price: price,
+                moq: item.raw_material?.min_buy ? Number(item.raw_material.min_buy) : null,
+                pic_id: item.pic_id,
+                status: item.status,
+                created_at: item.created_at,
+            };
+        });
 
         return { data: parsedData, len: total };
     }
@@ -223,7 +228,8 @@ export class ConsolidationService {
                 };
             }
 
-            const itemPrice = Number(item.raw_material?.price) || 0;
+            const basePrice = Number(item.raw_material?.price) || 0;
+            const itemPrice = query.type === "impor" ? basePrice * 17000 : basePrice;
             const itemQty = Number(item.quantity) || 0;
             const subtotal = itemPrice * itemQty;
 
