@@ -14,6 +14,7 @@ export const QueryRecomendationV2Schema = z.object({
     order: z.enum(["asc", "desc"]).optional(),
     visibleColumns: z.string().optional(),
     columnOrder: z.string().optional(),
+    selectedIds: z.string().optional(),
 });
 
 export type QueryRecomendationV2DTO = z.infer<typeof QueryRecomendationV2Schema>;

@@ -950,7 +950,15 @@ export class RecomendationV2Service {
     }
 
     static async export(query: QueryRecomendationV2DTO) {
-        const { data, periods: meta } = await this.list({ ...query, take: 1000000, page: 1 });
+        let { data, periods: meta } = await this.list({ ...query, take: 1000000, page: 1 });
+
+        // Filter by selected IDs if provided (comma-separated material_id list)
+        if (query.selectedIds) {
+            const ids = query.selectedIds.split(",").map(Number).filter(Boolean);
+            if (ids.length > 0) {
+                data = data.filter((row: any) => ids.includes(row.material_id));
+            }
+        }
 
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet("Rekomendasi V2");

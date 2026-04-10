@@ -35,7 +35,7 @@ export class RecomendationV2Controller {
     }
     
     static async export(c: Context) {
-        const { search, month, year, type, sales_months, forecast_months, po_months, sortBy, order, visibleColumns, columnOrder } = c.req.query();
+        const { search, month, year, type, sales_months, forecast_months, po_months, sortBy, order, visibleColumns, columnOrder, selectedIds } = c.req.query();
 
         const params: QueryRecomendationV2DTO = {
             page: 1,
@@ -51,6 +51,7 @@ export class RecomendationV2Controller {
             order: order as QueryRecomendationV2DTO["order"],
             visibleColumns,
             columnOrder,
+            selectedIds,
         };
 
         const buffer = await RecomendationV2Service.export(params);
