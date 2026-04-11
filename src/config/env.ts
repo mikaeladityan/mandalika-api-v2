@@ -14,10 +14,11 @@ const numWithDefault = (defaultValue: number) => num({ default: defaultValue });
 export const env = cleanEnv(process.env, {
     // APP
     NODE_ENV: str({ default: "production", desc: "Environment" }),
-    APP_NAME: str({ default: "Eveterinary" }),
+    APP_NAME: str({ default: "Mandalika" }),
     BASE_URL: url({ default: "http://localhost" }),
     PORT: port({ default: 3000 }),
     HOSTNAME: str({ default: "localhost" }),
+    COOKIE_DOMAIN: str({ default: "" }),
 
     // Database
     DATABASE_URL: str(),

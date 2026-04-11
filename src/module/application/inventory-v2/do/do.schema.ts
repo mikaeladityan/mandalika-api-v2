@@ -8,7 +8,7 @@ export const RequestDeliveryOrderItemSchema = z.object({
 });
 
 export const RequestDeliveryOrderSchema = z.object({
-    date: z.string().min(1, "Tanggal wajib diisi"),
+    date: z.string().min(1, "Tanggal wajib diisi").refine((v) => !isNaN(Date.parse(v)), { message: "Format tanggal tidak valid" }),
     from_warehouse_id: z.coerce.number({ error: "Gudang asal harus dipilih" }),
     to_outlet_id: z.coerce.number({ error: "Outlet tujuan harus dipilih" }),
     notes: z.string().optional(),

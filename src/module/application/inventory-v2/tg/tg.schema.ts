@@ -8,7 +8,7 @@ export const RequestTransferGudangItemSchema = z.object({
 });
 
 export const RequestTransferGudangSchema = z.object({
-    date: z.string().min(1, "Tanggal wajib diisi"),
+    date: z.string().min(1, "Tanggal wajib diisi").refine((v) => !isNaN(Date.parse(v)), { message: "Format tanggal tidak valid" }),
     from_warehouse_id: z.coerce.number({ error: "Gudang asal harus dipilih" }),
     to_warehouse_id: z.coerce.number({ error: "Gudang tujuan harus dipilih" }),
     notes: z.string().optional(),

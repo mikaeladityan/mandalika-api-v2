@@ -1,52 +1,34 @@
 import { Prisma } from "../../../../generated/prisma/client.js";
 import prisma from "../../../../config/prisma.js";
-import { RequestGoodsReceiptDTO, QueryGoodsReceiptDTO, ResponseGoodsReceiptDTO } from "./gr.schema.js";
-import {
-    GoodsReceiptStatus,
-    MovementType,
-    MovementEntityType,
-    MovementRefType,
-} from "../../../../generated/prisma/enums.js";
+import { RequestGoodsReceiptDTO, QueryGoodsReceiptDTO } from "./gr.schema.js";
+import { GoodsReceiptStatus, MovementType, MovementRefType } from "../../../../generated/prisma/enums.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";
-
-function generateGRNumber() {
-    const date = new Date();
-    const prefix = "GR";
-    const ym = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}`;
-    const random = Math.floor(Math.random() * 1000)
-        .toString()
-        .padStart(3, "0");
-    return `${prefix}-${ym}-${random}`;
-}
+import { InventoryHelper } from "../inventory.helper.js";
+import { EXPORT_ROW_LIMIT, PRODUCT_INCLUDE, generateDocNumber } from "../inventory.constants.js";
 
 export class GoodsReceiptService {
     static async create(payload: RequestGoodsReceiptDTO, userId: string = "system") {
-        return await prisma.$transaction(async (tx) => {
-            const gr_number = generateGRNumber();
-
-            const gr = await tx.goodsReceipt.create({
-                data: {
-                    gr_number,
-                    type: payload.type,
-                    warehouse_id: payload.warehouse_id,
-                    date: payload.date ? new Date(payload.date) : new Date(),
-                    notes: payload.notes,
-                    created_by: userId,
-                    status: GoodsReceiptStatus.PENDING,
-                    items: {
-                        create: payload.items.map((i) => ({
-                            product_id: i.product_id,
-                            quantity_planned: i.quantity_planned,
-                            quantity_actual: i.quantity_actual,
-                            notes: i.notes,
-                        })),
-                    },
+        return prisma.goodsReceipt.create({
+            data: {
+                gr_number: generateDocNumber("GR", 3),
+                type: payload.type,
+                warehouse_id: payload.warehouse_id,
+                date: payload.date ? new Date(payload.date) : new Date(),
+                notes: payload.notes,
+                created_by: userId,
+                status: GoodsReceiptStatus.PENDING,
+                items: {
+                    create: payload.items.map((i) => ({
+                        product_id: i.product_id,
+                        quantity_planned: i.quantity_planned,
+                        quantity_actual: i.quantity_actual,
+                        notes: i.notes,
+                    })),
                 },
-                include: { items: { include: { product: true } }, warehouse: true },
-            });
-            return gr;
+            },
+            include: { items: { include: { product: true } }, warehouse: true },
         });
     }
 
@@ -62,77 +44,24 @@ export class GoodsReceiptService {
                 throw new ApiError(400, `Tidak dapat melakukan POST pada Goods Receipt berstatus ${gr.status}`);
             }
 
-            // Update status
             const updatedGr = await tx.goodsReceipt.update({
                 where: { id },
-                data: {
-                    status: GoodsReceiptStatus.COMPLETED,
-                    posted_at: new Date(),
-                },
+                data: { status: GoodsReceiptStatus.COMPLETED, posted_at: new Date() },
                 include: { items: { include: { product: true } }, warehouse: true },
             });
 
-            // Add to warehouse inventory
-            await this.addInventory(tx, gr.warehouse_id, gr.items, gr.id, userId);
+            const items = gr.items.map((i) => ({
+                product_id: i.product_id,
+                quantity: Number(i.quantity_actual),
+            }));
+
+            await InventoryHelper.addWarehouseStock(
+                tx, gr.warehouse_id, items,
+                gr.id, MovementRefType.GOODS_RECEIPT, MovementType.IN, userId,
+            );
 
             return updatedGr;
         });
-    }
-
-    private static async addInventory(
-        tx: Prisma.TransactionClient,
-        warehouse_id: number,
-        items: any[],
-        gr_id: number,
-        userId: string,
-    ) {
-        const currentDate = new Date();
-        for (const item of items) {
-            const addAmount = Number(item.quantity_actual);
-
-            let pi = await tx.productInventory.findFirst({
-                where: { product_id: item.product_id, warehouse_id },
-                orderBy: { created_at: "desc" },
-            });
-
-            let qty_before = 0;
-
-            if (pi) {
-                qty_before = Number(pi.quantity);
-                await tx.productInventory.update({
-                    where: { id: pi.id },
-                    data: { quantity: qty_before + addAmount },
-                });
-            } else {
-                await tx.productInventory.create({
-                    data: {
-                        product_id: item.product_id,
-                        warehouse_id,
-                        quantity: addAmount,
-                        date: currentDate.getDate(),
-                        month: currentDate.getMonth() + 1,
-                        year: currentDate.getFullYear(),
-                    },
-                });
-            }
-            const qty_after = qty_before + addAmount;
-
-            await tx.stockMovement.create({
-                data: {
-                    entity_type: MovementEntityType.PRODUCT,
-                    entity_id: item.product_id,
-                    location_type: "WAREHOUSE",
-                    location_id: warehouse_id,
-                    movement_type: MovementType.IN,
-                    quantity: addAmount,
-                    qty_before,
-                    qty_after,
-                    reference_id: gr_id,
-                    reference_type: MovementRefType.GOODS_RECEIPT,
-                    created_by: userId,
-                },
-            });
-        }
     }
 
     static async list(query: QueryGoodsReceiptDTO) {
@@ -150,9 +79,7 @@ export class GoodsReceiptService {
         const { skip, take: limit } = GetPagination(page, take);
 
         const where: Prisma.GoodsReceiptWhereInput = {
-            ...(search && {
-                gr_number: { contains: search, mode: "insensitive" },
-            }),
+            ...(search && { gr_number: { contains: search, mode: "insensitive" } }),
             ...(status && { status }),
             ...(type && { type }),
             ...(warehouse_id && { warehouse_id }),
@@ -163,15 +90,9 @@ export class GoodsReceiptService {
                 where,
                 skip,
                 take: limit,
-                orderBy: { [sortBy as any]: sortOrder },
+                orderBy: { [sortBy as string]: sortOrder },
                 include: {
-                    items: {
-                        include: {
-                            product: {
-                                include: { product_type: true, size: true, unit: true }
-                            }
-                        }
-                    },
+                    items: { include: { product: PRODUCT_INCLUDE } },
                     warehouse: true,
                     _count: { select: { items: true } },
                 },
@@ -186,13 +107,7 @@ export class GoodsReceiptService {
         const result = await prisma.goodsReceipt.findUnique({
             where: { id },
             include: {
-                items: {
-                    include: {
-                        product: {
-                            include: { product_type: true, size: true, unit: true }
-                        }
-                    }
-                },
+                items: { include: { product: PRODUCT_INCLUDE } },
                 warehouse: true,
             },
         });
@@ -203,24 +118,20 @@ export class GoodsReceiptService {
 
     static async cancel(id: number) {
         const gr = await prisma.goodsReceipt.findUnique({ where: { id } });
-
         if (!gr) throw new ApiError(404, "Data Goods Receipt tidak ditemukan");
-
         if (gr.status !== GoodsReceiptStatus.PENDING) {
             throw new ApiError(400, "Hanya Goods Receipt berstatus PENDING yang dapat dibatalkan.");
         }
 
         return prisma.goodsReceipt.update({
             where: { id },
-            data: {
-                status: GoodsReceiptStatus.CANCELLED,
-            },
-            include: { warehouse: true }
+            data: { status: GoodsReceiptStatus.CANCELLED },
+            include: { warehouse: true },
         });
     }
 
     static async export(query: QueryGoodsReceiptDTO) {
-        const { data } = await this.list({ ...query, take: 1000000, page: 1 });
+        const { data } = await this.list({ ...query, take: EXPORT_ROW_LIMIT, page: 1 });
 
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet("Data Goods Receipt");
@@ -244,36 +155,25 @@ export class GoodsReceiptService {
                 date: item.date ? new Date(item.date).toLocaleDateString("id-ID") : "-",
                 warehouse: item.warehouse.name,
                 type: item.type,
-                total_items: Number(item._count?.items || 0),
+                total_items: Number(item._count?.items ?? 0),
                 status: item.status,
                 created_by: item.created_by,
-                notes: item.notes || "-",
+                notes: item.notes ?? "-",
             });
         });
 
-        // Styling
         sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-        sheet.getRow(1).fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: "FF0070C0" },
-        };
+        sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0070C0" } };
         sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
 
-        return await workbook.xlsx.writeBuffer();
+        return workbook.xlsx.writeBuffer();
     }
 
     static async exportDetail(id: number) {
         const gr = await prisma.goodsReceipt.findUnique({
             where: { id },
             include: {
-                items: {
-                    include: {
-                        product: {
-                            include: { product_type: true, size: true, unit: true },
-                        },
-                    },
-                },
+                items: { include: { product: PRODUCT_INCLUDE } },
                 warehouse: true,
             },
         });
@@ -283,39 +183,32 @@ export class GoodsReceiptService {
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet(`GR ${gr.gr_number}`);
 
-        // --- Layout ---
-        // Header
         sheet.mergeCells("A1:D1");
         sheet.getCell("A1").value = "PERFORMENCE ERP - GOODS RECEIPT";
         sheet.getCell("A1").font = { bold: true, size: 16 };
         sheet.getCell("A1").alignment = { horizontal: "center" };
 
-        sheet.addRow([]); // Blank Row
-
+        sheet.addRow([]);
         sheet.addRow(["No. Dokumen", gr.gr_number]);
         sheet.addRow(["Tanggal", gr.date ? new Date(gr.date).toLocaleDateString("id-ID") : "-"]);
         sheet.addRow(["Gudang", gr.warehouse.name]);
         sheet.addRow(["Status", gr.status]);
         sheet.addRow(["Dibuat Oleh", gr.created_by]);
+        sheet.addRow([]);
 
-        sheet.addRow([]); // Blank Row
-
-        // Table Header
         const tableHeaderRow = ["No", "SKU / Code", "Nama Produk", "Kuantitas"];
         sheet.addRow(tableHeaderRow);
         const headerRowNumber = sheet.rowCount;
 
-        // Table Data
         gr.items.forEach((item, index) => {
             const p = item.product;
-            const fullProductName = `${p.name} ${p.product_type?.name || ""} ${p.size?.size || ""}${p.unit?.name || ""} (${p.gender})`
+            const fullProductName = `${p.name} ${p.product_type?.name ?? ""} ${p.size?.size ?? ""}${p.unit?.name ?? ""} (${p.gender})`
                 .replace(/\s+/g, " ")
                 .trim();
 
             sheet.addRow([index + 1, p.code, fullProductName, Number(item.quantity_actual)]);
         });
 
-        // --- Styling ---
         const headerRow = sheet.getRow(headerRowNumber);
         headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
         headerRow.eachCell((cell) => {
@@ -324,6 +217,6 @@ export class GoodsReceiptService {
             cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
         });
 
-        return await workbook.xlsx.writeBuffer();
+        return workbook.xlsx.writeBuffer();
     }
 }

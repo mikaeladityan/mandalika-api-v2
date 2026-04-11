@@ -56,7 +56,7 @@ describe("DOService - Extended Testing", () => {
         it("should create a new delivery order", async () => {
             (prisma.stockTransfer.create as any).mockResolvedValueOnce(mockDO);
             const payload = {
-                date: "2026-03-31",
+                date: "2027-01-01",
                 from_warehouse_id: 1,
                 to_outlet_id: 2,
                 items: [{ product_id: 1, quantity_requested: 10 }]
