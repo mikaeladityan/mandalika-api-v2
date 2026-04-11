@@ -55,7 +55,7 @@ describe("TGService - Unit Testing", () => {
         it("should create a new transfer gudang", async () => {
             (prisma.stockTransfer.create as any).mockResolvedValueOnce(mockTG);
             const payload = {
-                date: "2026-04-01",
+                date: "2027-01-01",
                 from_warehouse_id: 1,
                 to_warehouse_id: 2,
                 items: [{ product_id: 1, quantity_requested: 10 }]
@@ -68,7 +68,7 @@ describe("TGService - Unit Testing", () => {
 
         it("should throw error if from and to warehouse are the same", async () => {
             const payload = {
-                date: "2026-04-01",
+                date: "2027-01-01",
                 from_warehouse_id: 1,
                 to_warehouse_id: 1,
                 items: [{ product_id: 1, quantity_requested: 10 }]

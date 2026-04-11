@@ -35,7 +35,7 @@ describe("GoodsReceiptService", () => {
             const result = await GoodsReceiptService.create(payload, "test@example.com");
 
             expect(result).toBeDefined();
-            expect(prisma.$transaction).toHaveBeenCalled();
+            expect(prisma.goodsReceipt.create).toHaveBeenCalled();
         });
     });
 
