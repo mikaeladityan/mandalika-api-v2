@@ -396,6 +396,7 @@ vi.mock("../config/prisma.js", () => ({
             delete: vi.fn().mockResolvedValue({ warehouse_id: 1 }),
         },
         outlet: {
+            findFirst: vi.fn(),
             findUnique: vi.fn().mockImplementation(async (args) => {
                 const { where } = args;
                 if (where.id === 999 || where.code === "NOTEXIST") return null;
@@ -500,6 +501,7 @@ vi.mock("../config/prisma.js", () => ({
             count: vi.fn().mockResolvedValue(1),
         },
         warehouse: {
+            findFirst: vi.fn(),
             findUnique: vi.fn().mockImplementation(async (args) => {
                 const { where } = args;
                 if (where.id === 999) return null;
@@ -618,6 +620,7 @@ vi.mock("../config/prisma.js", () => ({
             count: vi.fn().mockResolvedValue(1),
         },
         stockMovement: {
+            findFirst: vi.fn(),
             findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(null),
             count: vi.fn().mockResolvedValue(0),
@@ -808,6 +811,8 @@ vi.mock("../config/prisma.js", () => ({
                         code: "TOKO001",
                         name: "Toko UPSERT",
                     }),
+                    findFirst: vi.fn(),
+                    findMany: vi.fn(),
                 },
                 outletInventory: {
                     create: vi.fn().mockResolvedValue({ id: 1 }),
