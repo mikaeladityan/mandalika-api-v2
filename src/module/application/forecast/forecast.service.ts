@@ -1037,6 +1037,12 @@ export class ForecastService {
         const endMonth = monthsWindow[monthsWindow.length - 1]!.month;
         const searchRaw = query.search ? `%${query.search}%` : null;
 
+        const AVG_MONTHS = 3;
+        const prevMonths = Array.from({ length: AVG_MONTHS }, (_, i) => {
+            const d = new Date(startYear, startMonth - 1 - (AVG_MONTHS - i), 1);
+            return { month: d.getMonth() + 1, year: d.getFullYear() };
+        });
+
         const rangePercentages = await prisma.forecastPercentage.findMany({
             where: {
                 OR: monthsWindow.map((m) => ({ month: m.month, year: m.year })),
@@ -1057,6 +1063,7 @@ export class ForecastService {
                 safety_percentage: number | null;
                 forecasts_data: string | null;
                 safety_stock_data: string | null;
+                historical_sales_data: string | null;
                 current_stock: number | null;
             }[]
         >`
@@ -1093,6 +1100,30 @@ export class ForecastService {
                       AND (f.year * 12 + f.month) >= ${startYear * 12 + startMonth}
                       AND (f.year * 12 + f.month) <= ${endYear * 12 + endMonth}
                 ) AS "forecasts_data",
+
+                (
+                    SELECT COALESCE(json_agg(
+                        json_build_object(
+                            'month',          sub.month,
+                            'year',           sub.year,
+                            'quantity',       sub.qty
+                        ) ORDER BY sub.year ASC, sub.month ASC
+                    ), '[]'::json)
+                    FROM (
+                        SELECT year, month, 
+                            COALESCE(
+                                NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL'::"IssuanceType" THEN quantity ELSE 0 END), 0),
+                                SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL'::"IssuanceType" THEN quantity ELSE 0 END)
+                            ) as qty
+                        FROM product_issuances
+                        WHERE product_id = p.id
+                          AND (${Prisma.join(
+                              prevMonths.map((pm) => Prisma.sql`(year = ${pm.year} AND month = ${pm.month})`),
+                              " OR "
+                          )})
+                        GROUP BY year, month
+                    ) sub
+                ) AS "historical_sales_data",
 
                 (
                     SELECT row_to_json(ss)
@@ -1185,6 +1216,24 @@ export class ForecastService {
                     ? JSON.parse(p.forecasts_data)
                     : (p.forecasts_data ?? []);
 
+            const rawHistorical: { month: number; year: number; quantity: number }[] =
+                typeof p.historical_sales_data === "string" 
+                    ? JSON.parse(p.historical_sales_data) 
+                    : (p.historical_sales_data ?? []);
+            
+            const historicalByKey = new Map<string, { month: number; year: number; quantity: number }>(
+                rawHistorical.map((h) => [`${h.year}-${h.month}`, h])
+            );
+            const historical_sales = prevMonths.map((pm) => {
+                const found = historicalByKey.get(`${pm.year}-${pm.month}`);
+                return {
+                    month: pm.month,
+                    year: pm.year,
+                    period: `${pm.month}/${pm.year}`,
+                    quantity: Number(found?.quantity ?? 0),
+                };
+            });
+
             const forecastByKey = new Map(rawForecasts.map((f) => [`${f.year}-${f.month}`, f]));
 
             const monthly_data: ResponseForecastDTO["monthly_data"] = monthsWindow.map((m) => {
@@ -1267,6 +1316,7 @@ export class ForecastService {
                     : (query.is_others ? 25 : 0),
                 current_stock: currentStock,
                 need_produce: needProduce,
+                historical_sales,
                 monthly_data,
                 safety_stock_summary,
             };
