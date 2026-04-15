@@ -84,6 +84,12 @@ export class StockCardService {
         sm.qty_after::numeric          AS qty_after,
         sm.reference_id,
         sm.reference_type::text        AS reference_type,
+        CASE
+            WHEN sm.reference_type::text = 'STOCK_TRANSFER' THEN st.transfer_number
+            WHEN sm.reference_type::text = 'STOCK_RETURN'   THEN sr.return_number
+            WHEN sm.reference_type::text = 'GOODS_RECEIPT'  THEN gr.gr_number
+            ELSE NULL
+        END                            AS reference_code,
         sm.created_by,
         sm.created_at
     `;
@@ -96,6 +102,9 @@ export class StockCardService {
                                    AND sm.location_type::text = 'WAREHOUSE'
         LEFT JOIN outlets    o ON sm.location_id  = o.id
                                    AND sm.location_type::text = 'OUTLET'
+        LEFT JOIN stock_transfers st ON sm.reference_id = st.id AND sm.reference_type::text = 'STOCK_TRANSFER'
+        LEFT JOIN stock_returns   sr ON sm.reference_id = sr.id AND sm.reference_type::text = 'STOCK_RETURN'
+        LEFT JOIN goods_receipts  gr ON sm.reference_id = gr.id AND sm.reference_type::text = 'GOODS_RECEIPT'
     `;
 
     /**
@@ -107,6 +116,17 @@ export class StockCardService {
     }> {
         const { page = 1, take = 20 } = query;
         const { skip, take: limit } = GetPagination(Number(page), Number(take));
+
+        if (!query.location_type && !query.location_id) {
+            const wh = await prisma.warehouse.findFirst({
+                where: { code: "GFG-SBY", deleted_at: null },
+                select: { id: true },
+            });
+            if (wh) {
+                query.location_type = "WAREHOUSE";
+                query.location_id = wh.id;
+            }
+        }
 
         const { conditions, orderBy } = StockCardService.buildQuery(query);
 
@@ -140,6 +160,17 @@ export class StockCardService {
      * Caller bertanggung jawab convert ke CSV/Excel di controller.
      */
     static async export(query: QueryStockCardDTO): Promise<ResponseStockCardDTO[]> {
+        if (!query.location_type && !query.location_id) {
+            const wh = await prisma.warehouse.findFirst({
+                where: { code: "GFG-SBY", deleted_at: null },
+                select: { id: true },
+            });
+            if (wh) {
+                query.location_type = "WAREHOUSE";
+                query.location_id = wh.id;
+            }
+        }
+
         const { conditions, orderBy } = StockCardService.buildQuery(query);
 
         const whereClause = conditions.length > 0
@@ -173,6 +204,7 @@ export class StockCardService {
             qty_after:      Number(r.qty_after),
             reference_id:   r.reference_id   != null ? Number(r.reference_id)   : null,
             reference_type: r.reference_type ?? null,
+            reference_code: r.reference_code ?? null,
             created_by:     r.created_by,
             created_at:     new Date(r.created_at),
         };
