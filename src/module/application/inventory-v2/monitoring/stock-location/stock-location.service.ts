@@ -20,8 +20,6 @@ export class StockLocationService {
         location_name: string;
     }> {
         const {
-            location_type,
-            location_id,
             search,
             type_id,
             gender,
@@ -31,20 +29,44 @@ export class StockLocationService {
             sortOrder = "asc",
         } = query;
 
+        let activeLocationType = query.location_type;
+        let activeLocationId   = query.location_id;
+
+        // ── Default to GFG-SBY if no location provided ──────────────────
+        if (!activeLocationType || !activeLocationId) {
+            const defaultWh = await prisma.warehouse.findFirst({
+                where:  { code: "GFG-SBY", deleted_at: null },
+                select: { id: true }
+            });
+            if (defaultWh) {
+                activeLocationType = "WAREHOUSE";
+                activeLocationId   = defaultWh.id;
+            } else {
+                // If GFG-SBY not found, fallback to first available FG warehouse
+                const fallbackWh = await prisma.warehouse.findFirst({
+                    where:  { type: "FINISH_GOODS", deleted_at: null },
+                    select: { id: true }
+                });
+                if (!fallbackWh) throw new ApiError(404, "Tidak ada lokasi (Gudang/Outlet) yang tersedia");
+                activeLocationType = "WAREHOUSE";
+                activeLocationId   = fallbackWh.id;
+            }
+        }
+
         const { skip, take: limit } = GetPagination(Number(page), Number(take));
 
         // ── Resolve location name & validate ──────────────────────────────
         let location_name = "";
-        if (location_type === "WAREHOUSE") {
+        if (activeLocationType === "WAREHOUSE") {
             const warehouse = await prisma.warehouse.findFirst({
-                where:  { id: location_id, type: "FINISH_GOODS", deleted_at: null },
+                where:  { id: activeLocationId, type: "FINISH_GOODS", deleted_at: null },
                 select: { name: true },
             });
             if (!warehouse) throw new ApiError(404, "Gudang tidak ditemukan atau bukan tipe FINISH_GOODS");
             location_name = warehouse.name;
         } else {
             const outlet = await prisma.outlet.findFirst({
-                where:  { id: location_id, deleted_at: null },
+                where:  { id: activeLocationId, deleted_at: null },
                 select: { name: true },
             });
             if (!outlet) throw new ApiError(404, "Outlet tidak ditemukan");
@@ -62,7 +84,7 @@ export class StockLocationService {
             productConditions.push(Prisma.sql`(p.name ILIKE ${pat} OR p.code ILIKE ${pat})`);
         }
 
-        const productWhere = Prisma.sql`AND ${Prisma.join(productConditions, " AND ")}`;
+        const productWhere = Prisma.sql`WHERE ${Prisma.join(productConditions, " AND ")}`;
 
         // ── Valid sort columns ─────────────────────────────────────────────
         const validSort: Record<string, string> = {
@@ -74,21 +96,25 @@ export class StockLocationService {
         const sortCol = validSort[sortBy] ?? "p.name";
         const sortDir = sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC";
 
+        // Separate handling to show ALL products even if no inventory record
+        // By LEFT JOINing products to inventories
+        const commonJoins = Prisma.sql`
+            LEFT JOIN product_types  pt   ON p.type_id     = pt.id
+            LEFT JOIN unit_of_materials u ON p.unit_id     = u.id
+            LEFT JOIN product_size   ps   ON p.size_id     = ps.id
+        `;
+
         // ── WAREHOUSE branch ───────────────────────────────────────────────
-        if (location_type === "WAREHOUSE") {
+        if (activeLocationType === "WAREHOUSE") {
             const now   = new Date();
-            const month = now.getMonth() + 1;
-            const year  = now.getFullYear();
+            const month = query.month ?? (now.getMonth() + 1);
+            const year  = query.year ?? now.getFullYear();
 
             const [countRes, rows] = await Promise.all([
                 prisma.$queryRaw<{ total: bigint }[]>`
                     SELECT COUNT(*)::bigint AS total
-                    FROM product_inventories pi
-                    JOIN products p               ON pi.product_id  = p.id
-                    WHERE pi.warehouse_id = ${location_id}
-                      AND pi.month        = ${month}
-                      AND pi.year         = ${year}
-                      ${productWhere}
+                    FROM products p
+                    ${productWhere}
                 `,
                 prisma.$queryRaw<any[]>`
                     SELECT
@@ -98,17 +124,15 @@ export class StockLocationService {
                         COALESCE(ps.size, 0)::int    AS size,
                         p.gender::text               AS gender,
                         COALESCE(u.name, 'Unknown')  AS uom,
-                        pi.quantity::numeric          AS quantity,
+                        COALESCE(pi.quantity, 0)::numeric AS quantity,
                         NULL::numeric                AS min_stock
-                    FROM product_inventories pi
-                    JOIN products p               ON pi.product_id = p.id
-                    LEFT JOIN product_types  pt   ON p.type_id     = pt.id
-                    LEFT JOIN unit_of_materials u ON p.unit_id     = u.id
-                    LEFT JOIN product_size   ps   ON p.size_id     = ps.id
-                    WHERE pi.warehouse_id = ${location_id}
+                    FROM products p
+                    ${commonJoins}
+                    LEFT JOIN product_inventories pi ON p.id = pi.product_id
+                      AND pi.warehouse_id = ${activeLocationId}
                       AND pi.month        = ${month}
                       AND pi.year         = ${year}
-                      ${productWhere}
+                    ${productWhere}
                     ORDER BY ${Prisma.raw(`${sortCol} ${sortDir}`)}
                     LIMIT ${limit} OFFSET ${skip}
                 `,
@@ -125,10 +149,8 @@ export class StockLocationService {
         const [countRes, rows] = await Promise.all([
             prisma.$queryRaw<{ total: bigint }[]>`
                 SELECT COUNT(*)::bigint AS total
-                FROM outlet_inventories oi
-                JOIN products p               ON oi.product_id = p.id
-                WHERE oi.outlet_id = ${location_id}
-                  ${productWhere}
+                FROM products p
+                ${productWhere}
             `,
             prisma.$queryRaw<any[]>`
                 SELECT
@@ -138,15 +160,13 @@ export class StockLocationService {
                     COALESCE(ps.size, 0)::int    AS size,
                     p.gender::text               AS gender,
                     COALESCE(u.name, 'Unknown')  AS uom,
-                    oi.quantity::numeric          AS quantity,
-                    oi.min_stock::numeric         AS min_stock
-                FROM outlet_inventories oi
-                JOIN products p               ON oi.product_id = p.id
-                LEFT JOIN product_types  pt   ON p.type_id     = pt.id
-                LEFT JOIN unit_of_materials u ON p.unit_id     = u.id
-                LEFT JOIN product_size   ps   ON p.size_id     = ps.id
-                WHERE oi.outlet_id = ${location_id}
-                  ${productWhere}
+                    COALESCE(oi.quantity, 0)::numeric AS quantity,
+                    COALESCE(oi.min_stock, 0)::numeric AS min_stock
+                FROM products p
+                ${commonJoins}
+                LEFT JOIN outlet_inventories oi ON p.id = oi.product_id
+                  AND oi.outlet_id = ${activeLocationId}
+                ${productWhere}
                 ORDER BY ${Prisma.raw(`${sortCol} ${sortDir}`)}
                 LIMIT ${limit} OFFSET ${skip}
             `,

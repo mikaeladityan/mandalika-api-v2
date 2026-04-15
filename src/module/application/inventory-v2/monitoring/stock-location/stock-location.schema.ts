@@ -3,9 +3,11 @@ import { z } from "zod";
 // ── Query ───────────────────────────────────────────────────────────────────
 export const QueryStockLocationSchema = z.object({
     /** Tipe lokasi: WAREHOUSE (Gudang FG) atau OUTLET (Toko) */
-    location_type: z.enum(["WAREHOUSE", "OUTLET"]),
+    location_type: z.enum(["WAREHOUSE", "OUTLET"]).optional(),
     /** ID lokasi (warehouse_id atau outlet_id) */
-    location_id:   z.coerce.number().int().positive(),
+    location_id:   z.coerce.number().int().positive().optional(),
+    month:         z.coerce.number().int().min(1).max(12).optional(),
+    year:          z.coerce.number().int().positive().optional(),
     search:        z.string().optional(),
     type_id:       z.coerce.number().int().positive().optional(),
     gender:        z.string().optional(),
