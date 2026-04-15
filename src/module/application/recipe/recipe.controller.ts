@@ -37,4 +37,18 @@ export class RecipeController {
         const rest = await RecipeService.detail(Number(id));
         return ApiResponse.sendSuccess(c, rest, 200);
     }
+
+    static async export(c: Context) {
+        const { search, product_id, raw_mat_id } = c.req.query();
+        const params: QueryRecipeDTO = {
+            search,
+            product_id: product_id ? Number(product_id) : undefined,
+            raw_mat_id: raw_mat_id ? Number(raw_mat_id) : undefined,
+        };
+        const csvBuffer = await RecipeService.export(params);
+        return c.body(csvBuffer as any, 200, {
+            "Content-Type": "text/csv",
+            "Content-Disposition": 'attachment; filename="Data-Resep.csv"',
+        });
+    }
 }

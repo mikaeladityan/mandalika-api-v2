@@ -1,4 +1,5 @@
 import prisma from "../../../config/prisma.js";
+import ExcelJS from "exceljs";
 import { Prisma } from "../../../generated/prisma/client.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
@@ -273,6 +274,63 @@ export class RecipeService {
         };
 
         return data;
+    }
+
+    static async export(query: QueryRecipeDTO) {
+        const { data } = await this.list({ ...query, take: 1000000, page: 1 });
+
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet("Data Resep");
+
+        const allColumns = [
+            { header: "No", key: "no", width: 5, id: "no" },
+            { header: "Nama Produk", key: "product_name", width: 35, id: "product_name" },
+            { header: "Kode", key: "product_code", width: 15, id: "product_code" },
+            { header: "Tipe", key: "type", width: 15, id: "type" },
+            { header: "Unit", key: "unit", width: 10, id: "unit" },
+            { header: "Size", key: "size", width: 10, id: "size" },
+            { header: "Versi", key: "version", width: 10, id: "version" },
+            { header: "Status", key: "status", width: 10, id: "status" },
+            { header: "Bahan Baku", key: "raw_material", width: 35, id: "raw_material" },
+            { header: "Satuan (RM)", key: "rm_unit", width: 10, id: "rm_unit" },
+            { header: "Harga", key: "price", width: 15, id: "price" },
+            { header: "Kebutuhan", key: "quantity", width: 15, id: "quantity" },
+            { header: "Stok Saat Ini", key: "current_stock", width: 15, id: "current_stock" },
+            { header: "Keterangan", key: "description", width: 30, id: "description" },
+        ];
+
+        sheet.columns = allColumns.map(({ header, key, width }) => ({ header, key, width }));
+
+        data.forEach((item, index) => {
+            sheet.addRow({
+                no: index + 1,
+                product_name: item.product?.name,
+                product_code: item.product?.code || "-",
+                type: item.product?.product_type?.name || "-",
+                unit: item.product?.unit?.name || "-",
+                size: item.product?.size?.size || "-",
+                version: item.version,
+                status: item.is_active ? "Aktif" : "Tidak Aktif",
+                raw_material: item.raw_material?.name,
+                rm_unit: item.raw_material?.unit_raw_material?.name || "-",
+                price: item.raw_material?.price,
+                quantity: item.quantity,
+                current_stock: item.raw_material?.current_stock,
+                description: item.description || "-",
+            });
+        });
+
+        // Styling
+        sheet.getRow(1).font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } };
+        sheet.getRow(1).height = 25;
+        sheet.getRow(1).fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FF0070C0" },
+        };
+        sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+
+        return await workbook.csv.writeBuffer();
     }
 }
 

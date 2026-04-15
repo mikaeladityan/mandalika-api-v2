@@ -148,13 +148,16 @@ export class OutletImportService {
                 };
 
                 // 1. Batch Upsert Outlets
+                // Outlets use deleted_at (soft delete) instead of is_active:
+                //   is_active=true  → deleted_at = NULL  (aktif)
+                //   is_active=false → deleted_at = NOW() (nonaktif)
                 await tx.$executeRaw`
-                    INSERT INTO outlets (code, name, type, is_active, updated_at)
+                    INSERT INTO outlets (code, name, type, deleted_at, updated_at)
                     SELECT
                         p.code,
                         p.name,
                         p.type::"OutletType",
-                        p.is_active,
+                        CASE WHEN p.is_active THEN NULL ELSE NOW() END,
                         NOW()
                     FROM unnest(
                         ${cols.codes}::text[],
@@ -163,9 +166,9 @@ export class OutletImportService {
                         ${cols.statuses}::boolean[]
                     ) AS p(code, name, type, is_active)
                     ON CONFLICT (code) DO UPDATE SET
-                        name = EXCLUDED.name,
-                        type = EXCLUDED.type,
-                        is_active = EXCLUDED.is_active,
+                        name       = EXCLUDED.name,
+                        type       = EXCLUDED.type,
+                        deleted_at = EXCLUDED.deleted_at,
                         updated_at = NOW();
                 `;
 
