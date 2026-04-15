@@ -656,6 +656,29 @@ vi.mock("../config/prisma.js", () => ({
             create: vi.fn().mockResolvedValue({}),
             update: vi.fn().mockResolvedValue({}),
         },
+        stockReturn: {
+            findUnique: vi.fn().mockImplementation(async (args) => {
+                const { where } = args;
+                if (where.id === 999) return null;
+                return {
+                    id: where.id || 1,
+                    return_number: "RTN-202603-001",
+                    status: "DRAFT",
+                    from_type: "OUTLET",
+                    from_outlet_id: 1,
+                    to_warehouse_id: 1,
+                    items: [],
+                };
+            }),
+            findMany: vi.fn().mockResolvedValue([]),
+            count: vi.fn().mockResolvedValue(0),
+            create: vi.fn().mockResolvedValue({ id: 1, items: [] }),
+            update: vi.fn().mockResolvedValue({ id: 1, status: "COMPLETED" }),
+        },
+        stockReturnItem: {
+            create: vi.fn().mockResolvedValue({}),
+            update: vi.fn().mockResolvedValue({}),
+        },
         productInventory: {
             findFirst: vi.fn().mockResolvedValue({ id: 1, quantity: 100 }),
             update: vi.fn().mockResolvedValue({ id: 1, quantity: 90 }),
@@ -829,6 +852,13 @@ vi.mock("../config/prisma.js", () => ({
                     update: vi.fn().mockResolvedValue({ id: 1, status: "COMPLETED", items: [] }),
                 },
                 goodsReceiptItem: {
+                    create: vi.fn().mockResolvedValue({}),
+                },
+                stockReturn: {
+                    create: vi.fn().mockResolvedValue({ id: 1, items: [] }),
+                    update: vi.fn().mockResolvedValue({ id: 1, status: "COMPLETED", items: [] }),
+                },
+                stockReturnItem: {
                     create: vi.fn().mockResolvedValue({}),
                 },
                 $executeRawUnsafe: vi.fn().mockResolvedValue(1),

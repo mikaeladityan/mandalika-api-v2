@@ -23,37 +23,55 @@ const RETURN_INCLUDE = {
 
 export class ReturnService {
     /**
-     * Creates a Draft StockReturn from rejected items in a StockTransfer (DO or TG).
+     * Creates a Draft StockReturn from rejected items in a StockTransfer (DO or TG) or GoodsReceipt.
      * Must be called within an existing Prisma transaction.
      */
     static async createFromRejection(
         tx: Prisma.TransactionClient,
-        transfer: any,
+        source: any,
         userId: string = "system",
         targetWarehouseId?: number,
     ) {
-        const rejectedItems = transfer.items.filter((i: any) => Number(i.quantity_rejected ?? 0) > 0);
+        // Handle both StockTransfer (quantity_rejected) and GoodsReceipt (implied by difference)
+        const rejectedItems = source.items.filter((i: any) => {
+            const rejected = Number(i.quantity_rejected ?? 0);
+            const planned = Number(i.quantity_planned ?? 0);
+            const actual = Number(i.quantity_actual ?? 0);
+            // If it's a transfer, it might have quantity_rejected field already set by service
+            // If it's a GR, it might depend on planned - actual
+            return rejected > 0 || (planned > actual);
+        });
+
         if (rejectedItems.length === 0) return null;
+
+        const isGR = !!source.gr_number;
+        const sourceNumber = source.gr_number || source.transfer_number;
 
         return tx.stockReturn.create({
             data: {
                 return_number: generateDocNumber("RTN"),
-                from_type: transfer.to_type,
-                from_warehouse_id: transfer.to_warehouse_id,
-                from_outlet_id: transfer.to_outlet_id,
-                to_type: transfer.from_type,
-                to_warehouse_id: targetWarehouseId ?? transfer.from_warehouse_id,
-                to_outlet_id: targetWarehouseId ? null : transfer.from_outlet_id,
+                // 'from' is where the damage was found (destination of source)
+                from_type: isGR ? TransferLocationType.WAREHOUSE : source.to_type,
+                from_warehouse_id: isGR ? source.warehouse_id : source.to_warehouse_id,
+                from_outlet_id: isGR ? null : source.to_outlet_id,
+                // 'to' is where it's being sent back (origin of source)
+                to_type: isGR ? TransferLocationType.WAREHOUSE : source.from_type,
+                to_warehouse_id: targetWarehouseId ?? (isGR ? null : source.from_warehouse_id),
+                to_outlet_id: isGR ? null : source.from_outlet_id,
                 status: ReturnStatus.DRAFT,
-                source_transfer_id: transfer.id,
+                // We don't have source_gr_id in schema, maybe use notes?
+                source_transfer_id: isGR ? null : source.id,
                 created_by: userId,
-                notes: `Auto-generated dari penolakan dokumen ${transfer.transfer_number}`,
+                notes: `Auto-generated dari penolakan dokumen ${sourceNumber}`,
                 items: {
-                    create: rejectedItems.map((i: any) => ({
-                        product_id: i.product_id,
-                        quantity: i.quantity_rejected,
-                        notes: i.notes,
-                    })),
+                    create: rejectedItems.map((i: any) => {
+                        const qty = Number(i.quantity_rejected || (Number(i.quantity_planned) - Number(i.quantity_actual)));
+                        return {
+                            product_id: i.product_id,
+                            quantity: qty,
+                            notes: i.notes || "Barang Rusak/Kurang saat penerimaan",
+                        };
+                    }),
                 },
             },
         });
