@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const QueryConsolidationSchema = z.object({
     page: z.coerce.number().min(1).optional().default(1),
-    take: z.coerce.number().min(1).optional().default(25),
+    take: z.coerce.number().min(1).optional().default(250),
     search: z.string().optional(),
     month: z.coerce.number().min(1).max(12).optional(),
     year: z.coerce.number().min(2000).optional(),
