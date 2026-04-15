@@ -7,6 +7,7 @@ import { GetPagination } from "../../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";
 import { InventoryHelper } from "../inventory.helper.js";
 import { EXPORT_ROW_LIMIT, PRODUCT_INCLUDE, generateDocNumber } from "../inventory.constants.js";
+import { ReturnService } from "../return/return.service.js";
 
 export class GoodsReceiptService {
     static async create(payload: RequestGoodsReceiptDTO, userId: string = "system") {
@@ -60,7 +61,20 @@ export class GoodsReceiptService {
                 gr.id, MovementRefType.GOODS_RECEIPT, MovementType.IN, userId,
             );
 
-            return updatedGr;
+            // Create Return if there are missing/rejected items
+            const createdReturn = await ReturnService.createFromRejection(
+                tx, 
+                gr, 
+                userId
+            );
+
+            return {
+                ...updatedGr,
+                created_return: createdReturn ? {
+                    id: createdReturn.id,
+                    return_number: createdReturn.return_number
+                } : null
+            };
         });
     }
 

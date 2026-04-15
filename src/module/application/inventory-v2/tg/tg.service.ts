@@ -174,15 +174,23 @@ export class TGService {
                 updateData = await this._handleReceived(tx, transfer, payload, updateData, userId);
             }
 
+            let created_return = null;
             if (payload.status === TransferStatus.FULFILLMENT) {
-                updateData = await this._handleFulfillment(tx, transfer, payload, updateData, userId);
+                const result = await this._handleFulfillment(tx, transfer, payload, updateData, userId);
+                updateData = result.updateData;
+                created_return = result.created_return;
             }
 
-            return tx.stockTransfer.update({
+            const updated = await tx.stockTransfer.update({
                 where: { id },
                 data: updateData,
                 include: TG_INCLUDE,
             });
+
+            return {
+                ...updated,
+                created_return,
+            };
         });
     }
 
@@ -310,7 +318,7 @@ export class TGService {
         payload: UpdateTransferGudangStatusDTO,
         updateData: Prisma.StockTransferUpdateInput,
         userId: string,
-    ): Promise<Prisma.StockTransferUpdateInput> {
+    ): Promise<{ updateData: Prisma.StockTransferUpdateInput; created_return: any }> {
         if (transfer.status !== TransferStatus.RECEIVED) {
             throw new ApiError(400, "Data harus berstatus RECEIVED sebelum tahap FULFILLMENT.");
         }
@@ -363,8 +371,9 @@ export class TGService {
             );
         }
 
+        let createdReturn = null;
         if (rejectedItemsList.length > 0) {
-            await ReturnService.createFromRejection(
+            createdReturn = await ReturnService.createFromRejection(
                 tx,
                 { ...transfer, items: rejectedItemsList },
                 userId,
@@ -373,10 +382,13 @@ export class TGService {
         }
 
         return {
-            ...updateData,
-            status: TransferStatus.COMPLETED,
-            fulfilled_at: new Date(),
-            fulfillment_notes: payload.notes,
+            updateData: {
+                ...updateData,
+                status: TransferStatus.COMPLETED,
+                fulfilled_at: new Date(),
+                fulfillment_notes: payload.notes,
+            },
+            created_return: createdReturn,
         };
     }
 
