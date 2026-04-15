@@ -98,6 +98,12 @@ export type ResponseForecastDTO = {
         ratio: number;
         percentage_value: number | null;
     }>;
+    historical_sales: Array<{
+        month: number;
+        year: number;
+        period: string;
+        quantity: number;
+    }>;
     safety_stock_summary: {
         safety_stock_quantity: number | null;
         safety_stock_ratio: number | null;
