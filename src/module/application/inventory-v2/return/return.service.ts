@@ -10,7 +10,7 @@ import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { RequestReturnDTO, UpdateReturnStatusDTO, QueryReturnDTO } from "./return.schema.js";
 import { InventoryHelper, StockItem } from "../inventory.helper.js";
-import { PRODUCT_INCLUDE, generateDocNumber } from "../inventory.constants.js";
+import { EXPORT_ROW_LIMIT, PRODUCT_INCLUDE, generateDocNumber } from "../inventory.constants.js";
 
 const RETURN_INCLUDE = {
     items: { include: { product: PRODUCT_INCLUDE } },
@@ -266,5 +266,30 @@ export class ReturnService {
         }
 
         return updateData;
+    }
+
+    static async export(query: QueryReturnDTO) {
+        const { data } = await this.list({ ...query, take: EXPORT_ROW_LIMIT, page: 1 });
+
+        const headers = {
+            return_number: "No. Retur",
+            source_transfer_number: "Ref. Dokumen",
+            date: "Tanggal",
+            from_location: "Asal",
+            to_location: "Tujuan (Gudang)",
+            status: "Status",
+            created_by: "Dibuat Oleh",
+            notes: "Catatan",
+        };
+
+        const mappedData = data.map((item: any) => ({
+            ...item,
+            source_transfer_number: item.source_transfer?.transfer_number || "-",
+            date: item.created_at ? new Date(item.created_at).toLocaleDateString("id-ID") : "-",
+            from_location: item.from_warehouse?.name || item.from_outlet?.name || "-",
+            to_location: item.to_warehouse?.name || "-",
+        }));
+
+        return InventoryHelper.toCSV(mappedData, headers);
     }
 }

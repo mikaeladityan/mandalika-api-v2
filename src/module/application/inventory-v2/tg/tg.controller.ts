@@ -88,11 +88,11 @@ export class TGController {
     static async export(c: Context) {
         const query = c.req.query();
         const validated = QueryTransferGudangSchema.parse(query);
-        const buffer = await TGService.export(validated);
+        const csv = await TGService.export(validated);
 
-        c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        c.header("Content-Disposition", `attachment; filename="TG_Export_${Date.now()}.xlsx"`);
+        c.header("Content-Type", "text/csv; charset=utf-8");
+        c.header("Content-Disposition", `attachment; filename="TG_Export_${Date.now()}.csv"`);
 
-        return c.body(buffer as any);
+        return c.text(csv as any);
     }
 }

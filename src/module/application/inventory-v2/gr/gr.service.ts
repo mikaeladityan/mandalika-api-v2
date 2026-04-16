@@ -147,90 +147,23 @@ export class GoodsReceiptService {
     static async export(query: QueryGoodsReceiptDTO) {
         const { data } = await this.list({ ...query, take: EXPORT_ROW_LIMIT, page: 1 });
 
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet("Data Goods Receipt");
+        const headers = {
+            gr_number: "No. GR",
+            date: "Tanggal",
+            "warehouse.name": "Gudang",
+            type: "Tipe",
+            "_count.items": "Total SKU",
+            status: "Status",
+            created_by: "Dibuat Oleh",
+            notes: "Catatan",
+        };
 
-        sheet.columns = [
-            { header: "No", key: "no", width: 5 },
-            { header: "No. GR", key: "gr_number", width: 20 },
-            { header: "Tanggal", key: "date", width: 15 },
-            { header: "Gudang", key: "warehouse", width: 25 },
-            { header: "Tipe", key: "type", width: 15 },
-            { header: "Total SKU", key: "total_items", width: 12 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Dibuat Oleh", key: "created_by", width: 20 },
-            { header: "Catatan", key: "notes", width: 30 },
-        ];
+        const mappedData = data.map((item) => ({
+            ...item,
+            date: item.date ? new Date(item.date).toLocaleDateString("id-ID") : "-",
+        }));
 
-        data.forEach((item, index) => {
-            sheet.addRow({
-                no: index + 1,
-                gr_number: item.gr_number,
-                date: item.date ? new Date(item.date).toLocaleDateString("id-ID") : "-",
-                warehouse: item.warehouse.name,
-                type: item.type,
-                total_items: Number(item._count?.items ?? 0),
-                status: item.status,
-                created_by: item.created_by,
-                notes: item.notes ?? "-",
-            });
-        });
-
-        sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-        sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0070C0" } };
-        sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
-
-        return workbook.xlsx.writeBuffer();
+        return InventoryHelper.toCSV(mappedData, headers);
     }
 
-    static async exportDetail(id: number) {
-        const gr = await prisma.goodsReceipt.findUnique({
-            where: { id },
-            include: {
-                items: { include: { product: PRODUCT_INCLUDE } },
-                warehouse: true,
-            },
-        });
-
-        if (!gr) throw new ApiError(404, "Data Goods Receipt tidak ditemukan");
-
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet(`GR ${gr.gr_number}`);
-
-        sheet.mergeCells("A1:D1");
-        sheet.getCell("A1").value = "PERFORMENCE ERP - GOODS RECEIPT";
-        sheet.getCell("A1").font = { bold: true, size: 16 };
-        sheet.getCell("A1").alignment = { horizontal: "center" };
-
-        sheet.addRow([]);
-        sheet.addRow(["No. Dokumen", gr.gr_number]);
-        sheet.addRow(["Tanggal", gr.date ? new Date(gr.date).toLocaleDateString("id-ID") : "-"]);
-        sheet.addRow(["Gudang", gr.warehouse.name]);
-        sheet.addRow(["Status", gr.status]);
-        sheet.addRow(["Dibuat Oleh", gr.created_by]);
-        sheet.addRow([]);
-
-        const tableHeaderRow = ["No", "SKU / Code", "Nama Produk", "Kuantitas"];
-        sheet.addRow(tableHeaderRow);
-        const headerRowNumber = sheet.rowCount;
-
-        gr.items.forEach((item, index) => {
-            const p = item.product;
-            const fullProductName = `${p.name} ${p.product_type?.name ?? ""} ${p.size?.size ?? ""}${p.unit?.name ?? ""} (${p.gender})`
-                .replace(/\s+/g, " ")
-                .trim();
-
-            sheet.addRow([index + 1, p.code, fullProductName, Number(item.quantity_actual)]);
-        });
-
-        const headerRow = sheet.getRow(headerRowNumber);
-        headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-        headerRow.eachCell((cell) => {
-            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0070C0" } };
-            cell.alignment = { horizontal: "center", vertical: "middle" };
-            cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-        });
-
-        return workbook.xlsx.writeBuffer();
-    }
 }

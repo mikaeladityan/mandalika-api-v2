@@ -403,39 +403,22 @@ export class TGService {
     static async export(query: QueryTransferGudangDTO) {
         const { data } = await this.list({ ...query, take: EXPORT_ROW_LIMIT, page: 1 });
 
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet("Data Transfer Gudang");
+        const headers = {
+            transfer_number: "No. TG",
+            barcode: "Barcode",
+            date: "Tanggal",
+            "from_warehouse.name": "Gudang (Asal)",
+            "to_warehouse.name": "Gudang (Tujuan)",
+            status: "Status",
+            created_by: "Dibuat Oleh",
+            notes: "Catatan",
+        };
 
-        sheet.columns = [
-            { header: "No", key: "no", width: 5 },
-            { header: "No. TG", key: "transfer_number", width: 20 },
-            { header: "Barcode", key: "barcode", width: 20 },
-            { header: "Tanggal", key: "date", width: 15 },
-            { header: "Gudang (Asal)", key: "from_warehouse", width: 25 },
-            { header: "Gudang (Tujuan)", key: "to_warehouse", width: 25 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Dibuat Oleh", key: "created_by", width: 20 },
-            { header: "Catatan", key: "notes", width: 30 },
-        ];
+        const mappedData = data.map((item) => ({
+            ...item,
+            date: item.date ? new Date(item.date).toLocaleDateString("id-ID") : "-",
+        }));
 
-        data.forEach((item, index) => {
-            sheet.addRow({
-                no: index + 1,
-                transfer_number: item.transfer_number,
-                barcode: item.barcode,
-                date: item.created_at ? new Date(item.created_at).toLocaleDateString("id-ID") : "-",
-                from_warehouse: item.from_warehouse?.name ?? "-",
-                to_warehouse: item.to_warehouse?.name ?? "-",
-                status: item.status,
-                created_by: item.created_by,
-                notes: item.notes ?? "-",
-            });
-        });
-
-        sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-        sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0070C0" } };
-        sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
-
-        return workbook.xlsx.writeBuffer();
+        return InventoryHelper.toCSV(mappedData, headers);
     }
 }

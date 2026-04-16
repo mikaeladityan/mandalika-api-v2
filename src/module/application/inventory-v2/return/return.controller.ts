@@ -2,12 +2,29 @@ import { Context } from "hono";
 import { ReturnService } from "./return.service.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
 import { CreateLogger } from "../../log/log.service.js";
+import {
+    QueryReturnSchema,
+    RequestReturnDTO,
+    UpdateReturnStatusDTO,
+} from "./return.schema.js";
 
 export class ReturnController {
     static async list(c: Context) {
         const query = c.req.query();
-        const result = await ReturnService.list(query);
-        return ApiResponse.sendSuccess(c, result);
+        const validated = QueryReturnSchema.parse(query);
+        const result = await ReturnService.list(validated);
+        return ApiResponse.sendSuccess(c, result, 200, validated);
+    }
+
+    static async export(c: Context) {
+        const query = c.req.query();
+        const validated = QueryReturnSchema.parse(query);
+        const csv = await ReturnService.export(validated);
+
+        c.header("Content-Type", "text/csv; charset=utf-8");
+        c.header("Content-Disposition", `attachment; filename="Return_Export_${Date.now()}.csv"`);
+
+        return c.text(csv as any);
     }
 
     static async detail(c: Context) {
@@ -22,7 +39,7 @@ export class ReturnController {
 
     static async create(c: Context) {
         try {
-            const body = await c.req.json();
+            const body = c.get("body") as RequestReturnDTO;
             const accountSession = c.get("session");
             const userId = accountSession?.email || "system";
 
@@ -46,7 +63,7 @@ export class ReturnController {
     static async updateStatus(c: Context) {
         try {
             const id = Number(c.req.param("id"));
-            const body = await c.req.json();
+            const body = c.get("body") as UpdateReturnStatusDTO;
             const accountSession = c.get("session");
             const userId = accountSession?.email || "system";
 

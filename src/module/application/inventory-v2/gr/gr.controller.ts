@@ -87,28 +87,12 @@ export class GRController {
     static async export(c: Context) {
         const query = c.req.query();
         const validated = QueryGoodsReceiptSchema.parse(query);
-        const buffer = await GoodsReceiptService.export(validated);
+        const csv = await GoodsReceiptService.export(validated);
 
-        c.header(
-            "Content-Type",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        );
-        c.header("Content-Disposition", `attachment; filename="GR_Export_${Date.now()}.xlsx"`);
+        c.header("Content-Type", "text/csv; charset=utf-8");
+        c.header("Content-Disposition", `attachment; filename="GR_Export_${Date.now()}.csv"`);
 
-        return c.body(buffer as any);
+        return c.text(csv);
     }
 
-    static async exportDetail(c: Context) {
-        const id = Number(c.req.param("id"));
-        if (!id) throw new ApiError(400, "Kesalahan pada proses permintaan data");
-        const buffer = await GoodsReceiptService.exportDetail(id);
-
-        c.header(
-            "Content-Type",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        );
-        c.header("Content-Disposition", `attachment; filename="GR_Detail_${id}.xlsx"`);
-
-        return c.body(buffer as any);
-    }
 }
