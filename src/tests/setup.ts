@@ -386,6 +386,8 @@ vi.mock("../config/prisma.js", () => ({
             findMany: vi.fn().mockResolvedValue([]),
             count: vi.fn().mockResolvedValue(0),
             deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+            update: vi.fn().mockResolvedValue({ id: 1, quantity: 450 }),
+            create: vi.fn().mockResolvedValue({ id: 2, quantity: 50 }),
         },
         safetyStock: {
             findMany: vi.fn().mockResolvedValue([]),
@@ -721,6 +723,67 @@ vi.mock("../config/prisma.js", () => ({
                 last_name: "User",
             }),
         },
+        productionOrder: {
+            findUnique: vi.fn().mockImplementation(async (args) => {
+                const { where } = args;
+                if (where.id === 999) return null;
+                return {
+                    id: where.id || 1,
+                    mfg_number: "MFG-202604-0001",
+                    product_id: 1,
+                    quantity_planned: 100,
+                    quantity_actual: null,
+                    quantity_accepted: null,
+                    quantity_rejected: null,
+                    status: "PLANNING",
+                    target_date: null,
+                    notes: null,
+                    qc_notes: null,
+                    released_at: null,
+                    processing_at: null,
+                    completed_at: null,
+                    finished_at: null,
+                    fg_warehouse_id: null,
+                    created_by: "system",
+                    created_at: new Date(),
+                    updated_at: new Date(),
+                    items: [],
+                    product: { id: 1, name: "T-Shirt", code: "TSHIRT" },
+                    goods_receipt: null,
+                };
+            }),
+            findMany: vi.fn().mockResolvedValue([]),
+            count: vi.fn().mockResolvedValue(0),
+            create: vi.fn().mockResolvedValue({
+                id: 1,
+                mfg_number: "MFG-202604-0001",
+                product_id: 1,
+                quantity_planned: 100,
+                status: "PLANNING",
+                created_by: "system",
+                created_at: new Date(),
+                updated_at: new Date(),
+                items: [],
+                product: { id: 1, name: "T-Shirt", code: "TSHIRT" },
+            }),
+            update: vi.fn().mockResolvedValue({
+                id: 1,
+                mfg_number: "MFG-202604-0001",
+                status: "RELEASED",
+                items: [],
+                product: { id: 1, name: "T-Shirt", code: "TSHIRT" },
+            }),
+        },
+        productionOrderItem: {
+            findMany: vi.fn().mockResolvedValue([]),
+            update: vi.fn().mockResolvedValue({}),
+            updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+            create: vi.fn().mockResolvedValue({}),
+        },
+        productionOrderWaste: {
+            findMany: vi.fn().mockResolvedValue([]),
+            create: vi.fn().mockResolvedValue({}),
+        },
         $transaction: vi.fn((cbOrArray) => {
             // Array form: prisma.$transaction([op1, op2])
             if (Array.isArray(cbOrArray)) return Promise.all(cbOrArray);
@@ -867,6 +930,57 @@ vi.mock("../config/prisma.js", () => ({
                 },
                 stockReturnItem: {
                     create: vi.fn().mockResolvedValue({}),
+                },
+                productionOrder: {
+                    findUnique: vi.fn().mockImplementation(async (args) => {
+                        const { where } = args;
+                        if (where.id === 999) return null;
+                        return {
+                            id: where.id || 1,
+                            mfg_number: "MFG-202604-0001",
+                            product_id: 1,
+                            quantity_planned: 100,
+                            quantity_actual: null,
+                            status: "PLANNING",
+                            items: [],
+                            product: { id: 1, name: "T-Shirt", code: "TSHIRT", recipes: [] },
+                            goods_receipt: null,
+                        };
+                    }),
+                    create: vi.fn().mockResolvedValue({
+                        id: 1,
+                        mfg_number: "MFG-202604-0001",
+                        product_id: 1,
+                        quantity_planned: 100,
+                        status: "PLANNING",
+                        items: [],
+                        product: { id: 1, name: "T-Shirt", code: "TSHIRT" },
+                    }),
+                    update: vi.fn().mockResolvedValue({
+                        id: 1,
+                        mfg_number: "MFG-202604-0001",
+                        status: "RELEASED",
+                        items: [],
+                        wastes: [],
+                        product: { id: 1, name: "T-Shirt", code: "TSHIRT" },
+                        goods_receipt: null,
+                    }),
+                },
+                productionOrderItem: {
+                    update: vi.fn().mockResolvedValue({}),
+                    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+                    create: vi.fn().mockResolvedValue({}),
+                },
+                productionOrderWaste: {
+                    create: vi.fn().mockResolvedValue({}),
+                },
+                rawMaterialInventory: {
+                    findFirst: vi.fn().mockResolvedValue({ id: 1, quantity: 500, warehouse_id: 3 }),
+                    findMany: vi.fn().mockResolvedValue([
+                        { id: 1, raw_material_id: 1, warehouse_id: 3, quantity: 500 },
+                    ]),
+                    update: vi.fn().mockResolvedValue({ id: 1, quantity: 450 }),
+                    create: vi.fn().mockResolvedValue({ id: 2, quantity: 50 }),
                 },
                 $executeRawUnsafe: vi.fn().mockResolvedValue(1),
             });

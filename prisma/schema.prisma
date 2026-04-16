@@ -139,6 +139,8 @@ model Product {
   stock_transfer_items    StockTransferItem[]
   goods_receipt_items    GoodsReceiptItem[]
   returns                 StockReturnItem[]
+  production_orders       ProductionOrder[]
+  production_fg_wastes    ProductionOrderWaste[] @relation("ProductionWasteFG")
 
   @@index([code])
   @@index([type_id])
@@ -220,6 +222,8 @@ model RawMaterial {
   supplier                Supplier?                 @relation(fields: [supplier_id], references: [id])
   unit_raw_material       UnitRawMaterial           @relation(fields: [unit_id], references: [id], onDelete: Cascade)
   recipes                 Recipes[]
+  production_order_items  ProductionOrderItem[]
+  production_rm_wastes    ProductionOrderWaste[] @relation("ProductionWasteRM")
 
   @@map("raw_materials")
 }
@@ -295,8 +299,10 @@ model Warehouse {
   transfers_as_destination StockTransfer[]        @relation("TransferToWarehouse")
   returns_as_source        StockReturn[]          @relation("ReturnFromWarehouse")
   returns_as_destination   StockReturn[]          @relation("ReturnToWarehouse")
-  goods_receipts           GoodsReceipt[]
-  warehouse_address        WarehouseAddress?
+  goods_receipts               GoodsReceipt[]
+  warehouse_address            WarehouseAddress?
+  production_orders_fg         ProductionOrder[]        @relation("ProductionFGWarehouse")
+  production_order_items       ProductionOrderItem[]    @relation("ProductionItemWarehouse")
 
   @@index([name])
   @@map("warehouses")
@@ -682,24 +688,95 @@ model StockReturnItem {
 }
 
 model GoodsReceipt {
-  id              Int                @id @default(autoincrement())
-  gr_number       String             @unique @db.VarChar(50)
-  type            GoodsReceiptType   @default(MANUAL)
-  status          GoodsReceiptStatus @default(PENDING)
-  date            DateTime           @default(now())
-  warehouse_id    Int
-  notes           String?
-  created_by      String             @db.VarChar(100)
-  posted_at       DateTime?
-  created_at      DateTime           @default(now())
-  updated_at      DateTime           @updatedAt
-  items           GoodsReceiptItem[]
-  warehouse       Warehouse          @relation(fields: [warehouse_id], references: [id])
+  id                  Int                @id @default(autoincrement())
+  gr_number           String             @unique @db.VarChar(50)
+  type                GoodsReceiptType   @default(MANUAL)
+  status              GoodsReceiptStatus @default(PENDING)
+  date                DateTime           @default(now())
+  warehouse_id        Int
+  notes               String?
+  created_by          String             @db.VarChar(100)
+  posted_at           DateTime?
+  created_at          DateTime           @default(now())
+  updated_at          DateTime           @updatedAt
+  production_order_id Int?               @unique
+  items               GoodsReceiptItem[]
+  warehouse           Warehouse          @relation(fields: [warehouse_id], references: [id])
+  production_order    ProductionOrder?   @relation(fields: [production_order_id], references: [id])
 
   @@index([gr_number])
   @@index([status])
   @@index([warehouse_id])
   @@map("goods_receipts")
+}
+
+model ProductionOrder {
+  id                Int                    @id @default(autoincrement())
+  mfg_number        String                 @unique @db.VarChar(50)
+  product_id        Int
+  quantity_planned  Decimal                @db.Decimal(18, 2)
+  quantity_actual   Decimal?               @db.Decimal(18, 2)
+  quantity_accepted Decimal?               @db.Decimal(18, 2)
+  quantity_rejected Decimal?               @db.Decimal(18, 2)
+  status            ProductionStatus       @default(PLANNING)
+  target_date       DateTime?
+  notes             String?
+  qc_notes          String?
+  released_at       DateTime?
+  processing_at     DateTime?
+  completed_at      DateTime?
+  finished_at       DateTime?
+  fg_warehouse_id   Int?
+  created_by        String                 @db.VarChar(100)
+  created_at        DateTime               @default(now())
+  updated_at        DateTime               @updatedAt
+  product           Product                @relation(fields: [product_id], references: [id])
+  fg_warehouse      Warehouse?             @relation("ProductionFGWarehouse", fields: [fg_warehouse_id], references: [id])
+  items             ProductionOrderItem[]
+  wastes            ProductionOrderWaste[]
+  goods_receipt     GoodsReceipt?
+
+  @@index([mfg_number])
+  @@index([status])
+  @@index([product_id])
+  @@index([created_at])
+  @@map("production_orders")
+}
+
+model ProductionOrderItem {
+  id                  Int             @id @default(autoincrement())
+  production_order_id Int
+  raw_material_id     Int
+  warehouse_id        Int?
+  quantity_planned    Decimal         @db.Decimal(18, 2)
+  quantity_actual     Decimal?        @db.Decimal(18, 2)
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  production_order    ProductionOrder @relation(fields: [production_order_id], references: [id], onDelete: Cascade)
+  raw_material        RawMaterial     @relation(fields: [raw_material_id], references: [id])
+  warehouse           Warehouse?      @relation("ProductionItemWarehouse", fields: [warehouse_id], references: [id])
+
+  @@index([production_order_id])
+  @@index([raw_material_id])
+  @@index([warehouse_id])
+  @@map("production_order_items")
+}
+
+model ProductionOrderWaste {
+  id                  Int             @id @default(autoincrement())
+  production_order_id Int
+  waste_type          WasteType
+  raw_material_id     Int?
+  product_id          Int?
+  quantity            Decimal         @db.Decimal(18, 2)
+  notes               String?
+  created_at          DateTime        @default(now())
+  production_order    ProductionOrder @relation(fields: [production_order_id], references: [id], onDelete: Cascade)
+  raw_material        RawMaterial?    @relation("ProductionWasteRM", fields: [raw_material_id], references: [id])
+  product             Product?        @relation("ProductionWasteFG", fields: [product_id], references: [id])
+
+  @@index([production_order_id])
+  @@map("production_order_wastes")
 }
 
 model GoodsReceiptItem {
@@ -880,6 +957,21 @@ enum MovementRefType {
   MANUAL
   GOODS_RECEIPT
   STOCK_RETURN
+  PRODUCTION
+}
+
+enum ProductionStatus {
+  PLANNING
+  RELEASED
+  PROCESSING
+  COMPLETED
+  QC_REVIEW
+  FINISHED
+}
+
+enum WasteType {
+  RAW_MATERIAL
+  FINISH_GOODS
 }
 
 enum TransferPhotoStage {
