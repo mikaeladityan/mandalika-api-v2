@@ -7,8 +7,6 @@ export const DORoutes = new Hono();
 
 DORoutes.get("/", DOController.list);
 DORoutes.get("/stock", DOController.getStock);
-DORoutes.get("/discrepancies", DOController.listDiscrepancies);
-DORoutes.get("/discrepancies/export", DOController.exportDiscrepancies);
 DORoutes.get("/export", DOController.export);
 DORoutes.get("/:id", DOController.detail);
 

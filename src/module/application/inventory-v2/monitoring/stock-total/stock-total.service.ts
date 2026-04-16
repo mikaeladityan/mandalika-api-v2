@@ -1,6 +1,7 @@
 import { Prisma } from "../../../../../generated/prisma/client.js";
 import prisma from "../../../../../config/prisma.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
+import { EXPORT_ROW_LIMIT } from "../../inventory.constants.js";
 import {
     QueryStockTotalDTO,
     ResponseStockTotalDTO,
@@ -175,5 +176,13 @@ export class StockTotalService {
             ...warehouses.map((w) => ({ id: w.id, name: w.name, type: "WAREHOUSE" as const })),
             ...outlets.map((o)    => ({ id: o.id, name: o.name, type: "OUTLET"    as const })),
         ];
+    }
+
+    /**
+     * Export all products within active search criteria (up to EXPORT_ROW_LIMIT).
+     */
+    static async export(query: QueryStockTotalDTO): Promise<ResponseStockTotalDTO[]> {
+        const { data } = await this.list({ ...query, take: EXPORT_ROW_LIMIT, page: 1 });
+        return data;
     }
 }

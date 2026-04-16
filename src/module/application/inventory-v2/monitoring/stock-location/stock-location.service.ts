@@ -2,6 +2,7 @@ import { Prisma } from "../../../../../generated/prisma/client.js";
 import prisma from "../../../../../config/prisma.js";
 import { ApiError } from "../../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
+import { EXPORT_ROW_LIMIT } from "../../inventory.constants.js";
 import {
     QueryStockLocationDTO,
     ResponseStockLocationItemDTO,
@@ -214,5 +215,16 @@ export class StockLocationService {
             min_stock:     r.min_stock != null ? Number(r.min_stock) : null,
             location_name,
         };
+    }
+
+    /**
+     * Export all products for the selected location (up to EXPORT_ROW_LIMIT).
+     */
+    static async export(query: QueryStockLocationDTO): Promise<{
+        data:          ResponseStockLocationItemDTO[];
+        location_name: string;
+    }> {
+        const { data, location_name } = await this.list({ ...query, take: EXPORT_ROW_LIMIT, page: 1 });
+        return { data, location_name };
     }
 }

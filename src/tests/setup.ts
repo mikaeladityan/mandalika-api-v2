@@ -635,6 +635,8 @@ vi.mock("../config/prisma.js", () => ({
             update: vi.fn().mockResolvedValue({ id: 1, items: [] }),
         },
         stockTransferItem: {
+            findMany: vi.fn().mockResolvedValue([]),
+            count: vi.fn().mockResolvedValue(0),
             update: vi.fn().mockResolvedValue({}),
         },
         goodsReceipt: {
