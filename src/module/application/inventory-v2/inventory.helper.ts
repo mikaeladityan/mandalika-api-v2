@@ -227,4 +227,23 @@ export class InventoryHelper {
             });
         }
     }
+    /**
+     * Generates a CSV string from an array of objects and a header map.
+     */
+    static toCSV(data: any[], headers: Record<string, string>): string {
+        const headerRow = Object.values(headers).join(",");
+        const keys = Object.keys(headers);
+
+        const rows = data.map((item) => {
+            return keys
+                .map((key) => {
+                    const value = key.split(".").reduce((obj, k) => obj?.[k], item) ?? "";
+                    const sanitized = String(value).replace(/"/g, '""');
+                    return `"${sanitized}"`;
+                })
+                .join(",");
+        });
+
+        return [headerRow, ...rows].join("\n");
+    }
 }

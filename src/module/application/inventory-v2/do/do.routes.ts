@@ -10,7 +10,6 @@ DORoutes.get("/stock", DOController.getStock);
 DORoutes.get("/export", DOController.export);
 DORoutes.get("/:id", DOController.detail);
 
-DORoutes.get("/:id/export", DOController.exportDetail);
 
 // SOP: Direct validateBody in routes
 DORoutes.post("/", validateBody(RequestDeliveryOrderSchema), DOController.create);

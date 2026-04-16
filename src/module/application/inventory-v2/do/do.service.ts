@@ -416,116 +416,23 @@ export class DOService {
     static async export(query: QueryDeliveryOrderDTO) {
         const { data } = await this.list({ ...query, take: EXPORT_ROW_LIMIT, page: 1 });
 
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet("Data Delivery Order");
+        const headers = {
+            transfer_number: "No. DO",
+            barcode: "Barcode",
+            date: "Tanggal",
+            "from_warehouse.name": "Gudang (Asal)",
+            "to_outlet.name": "Outlet (Tujuan)",
+            status: "Status",
+            created_by: "Dibuat Oleh",
+            notes: "Catatan",
+        };
 
-        sheet.columns = [
-            { header: "No", key: "no", width: 5 },
-            { header: "No. DO", key: "transfer_number", width: 20 },
-            { header: "Barcode", key: "barcode", width: 20 },
-            { header: "Tanggal", key: "date", width: 15 },
-            { header: "Gudang (Asal)", key: "from_warehouse", width: 25 },
-            { header: "Outlet (Tujuan)", key: "to_outlet", width: 25 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Dibuat Oleh", key: "created_by", width: 20 },
-            { header: "Catatan", key: "notes", width: 30 },
-        ];
+        const mappedData = data.map((item) => ({
+            ...item,
+            date: item.date ? new Date(item.date).toLocaleDateString("id-ID") : "-",
+        }));
 
-        data.forEach((item, index) => {
-            sheet.addRow({
-                no: index + 1,
-                transfer_number: item.transfer_number,
-                barcode: item.barcode,
-                date: item.created_at ? new Date(item.created_at).toLocaleDateString("id-ID") : "-",
-                from_warehouse: item.from_warehouse?.name ?? "-",
-                to_outlet: item.to_outlet?.name ?? "-",
-                status: item.status,
-                created_by: item.created_by,
-                notes: item.notes ?? "-",
-            });
-        });
-
-        sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-        sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0070C0" } };
-        sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
-
-        return workbook.xlsx.writeBuffer();
+        return InventoryHelper.toCSV(mappedData, headers);
     }
 
-    static async exportDetail(id: number) {
-        const doRecord = await prisma.stockTransfer.findUnique({
-            where: { id },
-            include: {
-                items: { include: { product: PRODUCT_INCLUDE } },
-                from_warehouse: true,
-                to_outlet: true,
-            },
-        });
-
-        if (!doRecord) throw new ApiError(404, "Data Delivery Order tidak ditemukan");
-
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet(`DO ${doRecord.transfer_number}`);
-
-        sheet.mergeCells("A1:D1");
-        sheet.getCell("A1").value = "PERFORMENCE ERP - DELIVERY ORDER";
-        sheet.getCell("A1").font = { bold: true, size: 16 };
-        sheet.getCell("A1").alignment = { horizontal: "center" };
-
-        sheet.addRow([]);
-        sheet.addRow(["No. Dokumen", doRecord.transfer_number]);
-        sheet.addRow(["Barcode", doRecord.barcode]);
-        sheet.addRow([
-            "Tanggal",
-            doRecord.created_at ? new Date(doRecord.created_at).toLocaleDateString("id-ID") : "-",
-        ]);
-        sheet.addRow(["Gudang Asal", doRecord.from_warehouse?.name ?? "-"]);
-        sheet.addRow(["Outlet Tujuan", doRecord.to_outlet?.name ?? "-"]);
-        sheet.addRow(["Status", doRecord.status]);
-        sheet.addRow(["Dibuat Oleh", doRecord.created_by]);
-        sheet.addRow([]);
-
-        const tableHeaderRow = [
-            "No",
-            "SKU / Code",
-            "Nama Produk",
-            "Qty (Requested)",
-            "Qty (Packed)",
-            "Qty (Fulfilled)",
-        ];
-        sheet.addRow(tableHeaderRow);
-        const headerRowNumber = sheet.rowCount;
-
-        doRecord.items.forEach((item, index) => {
-            const p = item.product;
-            const fullProductName =
-                `${p.name} ${p.product_type?.name.toLocaleUpperCase() ?? ""} ${p.size?.size ?? ""}${p.unit?.name.toLocaleUpperCase() ?? ""} (${p.gender})`
-                    .replace(/\s+/g, " ")
-                    .trim();
-
-            sheet.addRow([
-                index + 1,
-                p.code,
-                fullProductName,
-                Number(item.quantity_requested),
-                Number(item.quantity_packed ?? 0),
-                Number(item.quantity_fulfilled ?? 0),
-            ]);
-        });
-
-        const headerRow = sheet.getRow(headerRowNumber);
-        headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-        headerRow.eachCell((cell) => {
-            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0070C0" } };
-            cell.alignment = { horizontal: "center", vertical: "middle" };
-            cell.border = {
-                top: { style: "thin" },
-                left: { style: "thin" },
-                bottom: { style: "thin" },
-                right: { style: "thin" },
-            };
-        });
-
-        return workbook.xlsx.writeBuffer();
-    }
 }

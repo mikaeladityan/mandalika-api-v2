@@ -84,22 +84,12 @@ export class DOController {
     static async export(c: Context) {
         const query = c.req.query();
         const validated = QueryDeliveryOrderSchema.parse(query);
-        const buffer = await DOService.export(validated);
+        const csv = await DOService.export(validated);
 
-        c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        c.header("Content-Disposition", `attachment; filename="DO_Export_${Date.now()}.xlsx"`);
+        c.header("Content-Type", "text/csv; charset=utf-8");
+        c.header("Content-Disposition", `attachment; filename="DO_Export_${Date.now()}.csv"`);
 
-        return c.body(buffer as any);
+        return c.text(csv as any);
     }
 
-    static async exportDetail(c: Context) {
-        const id = Number(c.req.param("id"));
-        if (!id) throw new ApiError(400, "Kesalahan pada proses permintaan data");
-        const buffer = await DOService.exportDetail(id);
-
-        c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        c.header("Content-Disposition", `attachment; filename="DO_Detail_${id}_${new Date().getTime()}.xlsx"`);
-
-        return c.body(buffer as any);
-    }
 }
