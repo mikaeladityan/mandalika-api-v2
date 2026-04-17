@@ -59,6 +59,7 @@ export class AuthService {
                 password: true,
                 user: {
                     select: {
+                        id: true,
                         first_name: true,
                         last_name: true,
                         phone: true,

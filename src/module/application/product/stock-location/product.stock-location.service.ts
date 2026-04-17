@@ -12,7 +12,7 @@ export class ProductStockLocationService {
             page = 1,
             take = 50,
             search,
-            sortBy = "updated_at",
+            sortBy = "total_stock",
             sortOrder = "desc",
             type_id,
             gender,

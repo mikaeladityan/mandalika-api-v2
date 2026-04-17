@@ -78,6 +78,7 @@ export type ResponseDetailRecipeDTO = {
     version: number;
     is_active: boolean;
     description: string | null;
+    product_size: number;
     recipes: Array<{
         raw_mat_id: number;
         barcode: string | null;
@@ -85,5 +86,12 @@ export type ResponseDetailRecipeDTO = {
         unit: string;
         price: number;
         quantity: number;
+        current_stock?: number;
+        stocks?: Array<{
+            warehouse_name: string;
+            warehouse_code: string;
+            quantity: number;
+        }>;
+        use_size_calc: boolean;
     }>;
 };

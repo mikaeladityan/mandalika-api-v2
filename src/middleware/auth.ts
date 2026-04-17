@@ -66,6 +66,7 @@ export const authMiddleware = async (c: Context, next: Next) => {
             });
         }
 
+        c.set("user", sessionData?.user);
         c.set("session", sessionData);
         c.set("role", sessionData?.role || "STAFF");
         c.set("permissions", sessionData?.employee?.permissions || []);

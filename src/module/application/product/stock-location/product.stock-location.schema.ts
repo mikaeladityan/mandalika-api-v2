@@ -4,7 +4,7 @@ export const QueryStockLocationSchema = z.object({
     page: z.string().optional().transform(Number),
     take: z.string().optional().transform(Number),
     search: z.string().optional(),
-    sortBy: z.enum(["name", "code", "type", "size", "gender", "updated_at"]).optional().default("updated_at"),
+    sortBy: z.enum(["name", "code", "type", "size", "gender", "updated_at", "total_stock"]).optional().default("total_stock"),
     sortOrder: z.enum(["asc", "desc"]).optional().default("desc"),
     type_id: z.string().optional().transform(Number),
     gender: z.string().optional(),
