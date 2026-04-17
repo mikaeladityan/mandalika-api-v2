@@ -89,6 +89,7 @@ export type ResponseDetailRecipeDTO = {
         current_stock?: number;
         stocks?: Array<{
             warehouse_name: string;
+            warehouse_code: string;
             quantity: number;
         }>;
         use_size_calc: boolean;

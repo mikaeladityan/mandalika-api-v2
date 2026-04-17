@@ -279,7 +279,7 @@ export class RecipeService {
             },
             include: {
                 warehouse: {
-                    select: { name: true }
+                    select: { name: true, code: true }
                 }
             }
         });
@@ -302,6 +302,7 @@ export class RecipeService {
                     const current_stock = materialInventories.reduce((acc, curr) => acc + Number(curr.quantity), 0);
                     const stocks = materialInventories.map(inv => ({
                         warehouse_name: inv.warehouse.name,
+                        warehouse_code: inv.warehouse.code || "",
                         quantity: Number(inv.quantity)
                     }));
 
