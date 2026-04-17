@@ -19,6 +19,8 @@ import {
 } from "../../../generated/prisma/enums.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
+import { InventoryHelper } from "../inventory-v2/inventory.helper.js";
+import { generateDocNumber } from "../inventory-v2/inventory.constants.js";
 
 function generateMfgNumber(): string {
     const now = new Date();
@@ -227,14 +229,42 @@ export class ManufacturingService {
                             created_by: userId,
                         },
                     });
+
+                    // Log as Waste RM
+                    await tx.productionOrderWaste.create({
+                        data: {
+                            production_order_id: id,
+                            waste_type: WasteType.RAW_MATERIAL,
+                            raw_material_id: dbItem.raw_material_id,
+                            quantity: overUsage,
+                            notes: "Pemakaian Berlebih (Overconsumption)",
+                        },
+                    });
                 }
+            }
+
+            // Calculate Yield Loss (Planned vs Actual)
+            const plannedQty = Number(order.quantity_planned);
+            const actualQty = Number(payload.quantity_actual);
+            const yieldLoss = plannedQty - actualQty;
+
+            if (yieldLoss > 0) {
+                await tx.productionOrderWaste.create({
+                    data: {
+                        production_order_id: id,
+                        product_id: order.product_id,
+                        waste_type: WasteType.RAW_MATERIAL,
+                        quantity: yieldLoss,
+                        notes: "Selisih Hasil Produksi (Yield Loss)",
+                    },
+                });
             }
 
             const updated = await tx.productionOrder.update({
                 where: { id },
                 data: {
                     quantity_actual: payload.quantity_actual,
-                    status: ProductionStatus.COMPLETED,
+                    status: ProductionStatus.QC_REVIEW,
                     completed_at: new Date(),
                     notes: payload.notes ?? order.notes,
                     updated_by: userId,
@@ -255,8 +285,8 @@ export class ManufacturingService {
                 include: { items: true, goods_receipt: true },
             });
             if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
-            if (order.status !== ProductionStatus.QC_REVIEW) {
-                throw new ApiError(400, `qcAction memerlukan status QC_REVIEW, status saat ini: ${order.status}`);
+            if (order.status !== ProductionStatus.QC_REVIEW && order.status !== ProductionStatus.COMPLETED) {
+                throw new ApiError(400, `qcAction memerlukan status QC_REVIEW atau COMPLETED, status saat ini: ${order.status}`);
             }
             if (order.goods_receipt) throw new ApiError(400, "GR sudah dibuat untuk pesanan produksi ini");
 
@@ -272,7 +302,7 @@ export class ManufacturingService {
             if (payload.quantity_accepted > 0) {
                 const gr = await tx.goodsReceipt.create({
                     data: {
-                        gr_number: generateGrNumber(),
+                        gr_number: generateDocNumber("GR"),
                         type: GoodsReceiptType.QC_FG,
                         status: GoodsReceiptStatus.COMPLETED,
                         warehouse_id: payload.fg_warehouse_id,
@@ -289,48 +319,17 @@ export class ManufacturingService {
                     },
                 });
 
-                const now = new Date();
-                let pi = await tx.productInventory.findFirst({
-                    where: { product_id: order.product_id, warehouse_id: payload.fg_warehouse_id },
-                    orderBy: { created_at: "desc" },
-                });
-
-                const qtyBefore = pi ? Number(pi.quantity) : 0;
-                const qtyAfter = qtyBefore + payload.quantity_accepted;
-
-                if (pi) {
-                    await tx.productInventory.update({
-                        where: { id: pi.id },
-                        data: { quantity: qtyAfter },
-                    });
-                } else {
-                    await tx.productInventory.create({
-                        data: {
-                            product_id: order.product_id,
-                            warehouse_id: payload.fg_warehouse_id,
-                            quantity: payload.quantity_accepted,
-                            date: now.getDate(),
-                            month: now.getMonth() + 1,
-                            year: now.getFullYear(),
-                        },
-                    });
-                }
-
-                await tx.stockMovement.create({
-                    data: {
-                        entity_type: MovementEntityType.PRODUCT,
-                        entity_id: order.product_id,
-                        location_type: "WAREHOUSE",
-                        location_id: payload.fg_warehouse_id,
-                        movement_type: MovementType.IN,
-                        quantity: payload.quantity_accepted,
-                        qty_before: qtyBefore,
-                        qty_after: qtyAfter,
-                        reference_id: gr.id,
-                        reference_type: MovementRefType.GOODS_RECEIPT,
-                        created_by: userId,
-                    },
-                });
+                // Use InventoryHelper to update Finish Goods stock
+                await InventoryHelper.addWarehouseStock(
+                    tx,
+                    payload.fg_warehouse_id,
+                    [{ product_id: order.product_id, quantity: payload.quantity_accepted }],
+                    gr.id,
+                    MovementRefType.GOODS_RECEIPT,
+                    MovementType.IN,
+                    userId,
+                    `Produksi: ${order.mfg_number}`
+                );
             }
 
             if (payload.quantity_rejected > 0) {
@@ -340,7 +339,9 @@ export class ManufacturingService {
                         waste_type: WasteType.FINISH_GOODS,
                         product_id: order.product_id,
                         quantity: payload.quantity_rejected,
-                        notes: payload.qc_notes ?? "QC Rejected",
+                        notes: payload.qc_notes 
+                            ? `Ditolak saat QC: ${payload.qc_notes}` 
+                            : "Ditolak saat QC (Finish Goods)",
                     },
                 });
             }
@@ -434,6 +435,41 @@ export class ManufacturingService {
         if (!result) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
         await ManufacturingService.attachAuditUsers(result);
         return result;
+    }
+
+    static async listWastes(query: any) {
+        const { page = 1, take = 10, waste_type, search } = query;
+        const { skip, take: limit } = GetPagination(page, take);
+
+        const where: Prisma.ProductionOrderWasteWhereInput = {
+            ...(waste_type && { waste_type: waste_type as WasteType }),
+            ...(search && {
+                OR: [
+                    { production_order: { mfg_number: { contains: search, mode: "insensitive" } } },
+                    { product: { name: { contains: search, mode: "insensitive" } } },
+                    { raw_material: { name: { contains: search, mode: "insensitive" } } },
+                ],
+            }),
+        };
+
+        const [data, len] = await Promise.all([
+            prisma.productionOrderWaste.findMany({
+                where,
+                skip,
+                take: limit,
+                orderBy: { created_at: "desc" },
+                include: {
+                    production_order: {
+                        select: { id: true, mfg_number: true }
+                    },
+                    product: { select: { id: true, name: true } },
+                    raw_material: { select: { id: true, name: true } },
+                },
+            }),
+            prisma.productionOrderWaste.count({ where }),
+        ]);
+
+        return { data, len };
     }
 
     static async delete(id: number) {

@@ -13,6 +13,7 @@ const app = new Hono();
 
 app.get("/", ManufacturingController.list);
 app.post("/", validateBody(RequestCreateProductionSchema), ManufacturingController.create);
+app.get("/wastes", ManufacturingController.listWastes);
 app.get("/:id", ManufacturingController.detail);
 app.patch("/:id/status", validateBody(RequestChangeStatusSchema), ManufacturingController.changeStatus);
 app.post("/:id/result", validateBody(RequestSubmitResultSchema), ManufacturingController.submitResult);

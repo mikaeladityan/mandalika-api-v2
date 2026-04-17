@@ -6,6 +6,7 @@ import {
     RequestQcActionDTO,
     RequestSubmitResultDTO,
     RequestChangeStatusDTO,
+    QueryWasteSchema,
 } from "./manufacturing.schema.js";
 
 export class ManufacturingController {
@@ -73,6 +74,13 @@ export class ManufacturingController {
     static async detail(c: Context) {
         const id = Number(c.req.param("id"));
         const result = await ManufacturingService.detail(id);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async listWastes(c: Context) {
+        const query = c.req.query();
+        const validated = QueryWasteSchema.parse(query);
+        const result = await ManufacturingService.listWastes(validated);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 

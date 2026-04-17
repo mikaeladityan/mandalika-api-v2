@@ -46,9 +46,9 @@ export type RequestSubmitResultDTO = z.infer<typeof RequestSubmitResultSchema>;
 
 export const RequestQcActionSchema = z
     .object({
-        quantity_accepted: z.number({ error: "Jumlah diterima wajib diisi" }).min(0, "Jumlah diterima minimal 0"),
-        quantity_rejected: z.number({ error: "Jumlah ditolak wajib diisi" }).min(0, "Jumlah ditolak minimal 0"),
-        fg_warehouse_id: z.number({ error: "Gudang FG wajib dipilih" }).int().positive("Gudang FG wajib dipilih"),
+        quantity_accepted: z.coerce.number({ error: "Jumlah diterima wajib diisi" }).min(0, "Jumlah diterima minimal 0"),
+        quantity_rejected: z.coerce.number({ error: "Jumlah ditolak wajib diisi" }).min(0, "Jumlah ditolak minimal 0"),
+        fg_warehouse_id: z.coerce.number({ error: "Gudang FG wajib dipilih" }).int().positive("Gudang FG wajib dipilih"),
         qc_notes: z.string().optional(),
     })
     .refine(
@@ -74,3 +74,12 @@ export const QueryProductionSchema = z.object({
 });
 
 export type QueryProductionDTO = z.infer<typeof QueryProductionSchema>;
+
+export const QueryWasteSchema = z.object({
+    page: z.coerce.number().int().positive().default(1).optional(),
+    take: z.coerce.number().int().positive().max(100).default(10).optional(),
+    waste_type: z.string().optional(),
+    search: z.string().optional(),
+});
+
+export type QueryWasteDTO = z.infer<typeof QueryWasteSchema>;
