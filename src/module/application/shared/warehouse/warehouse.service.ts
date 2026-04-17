@@ -5,7 +5,7 @@ export class WarehouseSharedService {
     static async list(): Promise<ResponseWarehouseSharedDTO[]> {
         return prisma.warehouse.findMany({
             where: { deleted_at: null },
-            select: { id: true, name: true, type: true },
+            select: { id: true, name: true, code: true, type: true },
             orderBy: { name: "asc" },
         });
     }

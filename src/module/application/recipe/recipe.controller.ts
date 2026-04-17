@@ -34,7 +34,8 @@ export class RecipeController {
 
     static async detail(c: Context) {
         const id = c.req.param("id");
-        const rest = await RecipeService.detail(Number(id));
+        const byProduct = c.req.query("by_product") === "true";
+        const rest = await RecipeService.detail(Number(id), byProduct);
         return ApiResponse.sendSuccess(c, rest, 200);
     }
 

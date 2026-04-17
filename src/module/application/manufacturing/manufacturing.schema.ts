@@ -1,19 +1,20 @@
 import { z } from "zod";
-import { ProductionStatus, WasteType } from "../../../generated/prisma/enums.js";
+import { ProductionStatus } from "../../../generated/prisma/enums.js";
 
 export const RequestCreateProductionSchema = z.object({
-    product_id: z.number().int().positive(),
-    quantity_planned: z.number().positive(),
+    product_id: z.number({ error: "Produk wajib dipilih" }).int().positive("Produk wajib dipilih"),
+    quantity_planned: z.number({ error: "Jumlah rencana produksi wajib diisi" }).positive("Jumlah rencana produksi minimal 1"),
     target_date: z.coerce.date().optional(),
     notes: z.string().optional(),
+    fg_warehouse_id: z.number().int().positive("Gudang FG wajib dipilih").optional(),
     items: z
         .array(
             z.object({
-                raw_material_id: z.number().int().positive(),
-                quantity_planned: z.number().positive(),
+                raw_material_id: z.number().int().positive("Bahan baku wajib dipilih"),
+                quantity_planned: z.number().positive("Jumlah rencana bahan baku minimal 1"),
             }),
         )
-        .min(1)
+        .min(1, "Minimal harus ada 1 item")
         .optional(),
 });
 
@@ -24,19 +25,19 @@ export const RequestChangeStatusSchema = z.object({
         ProductionStatus.RELEASED,
         ProductionStatus.PROCESSING,
         ProductionStatus.QC_REVIEW,
-    ] as [string, ...string[]]),
+    ] as [string, ...string[]], { error: "Status wajib diisi" }),
     notes: z.string().optional(),
 });
 
 export type RequestChangeStatusDTO = z.infer<typeof RequestChangeStatusSchema>;
 
 export const RequestSubmitResultSchema = z.object({
-    quantity_actual: z.number().min(0),
+    quantity_actual: z.number({ error: "Jumlah aktual produksi wajib diisi" }).min(0, "Jumlah aktual minimal 0"),
     notes: z.string().optional(),
     items: z.array(
         z.object({
             id: z.number().int().positive(),
-            quantity_actual: z.number().min(0),
+            quantity_actual: z.number({ error: "Jumlah aktual bahan baku wajib diisi" }).min(0, "Jumlah aktual minimal 0"),
         }),
     ),
 });
@@ -45,14 +46,14 @@ export type RequestSubmitResultDTO = z.infer<typeof RequestSubmitResultSchema>;
 
 export const RequestQcActionSchema = z
     .object({
-        quantity_accepted: z.number().min(0),
-        quantity_rejected: z.number().min(0),
-        fg_warehouse_id: z.number().int().positive(),
+        quantity_accepted: z.number({ error: "Jumlah diterima wajib diisi" }).min(0, "Jumlah diterima minimal 0"),
+        quantity_rejected: z.number({ error: "Jumlah ditolak wajib diisi" }).min(0, "Jumlah ditolak minimal 0"),
+        fg_warehouse_id: z.number({ error: "Gudang FG wajib dipilih" }).int().positive("Gudang FG wajib dipilih"),
         qc_notes: z.string().optional(),
     })
     .refine(
         (d) => d.quantity_accepted + d.quantity_rejected > 0,
-        "Total accepted + rejected must be greater than 0",
+        "Total yang diterima + ditolak harus lebih besar dari 0",
     );
 
 export type RequestQcActionDTO = z.infer<typeof RequestQcActionSchema>;

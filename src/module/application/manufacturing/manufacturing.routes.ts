@@ -16,5 +16,6 @@ app.get("/:id", ManufacturingController.detail);
 app.patch("/:id/status", validateBody(RequestChangeStatusSchema), ManufacturingController.changeStatus);
 app.post("/:id/result", validateBody(RequestSubmitResultSchema), ManufacturingController.submitResult);
 app.post("/:id/qc", validateBody(RequestQcActionSchema), ManufacturingController.qcAction);
+app.delete("/:id", ManufacturingController.delete);
 
 export default app;

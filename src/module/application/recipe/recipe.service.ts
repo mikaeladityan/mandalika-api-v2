@@ -216,11 +216,19 @@ export class RecipeService {
         return { data, len };
     }
 
-    static async detail(id: number): Promise<ResponseDetailRecipeDTO> {
-        const trigger = await prisma.recipes.findUnique({
-            where: { id },
-            select: { product_id: true, version: true },
-        });
+    static async detail(id: number, byProduct = false): Promise<ResponseDetailRecipeDTO> {
+        let trigger;
+        if (byProduct) {
+            trigger = await prisma.recipes.findFirst({
+                where: { product_id: id, is_active: true },
+                select: { id: true, product_id: true, version: true },
+            });
+        } else {
+            trigger = await prisma.recipes.findUnique({
+                where: { id },
+                select: { id: true, product_id: true, version: true },
+            });
+        }
 
         if (!trigger) throw new ApiError(404, "Resep (BOM) tidak ditemukan");
 
@@ -239,9 +247,12 @@ export class RecipeService {
                 r.version,
                 r.is_active,
                 r.description,
-                urm.name        AS urm_name
+                urm.name        AS urm_name,
+                r.use_size_calc,
+                ps.size         AS product_size
             FROM   recipes r
             JOIN   products p ON p.id = r.product_id
+            LEFT JOIN product_size ps ON ps.id = p.size_id
             LEFT JOIN product_types     pt  ON pt.id  = p.type_id
             LEFT JOIN unit_of_materials u   ON u.id   = p.unit_id
             JOIN   raw_materials     rm  ON rm.id  = r.raw_mat_id
@@ -250,6 +261,28 @@ export class RecipeService {
         `);
 
         if (!rows.length) throw new ApiError(404, "Isi resep tidak ditemukan");
+
+        const latestPeriod = await prisma.rawMaterialInventory.findFirst({
+            orderBy: [{ year: "desc" }, { month: "desc" }],
+            select: { month: true, year: true },
+        });
+        const activeMonth = latestPeriod?.month ?? new Date().getMonth() + 1;
+        const activeYear = latestPeriod?.year ?? new Date().getFullYear();
+
+        const rawMatIds = rows.filter((r) => r.raw_mat_id !== null).map((r) => r.raw_mat_id!);
+        
+        const inventoryData = await prisma.rawMaterialInventory.findMany({
+            where: {
+                raw_material_id: { in: rawMatIds },
+                month: activeMonth,
+                year: activeYear,
+            },
+            include: {
+                warehouse: {
+                    select: { name: true }
+                }
+            }
+        });
 
         const first = rows[0]!;
         const data: ResponseDetailRecipeDTO = {
@@ -261,16 +294,29 @@ export class RecipeService {
             version: first.version ?? 1,
             is_active: first.is_active ?? false,
             description: first.description,
+            product_size: Number(first.product_size ?? 1),
             recipes: rows
                 .filter((r) => r.raw_mat_id !== null)
-                .map((r) => ({
-                    raw_mat_id: r.raw_mat_id!,
-                    barcode: r.barcode,
-                    name: r.rm_name!,
-                    price: Number(r.rm_price),
-                    quantity: Number(r.rm_quantity),
-                    unit: r.urm_name ?? "",
-                })),
+                .map((r) => {
+                    const materialInventories = inventoryData.filter(inv => inv.raw_material_id === r.raw_mat_id);
+                    const current_stock = materialInventories.reduce((acc, curr) => acc + Number(curr.quantity), 0);
+                    const stocks = materialInventories.map(inv => ({
+                        warehouse_name: inv.warehouse.name,
+                        quantity: Number(inv.quantity)
+                    }));
+
+                    return {
+                        raw_mat_id: r.raw_mat_id!,
+                        barcode: r.barcode,
+                        name: r.rm_name!,
+                        price: Number(r.rm_price),
+                        quantity: Number(r.rm_quantity),
+                        unit: r.urm_name ?? "",
+                        current_stock,
+                        stocks,
+                        use_size_calc: !!r.use_size_calc
+                    };
+                }),
         };
 
         return data;
@@ -375,4 +421,6 @@ type RawDetailRow = {
     version: number | null;
     is_active: boolean | null;
     description: string | null;
+    use_size_calc: boolean | null;
+    product_size: string | number | null;
 };

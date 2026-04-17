@@ -43,11 +43,15 @@ export class ManufacturingService {
         return await prisma.$transaction(async (tx) => {
             const product = await tx.product.findUnique({
                 where: { id: payload.product_id },
-                include: { recipes: { where: { is_active: true } } },
+                include: { 
+                    recipes: { where: { is_active: true } },
+                    size: true
+                },
             });
-            if (!product) throw new ApiError(404, "Product not found");
+            if (!product) throw new ApiError(404, "Produk tidak ditemukan");
 
             const mfg_number = generateMfgNumber();
+            const pSize = Number(product.size?.size ?? 1);
 
             let itemsToCreate: { raw_material_id: number; quantity_planned: number }[] = [];
 
@@ -55,11 +59,13 @@ export class ManufacturingService {
                 itemsToCreate = payload.items;
             } else {
                 if (product.recipes.length === 0) {
-                    throw new ApiError(400, "Product has no active BOM (recipes). Provide items manually.");
+                    throw new ApiError(400, "Produk tidak memiliki BOM (resep) yang aktif. Masukkan item secara manual.");
                 }
                 itemsToCreate = product.recipes.map((r) => ({
                     raw_material_id: r.raw_mat_id,
-                    quantity_planned: Number(r.quantity) * payload.quantity_planned,
+                    quantity_planned: r.use_size_calc
+                        ? Number(r.quantity) * pSize * payload.quantity_planned
+                        : Number(r.quantity) * payload.quantity_planned,
                 }));
             }
 
@@ -70,6 +76,7 @@ export class ManufacturingService {
                     quantity_planned: payload.quantity_planned,
                     target_date: payload.target_date,
                     notes: payload.notes,
+                    fg_warehouse_id: payload.fg_warehouse_id,
                     status: ProductionStatus.PLANNING,
                     created_by: userId,
                     items: {
@@ -90,9 +97,13 @@ export class ManufacturingService {
         return await prisma.$transaction(async (tx) => {
             const order = await tx.productionOrder.findUnique({
                 where: { id },
-                include: { items: true },
+                include: { 
+                    items: {
+                        include: { raw_material: { select: { id: true, name: true } } }
+                    }
+                },
             });
-            if (!order) throw new ApiError(404, "Production order not found");
+            if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
 
             const { status: nextStatus } = payload;
 
@@ -105,7 +116,7 @@ export class ManufacturingService {
             if (validTransitions[order.status] !== nextStatus) {
                 throw new ApiError(
                     400,
-                    `Cannot transition from ${order.status} to ${nextStatus}`,
+                    `Tidak dapat beralih status dari ${order.status} ke ${nextStatus}`,
                 );
             }
 
@@ -142,16 +153,20 @@ export class ManufacturingService {
         return await prisma.$transaction(async (tx) => {
             const order = await tx.productionOrder.findUnique({
                 where: { id },
-                include: { items: true },
+                include: { 
+                    items: {
+                        include: { raw_material: { select: { id: true, name: true } } }
+                    }
+                },
             });
-            if (!order) throw new ApiError(404, "Production order not found");
+            if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
             if (order.status !== ProductionStatus.PROCESSING) {
-                throw new ApiError(400, `submitResult requires status PROCESSING, current: ${order.status}`);
+                throw new ApiError(400, `submitResult memerlukan status PROCESSING, status saat ini: ${order.status}`);
             }
 
             for (const itemPayload of payload.items) {
                 const dbItem = order.items.find((i) => i.id === itemPayload.id);
-                if (!dbItem) throw new ApiError(400, `Item id ${itemPayload.id} not found in this order`);
+                if (!dbItem) throw new ApiError(400, `Item ID ${itemPayload.id} tidak ditemukan dalam pesanan ini`);
 
                 await tx.productionOrderItem.update({
                     where: { id: itemPayload.id },
@@ -185,7 +200,7 @@ export class ManufacturingService {
                     if (!inv || Number(inv.quantity) < overUsage) {
                         throw new ApiError(
                             400,
-                            `Insufficient RM stock for over-usage of raw_material_id ${dbItem.raw_material_id}`,
+                            `Stok bahan baku tidak mencukupi untuk kelebihan penggunaan Raw Material: ${dbItem.raw_material.name}`,
                         );
                     }
                     const qtyBefore = Number(inv.quantity);
@@ -233,19 +248,19 @@ export class ManufacturingService {
                 where: { id },
                 include: { items: true, goods_receipt: true },
             });
-            if (!order) throw new ApiError(404, "Production order not found");
+            if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
             if (order.status !== ProductionStatus.QC_REVIEW) {
-                throw new ApiError(400, `qcAction requires status QC_REVIEW, current: ${order.status}`);
+                throw new ApiError(400, `qcAction memerlukan status QC_REVIEW, status saat ini: ${order.status}`);
             }
-            if (order.goods_receipt) throw new ApiError(400, "GR already created for this production order");
+            if (order.goods_receipt) throw new ApiError(400, "GR sudah dibuat untuk pesanan produksi ini");
 
             const fgWarehouse = await tx.warehouse.findUnique({ where: { id: payload.fg_warehouse_id } });
-            if (!fgWarehouse) throw new ApiError(404, "FG warehouse not found");
+            if (!fgWarehouse) throw new ApiError(404, "Gudang FG tidak ditemukan");
 
             const totalQc = payload.quantity_accepted + payload.quantity_rejected;
             const actualQty = Number(order.quantity_actual ?? order.quantity_planned);
             if (totalQc > actualQty) {
-                throw new ApiError(400, `Total QC (${totalQc}) exceeds actual production quantity (${actualQty})`);
+                throw new ApiError(400, `Total QC (${totalQc}) melebihi jumlah produksi aktual (${actualQty})`);
             }
 
             if (payload.quantity_accepted > 0) {
@@ -404,8 +419,35 @@ export class ManufacturingService {
             },
         });
 
-        if (!result) throw new ApiError(404, "Production order not found");
+        if (!result) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
         return result;
+    }
+
+    static async delete(id: number) {
+        return await prisma.$transaction(async (tx) => {
+            const order = await tx.productionOrder.findUnique({
+                where: { id },
+                include: { items: true },
+            });
+            if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
+            
+            // Safety check: Only ALLOW deletion for PLANNING status (before release/processing)
+            if (order.status !== ProductionStatus.PLANNING) {
+                throw new ApiError(400, "Tidak dapat menghapus pesanan produksi yang sudah dirilis atau diproses");
+            }
+
+            // Delete order items first (manual cascade if not set in DB)
+            await tx.productionOrderItem.deleteMany({
+                where: { production_order_id: id }
+            });
+
+            // Delete the order
+            const deleted = await tx.productionOrder.delete({
+                where: { id }
+            });
+
+            return deleted;
+        });
     }
 
     private static async validateAndAllocateRM(tx: any, items: any[], orderId: number) {
@@ -429,7 +471,7 @@ export class ManufacturingService {
             if (totalAvailable < needed) {
                 throw new ApiError(
                     400,
-                    `Insufficient stock for raw_material_id ${item.raw_material_id}. Needed: ${needed}, Available: ${totalAvailable}`,
+                    `Stok tidak mencukupi untuk Raw Material: ${item.raw_material.name}. Dibutuhkan: ${needed}, Tersedia: ${totalAvailable}`,
                 );
             }
 
@@ -454,7 +496,7 @@ export class ManufacturingService {
             if (!item.warehouse_id) {
                 throw new ApiError(
                     400,
-                    `Item ${item.id} has no allocated warehouse. Release the order first.`,
+                    `Item ${item.id} tidak memiliki alokasi gudang. Rilis pesanan terlebih dahulu.`,
                 );
             }
 
@@ -469,7 +511,7 @@ export class ManufacturingService {
             if (!inv) {
                 throw new ApiError(
                     400,
-                    `Stock record not found for raw_material_id ${item.raw_material_id} in warehouse ${item.warehouse_id}`,
+                    `Catatan stok tidak ditemukan untuk Raw Material: ${item.raw_material.name} di gudang ${item.warehouse_id}`,
                 );
             }
 
@@ -479,7 +521,7 @@ export class ManufacturingService {
             if (qtyBefore < needed) {
                 throw new ApiError(
                     400,
-                    `Insufficient stock for raw_material_id ${item.raw_material_id}. Has: ${qtyBefore}, Needed: ${needed}`,
+                    `Stok tidak mencukupi untuk Raw Material: ${item.raw_material.name}. Tersedia: ${qtyBefore}, Dibutuhkan: ${needed}`,
                 );
             }
 

@@ -55,4 +55,10 @@ export class ManufacturingController {
         const result = await ManufacturingService.detail(id);
         return ApiResponse.sendSuccess(c, result, 200);
     }
+
+    static async delete(c: Context) {
+        const id = Number(c.req.param("id"));
+        const result = await ManufacturingService.delete(id);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
 }
