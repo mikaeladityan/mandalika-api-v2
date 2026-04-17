@@ -45,8 +45,28 @@ export class ManufacturingController {
     }
 
     static async list(c: Context) {
-        const query = QueryProductionSchema.parse(c.req.query());
-        const result = await ManufacturingService.list(query);
+        const query = c.req.query();
+        const queries = c.req.queries();
+        
+        const normalizedQuery: Record<string, any> = { ...query };
+
+        // Normalize keys ending in [] (from Axios/other clients) and handle multi-value parameters
+        Object.keys(queries).forEach((key) => {
+            const values = queries[key];
+            if (!values) return; // Skip if undefined
+
+            const baseKey = key.endsWith("[]") ? key.slice(0, -2) : key;
+            
+            if (values.length > 1) {
+                normalizedQuery[baseKey] = values;
+            } else if (key.endsWith("[]")) {
+                // Even if single value, if it came as key[], treat it as potentially part of an array
+                normalizedQuery[baseKey] = values[0];
+            }
+        });
+
+        const validated = QueryProductionSchema.parse(normalizedQuery);
+        const result = await ManufacturingService.list(validated);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 

@@ -64,7 +64,12 @@ export const QueryProductionSchema = z.object({
     sortBy: z.enum(["created_at", "mfg_number", "target_date"]).default("created_at").optional(),
     sortOrder: z.enum(["asc", "desc"]).default("desc").optional(),
     search: z.string().optional(),
-    status: z.enum(ProductionStatus).optional(),
+    status: z.preprocess((val) => {
+        if (!val) return undefined;
+        if (typeof val === "string") return val.includes(",") ? val.split(",") : [val];
+        if (Array.isArray(val)) return val;
+        return [val];
+    }, z.array(z.nativeEnum(ProductionStatus))).optional(),
     product_id: z.coerce.number().int().positive().optional(),
 });
 

@@ -123,6 +123,7 @@ export class ManufacturingService {
             const updateData: Prisma.ProductionOrderUpdateInput = {
                 status: nextStatus as ProductionStatus,
                 notes: payload.notes ?? order.notes,
+                updated_by: userId,
             };
 
             if (nextStatus === ProductionStatus.RELEASED) {
@@ -144,6 +145,8 @@ export class ManufacturingService {
                 data: updateData,
                 include: { items: true, product: true },
             });
+
+            await ManufacturingService.attachAuditUsers(updated);
 
             return updated;
         });
@@ -234,9 +237,12 @@ export class ManufacturingService {
                     status: ProductionStatus.COMPLETED,
                     completed_at: new Date(),
                     notes: payload.notes ?? order.notes,
+                    updated_by: userId,
                 },
                 include: { items: true, product: true, wastes: true },
             });
+
+            await ManufacturingService.attachAuditUsers(updated);
 
             return updated;
         });
@@ -348,9 +354,12 @@ export class ManufacturingService {
                     fg_warehouse_id: payload.fg_warehouse_id,
                     qc_notes: payload.qc_notes,
                     finished_at: new Date(),
+                    updated_by: userId,
                 },
                 include: { items: true, product: true, wastes: true, goods_receipt: true },
             });
+
+            await ManufacturingService.attachAuditUsers(updated);
 
             return updated;
         });
@@ -376,7 +385,9 @@ export class ManufacturingService {
                     { product: { name: { contains: search, mode: "insensitive" } } },
                 ],
             }),
-            ...(status && { status }),
+            ...(status && { 
+                status: Array.isArray(status) ? { in: status } : status 
+            }),
             ...(product_id && { product_id }),
         };
 
@@ -394,6 +405,7 @@ export class ManufacturingService {
             prisma.productionOrder.count({ where }),
         ]);
 
+        await ManufacturingService.attachAuditUsers(data);
         return { data, len };
     }
 
@@ -420,6 +432,7 @@ export class ManufacturingService {
         });
 
         if (!result) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
+        await ManufacturingService.attachAuditUsers(result);
         return result;
     }
 
@@ -451,43 +464,75 @@ export class ManufacturingService {
     }
 
     private static async validateAndAllocateRM(tx: any, items: any[], orderId: number) {
+        // 1. Fetch relevant warehouses
+        const [prdWh, kdgWh] = await Promise.all([
+            tx.warehouse.findUnique({ where: { code: "GRM-PRD" } }),
+            tx.warehouse.findUnique({ where: { code: "GRM-KDG" } }),
+        ]);
+
+        if (!prdWh) {
+            throw new ApiError(400, "Gudang Pusat Produksi (GRM-PRD) tidak ditemukan dalam sistem.");
+        }
+
         for (const item of items) {
             const needed = Number(item.quantity_planned);
 
-            const inventories = await tx.rawMaterialInventory.findMany({
-                where: {
-                    raw_material_id: item.raw_material_id,
-                    warehouse: { type: WarehouseType.RAW_MATERIAL },
-                    quantity: { gt: 0 },
-                },
-                orderBy: { quantity: "desc" },
+            // 2. Get latest period for this material
+            const latestPeriod = await tx.rawMaterialInventory.findFirst({
+                where: { raw_material_id: item.raw_material_id },
+                orderBy: [{ year: "desc" }, { month: "desc" }],
+                select: { month: true, year: true },
             });
 
-            const totalAvailable = inventories.reduce(
-                (sum: number, inv: any) => sum + Number(inv.quantity),
-                0,
-            );
+            if (!latestPeriod) {
+                throw new ApiError(400, `Data inventory tidak ditemukan untuk Raw Material: ${item.raw_material.name}`);
+            }
 
+            // 3. Get stock from both warehouses
+            const invRecords = await tx.rawMaterialInventory.findMany({
+                where: {
+                    raw_material_id: item.raw_material_id,
+                    warehouse_id: { in: [prdWh.id, kdgWh?.id].filter(Boolean) },
+                    month: latestPeriod.month,
+                    year: latestPeriod.year,
+                },
+            });
+
+            const stockPRD = invRecords
+                .filter((r: any) => r.warehouse_id === prdWh.id)
+                .reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+            
+            const stockKDG = kdgWh 
+                ? invRecords
+                    .filter((r: any) => r.warehouse_id === kdgWh.id)
+                    .reduce((sum: number, r: any) => sum + Number(r.quantity), 0)
+                : 0;
+
+            const totalAvailable = stockPRD + stockKDG;
+
+            // 4. Implement Decision Logic
             if (totalAvailable < needed) {
                 throw new ApiError(
                     400,
-                    `Stok tidak mencukupi untuk Raw Material: ${item.raw_material.name}. Dibutuhkan: ${needed}, Tersedia: ${totalAvailable}`,
+                    `Stok tidak mencukupi untuk Raw Material: ${item.raw_material.name}. ` +
+                    `Total tersedia (PRD + KDG): ${totalAvailable}. Harap lakukan Open PO.`,
                 );
             }
 
-            let remaining = needed;
-            for (const inv of inventories) {
-                if (remaining <= 0) break;
-                const allocate = Math.min(remaining, Number(inv.quantity));
-
-                await tx.productionOrderItem.updateMany({
-                    where: { id: item.id, production_order_id: orderId },
-                    data: { warehouse_id: inv.warehouse_id },
-                });
-
-                remaining -= allocate;
-                if (remaining <= 0) break;
+            if (stockPRD < needed) {
+                throw new ApiError(
+                    400,
+                    `Stok di Gudang Produksi (GRM-PRD) tidak mencukupi untuk ${item.raw_material.name}. ` +
+                    `Tersedia di PRD: ${stockPRD}, Tersedia di KDG: ${stockKDG}. ` +
+                    `Harap lakukan mutasi dari Gudang Kandangan (GRM-KDG) terlebih dahulu.`,
+                );
             }
+
+            // 5. Allocate to GRM-PRD
+            await tx.productionOrderItem.updateMany({
+                where: { id: item.id, production_order_id: orderId },
+                data: { warehouse_id: prdWh.id },
+            });
         }
     }
 
@@ -500,23 +545,34 @@ export class ManufacturingService {
                 );
             }
 
-            const inv = await tx.rawMaterialInventory.findFirst({
+            // 1. Get the latest available period for this material/warehouse
+            const latestPeriod = await tx.rawMaterialInventory.findFirst({
                 where: {
                     raw_material_id: item.raw_material_id,
                     warehouse_id: item.warehouse_id,
                 },
-                orderBy: { created_at: "desc" },
+                orderBy: [{ year: "desc" }, { month: "desc" }],
+                select: { month: true, year: true },
             });
 
-            if (!inv) {
-                throw new ApiError(
-                    400,
-                    `Catatan stok tidak ditemukan untuk Raw Material: ${item.raw_material.name} di gudang ${item.warehouse_id}`,
-                );
+            if (!latestPeriod) {
+                throw new ApiError(400, `Record inventory tidak ditemukan untuk material di gudang ${item.warehouse_id}`);
             }
 
+            // 2. Sum up all records for that period (in case of multiple dates)
+            const periodRecords = await tx.rawMaterialInventory.findMany({
+                where: {
+                    raw_material_id: item.raw_material_id,
+                    warehouse_id: item.warehouse_id,
+                    month: latestPeriod.month,
+                    year: latestPeriod.year,
+                },
+                orderBy: { date: "desc" },
+            });
+
             const needed = Number(item.quantity_planned);
-            const qtyBefore = Number(inv.quantity);
+            const qtyBefore = periodRecords.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+            const inv = periodRecords[0]; 
 
             if (qtyBefore < needed) {
                 throw new ApiError(
@@ -600,5 +656,32 @@ export class ManufacturingService {
                 created_by: userId,
             },
         });
+    }
+
+    private static async attachAuditUsers(orders: any | any[]) {
+        const isArray = Array.isArray(orders);
+        const orderList = isArray ? orders : [orders];
+        
+        const userIds = new Set<string>();
+        orderList.forEach(order => {
+            if (order.created_by) userIds.add(order.created_by);
+            if (order.updated_by) userIds.add(order.updated_by);
+        });
+
+        if (userIds.size === 0) return orders;
+
+        const users = await prisma.user.findMany({
+            where: { id: { in: Array.from(userIds) } },
+            select: { id: true, first_name: true, last_name: true, photo: true }
+        });
+
+        const userMap = new Map(users.map(u => [u.id, u]));
+
+        orderList.forEach(order => {
+            order.creator = userMap.get(order.created_by) || { first_name: order.created_by, last_name: "" };
+            order.updater = userMap.get(order.updated_by) || (order.updated_by ? { first_name: order.updated_by, last_name: "" } : null);
+        });
+
+        return orders;
     }
 }

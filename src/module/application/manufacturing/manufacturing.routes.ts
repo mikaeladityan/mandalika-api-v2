@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { ManufacturingController } from "./manufacturing.controller.js";
+import inventoryRmMovment from "./inventory/rm-movement/rm-movement.routes.js";
 import { validateBody } from "../../../middleware/validation.js";
 import {
     RequestCreateProductionSchema,
@@ -17,5 +18,6 @@ app.patch("/:id/status", validateBody(RequestChangeStatusSchema), ManufacturingC
 app.post("/:id/result", validateBody(RequestSubmitResultSchema), ManufacturingController.submitResult);
 app.post("/:id/qc", validateBody(RequestQcActionSchema), ManufacturingController.qcAction);
 app.delete("/:id", ManufacturingController.delete);
+app.route("/inventory/rm-movement", inventoryRmMovment);
 
 export default app;

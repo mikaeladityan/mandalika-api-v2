@@ -728,6 +728,7 @@ model ProductionOrder {
   finished_at       DateTime?
   fg_warehouse_id   Int?
   created_by        String                 @db.VarChar(100)
+  updated_by        String?                @db.VarChar(100)
   created_at        DateTime               @default(now())
   updated_at        DateTime               @updatedAt
   product           Product                @relation(fields: [product_id], references: [id])
