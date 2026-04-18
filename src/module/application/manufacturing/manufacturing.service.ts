@@ -16,7 +16,8 @@ import {
     GoodsReceiptType,
     GoodsReceiptStatus,
     WasteType,
-    WarehouseType,
+    TransferLocationType,
+    TransferStatus,
 } from "../../../generated/prisma/enums.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
@@ -39,6 +40,15 @@ function generateGrNumber(): string {
         .toString()
         .padStart(4, "0");
     return `GR-${ym}-${seq}`;
+}
+
+function generateTrmNumber(): string {
+    const now = new Date();
+    const ymd = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const seq = Math.floor(Math.random() * 10000)
+        .toString()
+        .padStart(4, "0");
+    return `TRM-${ymd}-${seq}`;
 }
 
 export class ManufacturingService {
@@ -89,11 +99,102 @@ export class ManufacturingService {
                         })),
                     },
                 },
-                include: { items: true, product: true },
+                include: { 
+                    items: {
+                        include: { raw_material: true }
+                    }, 
+                    product: true 
+                },
             });
+
+            // Handle Automated RM Transfer (Penerimaan RM)
+            await this.handleAutomaticRMTransfer(tx, order, userId);
 
             return order;
         });
+    }
+
+    private static async getLatestRMStock(tx: any, rmId: number, warehouseId: number): Promise<number> {
+        // 1. Get the latest available period for this RM and Warehouse
+        const latestPeriod = await tx.rawMaterialInventory.findFirst({
+            where: { raw_material_id: rmId, warehouse_id: warehouseId },
+            orderBy: [{ year: "desc" }, { month: "desc" }],
+            select: { month: true, year: true },
+        });
+
+        if (!latestPeriod) return 0;
+
+        // 2. Map all records in that month (consistent with InventoryHelper SUM logic)
+        const records = await tx.rawMaterialInventory.findMany({
+            where: {
+                raw_material_id: rmId,
+                warehouse_id: warehouseId,
+                month: latestPeriod.month,
+                year: latestPeriod.year,
+            },
+        });
+
+        return records.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+    }
+
+    private static async handleAutomaticRMTransfer(tx: any, order: any, userId: string) {
+        const [prdWh, kdgWh] = await Promise.all([
+            tx.warehouse.findUnique({ where: { code: "GRM-PRD" } }),
+            tx.warehouse.findUnique({ where: { code: "GRM-KDG" } }),
+        ]);
+
+        if (!prdWh || !kdgWh) return;
+
+        const transferItems: any[] = [];
+
+        for (const item of order.items) {
+            const needed = Number(item.quantity_planned);
+
+            // Independent stock check for each warehouse
+            const [stockPRD, stockKDG] = await Promise.all([
+                this.getLatestRMStock(tx, item.raw_material_id, prdWh.id),
+                this.getLatestRMStock(tx, item.raw_material_id, kdgWh.id),
+            ]);
+
+            if (stockPRD < needed) {
+                const shortfall = needed - stockPRD;
+                // Move what is available in KDG to cover shortfall
+                const transferQty = Math.min(shortfall, stockKDG);
+
+                if (transferQty > 0) {
+                    transferItems.push({
+                        raw_material_id: item.raw_material_id,
+                        quantity_requested: transferQty,
+                        notes: `Auto-generated for Order ${order.mfg_number}`,
+                    });
+                }
+            }
+        }
+
+        if (transferItems.length > 0) {
+            await tx.stockTransfer.create({
+                data: {
+                    transfer_number: generateTrmNumber(),
+                    from_type: TransferLocationType.WAREHOUSE,
+                    from_warehouse_id: kdgWh.id,
+                    to_type: TransferLocationType.WAREHOUSE,
+                    to_warehouse_id: prdWh.id,
+                    status: TransferStatus.PENDING,
+                    notes: `Penerimaan RM Otomatis - Pesanan: ${order.mfg_number}`,
+                    created_by: userId,
+                    barcode: `BC-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    date: new Date(),
+                    production_order_id: order.id,
+                    items: {
+                        create: transferItems.map(ti => ({
+                            raw_material_id: ti.raw_material_id,
+                            quantity_requested: ti.quantity_requested,
+                            notes: ti.notes,
+                        })),
+                    },
+                },
+            });
+        }
     }
 
     static async changeStatus(id: number, payload: RequestChangeStatusDTO, userId: string = "system") {

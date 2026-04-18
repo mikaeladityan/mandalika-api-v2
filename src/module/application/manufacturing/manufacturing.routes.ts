@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { ManufacturingController } from "./manufacturing.controller.js";
 import inventoryRmMovment from "./inventory/rm-movement/rm-movement.routes.js";
+import inventoryRmReceipt from "./inventory/rm-receipt/rm-receipt.routes.js";
 import { validateBody } from "../../../middleware/validation.js";
 import {
     RequestCreateProductionSchema,
@@ -22,5 +23,6 @@ app.post("/:id/result", validateBody(RequestSubmitResultSchema), ManufacturingCo
 app.post("/:id/qc", validateBody(RequestQcActionSchema), ManufacturingController.qcAction);
 app.delete("/:id", ManufacturingController.delete);
 app.route("/inventory/rm-movement", inventoryRmMovment);
+app.route("/inventory/rm-receipt", inventoryRmReceipt);
 
 export default app;

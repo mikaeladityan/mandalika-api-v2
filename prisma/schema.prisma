@@ -224,6 +224,7 @@ model RawMaterial {
   recipes                 Recipes[]
   production_order_items  ProductionOrderItem[]
   production_rm_wastes    ProductionOrderWaste[]    @relation("ProductionWasteRM")
+  transfer_items          StockTransferItem[]
 
   @@map("raw_materials")
 }
@@ -592,6 +593,8 @@ model StockTransfer {
   received_notes    String?
   items             StockTransferItem[]
   photos            StockTransferPhoto[]
+  production_order_id Int?               @unique
+  production_order    ProductionOrder?   @relation(fields: [production_order_id], references: [id])
   from_outlet       Outlet?              @relation("TransferFromOutlet", fields: [from_outlet_id], references: [id])
   from_warehouse    Warehouse?           @relation("TransferFromWarehouse", fields: [from_warehouse_id], references: [id])
   to_outlet         Outlet?              @relation("TransferToOutlet", fields: [to_outlet_id], references: [id])
@@ -611,7 +614,8 @@ model StockTransfer {
 model StockTransferItem {
   id                 Int           @id @default(autoincrement())
   transfer_id        Int
-  product_id         Int
+  product_id         Int?
+  raw_material_id     Int?
   quantity_requested Decimal       @db.Decimal(18, 2)
   quantity_packed    Decimal?      @db.Decimal(18, 2)
   quantity_received  Decimal?      @db.Decimal(18, 2)
@@ -619,7 +623,8 @@ model StockTransferItem {
   quantity_missing   Decimal?      @db.Decimal(18, 2)
   quantity_rejected  Decimal?      @db.Decimal(18, 2)
   notes              String?
-  product            Product       @relation(fields: [product_id], references: [id])
+  product            Product?      @relation(fields: [product_id], references: [id])
+  raw_material       RawMaterial?  @relation(fields: [raw_material_id], references: [id])
   transfer           StockTransfer @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
 
   @@index([transfer_id])
@@ -737,6 +742,7 @@ model ProductionOrder {
   items             ProductionOrderItem[]
   wastes            ProductionOrderWaste[]
   goods_receipt     GoodsReceipt?
+  stock_transfer    StockTransfer?
 
   @@index([mfg_number])
   @@index([status])
