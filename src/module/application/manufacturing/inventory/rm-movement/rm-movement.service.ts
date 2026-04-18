@@ -22,8 +22,16 @@ export class RmMovmentService {
             ...(warehouse_id && { location_id: warehouse_id }),
             ...(fromDate || toDate ? {
                 created_at: {
-                    ...(fromDate && { gte: new Date(fromDate) }),
-                    ...(toDate && { lte: new Date(toDate) }),
+                    ...(fromDate && { gte: (() => {
+                        const d = new Date(fromDate);
+                        d.setHours(0, 0, 0, 0);
+                        return d;
+                    })() }),
+                    ...(toDate && { lte: (() => {
+                        const d = new Date(toDate);
+                        d.setHours(23, 59, 59, 999);
+                        return d;
+                    })() }),
                 }
             } : {}),
             ...(search && {

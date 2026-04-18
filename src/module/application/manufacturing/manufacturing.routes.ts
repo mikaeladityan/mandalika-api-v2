@@ -7,6 +7,7 @@ import {
     RequestChangeStatusSchema,
     RequestSubmitResultSchema,
     RequestQcActionSchema,
+    RequestUpdateProductionSchema,
 } from "./manufacturing.schema.js";
 
 const app = new Hono();
@@ -16,6 +17,7 @@ app.post("/", validateBody(RequestCreateProductionSchema), ManufacturingControll
 app.get("/wastes", ManufacturingController.listWastes);
 app.get("/:id", ManufacturingController.detail);
 app.patch("/:id/status", validateBody(RequestChangeStatusSchema), ManufacturingController.changeStatus);
+app.patch("/:id", validateBody(RequestUpdateProductionSchema), ManufacturingController.update);
 app.post("/:id/result", validateBody(RequestSubmitResultSchema), ManufacturingController.submitResult);
 app.post("/:id/qc", validateBody(RequestQcActionSchema), ManufacturingController.qcAction);
 app.delete("/:id", ManufacturingController.delete);

@@ -21,8 +21,15 @@ export const ResponseRawMaterialStockSchema = z.object({
     name: z.string(),
     category: z.string(),
     uom: z.string(),
-    amount: z.number(),
-    stocks: z.record(z.string(), z.number()).default({}),
+    amount: z.number(), // Physical On-Hand
+    booked: z.number().default(0),
+    avail: z.number().default(0),
+    stocks: z.record(z.string(), z.number()).default({}), // Legacy support for amount (On-Hand)
+    details: z.record(z.string(), z.object({
+        on_hand: z.number(),
+        booked: z.number(),
+        avail: z.number()
+    })).default({}),
 });
 
 export const RequestRawMaterialStockSchema = z.object({

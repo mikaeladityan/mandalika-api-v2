@@ -140,10 +140,26 @@ export class RawMaterialStockService {
                 COALESCE(c.name, 'Unknown') AS category, 
                 COALESCE(u.name, 'Unknown') AS uom,
                 COALESCE(SUM(ri.quantity), 0) AS amount,
+                COALESCE(SUM(bi.booked_qty), 0) AS booked,
+                COALESCE(SUM(ri.quantity), 0) - COALESCE(SUM(bi.booked_qty), 0) AS avail,
                 COALESCE(
-                    JSONB_OBJECT_AGG(w.name, ri.quantity) FILTER (WHERE w.name IS NOT NULL),
+                    JSONB_OBJECT_AGG(
+                        COALESCE(w_ri.name, w_bi.name), 
+                        COALESCE(ri.quantity, 0)
+                    ) FILTER (WHERE w_ri.name IS NOT NULL OR w_bi.name IS NOT NULL),
                     '{}'::JSONB
-                ) AS stocks
+                ) AS stocks,
+                COALESCE(
+                    JSONB_OBJECT_AGG(
+                        COALESCE(w_ri.name, w_bi.name), 
+                        JSONB_BUILD_OBJECT(
+                            'on_hand', COALESCE(ri.quantity, 0),
+                            'booked', COALESCE(bi.booked_qty, 0),
+                            'avail', COALESCE(ri.quantity, 0) - COALESCE(bi.booked_qty, 0)
+                        )
+                    ) FILTER (WHERE w_ri.name IS NOT NULL OR w_bi.name IS NOT NULL),
+                    '{}'::JSONB
+                ) AS details
             FROM raw_materials rm
             LEFT JOIN raw_mat_categories c ON rm.raw_mat_categories_id = c.id
             LEFT JOIN unit_raw_materials u ON rm.unit_id = u.id
@@ -154,7 +170,16 @@ export class RawMaterialStockService {
                 ${query.warehouse_id ? Prisma.sql`AND warehouse_id = ${query.warehouse_id}` : Prisma.sql``}
                 GROUP BY raw_material_id, warehouse_id
             ) ri ON rm.id = ri.raw_material_id
-            LEFT JOIN warehouses w ON ri.warehouse_id = w.id
+            LEFT JOIN (
+                SELECT poi.raw_material_id, poi.warehouse_id, SUM(poi.quantity_planned) as booked_qty
+                FROM production_order_items poi
+                JOIN production_orders po ON poi.production_order_id = po.id
+                WHERE po.status = 'RELEASED'
+                ${query.warehouse_id ? Prisma.sql`AND poi.warehouse_id = ${query.warehouse_id}` : Prisma.sql``}
+                GROUP BY poi.raw_material_id, poi.warehouse_id
+            ) bi ON rm.id = bi.raw_material_id AND (ri.warehouse_id = bi.warehouse_id OR ri.warehouse_id IS NULL)
+            LEFT JOIN warehouses w_ri ON ri.warehouse_id = w_ri.id
+            LEFT JOIN warehouses w_bi ON bi.warehouse_id = w_bi.id
             ${whereClause}
             GROUP BY rm.id, c.name, u.name
             ${orderByClause}
@@ -172,7 +197,10 @@ export class RawMaterialStockService {
                 category: p.category,
                 uom: p.uom,
                 amount: Number(p.amount),
+                booked: Number(p.booked),
+                avail: Number(p.avail),
                 stocks: p.stocks || {},
+                details: p.details || {},
             })),
         };
     }
@@ -206,7 +234,9 @@ export class RawMaterialStockService {
             { header: "MATERIAL NAME", key: "name", width: 40 },
             { header: "CATEGORY", key: "category", width: 25 },
             { header: "UNIT", key: "unit", width: 15 },
-            { header: "CURRENT STOCK", key: "amount", width: 20 },
+            { header: "ON HAND (FISIK)", key: "on_hand", width: 20 },
+            { header: "BOOKED (BOOKING)", key: "booked", width: 20 },
+            { header: "AVAILABLE (SIAP)", key: "avail", width: 20 },
         ];
 
         data.forEach((item) => {
@@ -215,7 +245,9 @@ export class RawMaterialStockService {
                 name: item.name,
                 category: item.category || "-",
                 unit: item.uom,
-                amount: item.amount,
+                on_hand: item.amount,
+                booked: item.booked,
+                avail: item.avail,
             });
         });
 

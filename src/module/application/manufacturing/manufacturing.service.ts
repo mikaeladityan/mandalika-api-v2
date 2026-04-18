@@ -6,6 +6,7 @@ import {
     RequestSubmitResultDTO,
     RequestQcActionDTO,
     QueryProductionDTO,
+    RequestUpdateProductionDTO,
 } from "./manufacturing.schema.js";
 import {
     ProductionStatus,
@@ -198,37 +199,16 @@ export class ManufacturingService {
 
                 if (wasteQty < 0 && dbItem.warehouse_id) {
                     const overUsage = Math.abs(wasteQty);
-                    const inv = await tx.rawMaterialInventory.findFirst({
-                        where: { raw_material_id: dbItem.raw_material_id, warehouse_id: dbItem.warehouse_id },
-                        orderBy: { created_at: "desc" },
-                    });
-                    if (!inv || Number(inv.quantity) < overUsage) {
-                        throw new ApiError(
-                            400,
-                            `Stok bahan baku tidak mencukupi untuk kelebihan penggunaan Raw Material: ${dbItem.raw_material.name}`,
-                        );
-                    }
-                    const qtyBefore = Number(inv.quantity);
-                    const qtyAfter = qtyBefore - overUsage;
-                    await tx.rawMaterialInventory.update({
-                        where: { id: inv.id },
-                        data: { quantity: qtyAfter },
-                    });
-                    await tx.stockMovement.create({
-                        data: {
-                            entity_type: MovementEntityType.RAW_MATERIAL,
-                            entity_id: dbItem.raw_material_id,
-                            location_type: "WAREHOUSE",
-                            location_id: dbItem.warehouse_id,
-                            movement_type: MovementType.OUT,
-                            quantity: overUsage,
-                            qty_before: qtyBefore,
-                            qty_after: qtyAfter,
-                            reference_id: id,
-                            reference_type: MovementRefType.PRODUCTION,
-                            created_by: userId,
-                        },
-                    });
+                    await InventoryHelper.deductWarehouseStock(
+                        tx, 
+                        dbItem.warehouse_id, 
+                        [{ raw_material_id: dbItem.raw_material_id, quantity: overUsage, raw_material: { name: dbItem.raw_material.name } }], 
+                        id, 
+                        MovementRefType.PRODUCTION, 
+                        MovementType.OUT, 
+                        userId,
+                        MovementEntityType.RAW_MATERIAL
+                    );
 
                     // Log as Waste RM
                     await tx.productionOrderWaste.create({
@@ -414,10 +394,18 @@ export class ManufacturingService {
         const result = await prisma.productionOrder.findUnique({
             where: { id },
             include: {
-                product: { select: { id: true, name: true, code: true } },
+                product: { 
+                    include: { 
+                        unit: { select: { id: true, name: true } }
+                    }
+                },
                 items: {
                     include: {
-                        raw_material: { select: { id: true, name: true, barcode: true } },
+                        raw_material: { 
+                            include: { 
+                                unit_raw_material: { select: { id: true, name: true } }
+                            }
+                        },
                         warehouse: { select: { id: true, name: true, type: true } },
                     },
                 },
@@ -433,6 +421,52 @@ export class ManufacturingService {
         });
 
         if (!result) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
+
+        // Fetch GRM-PRD and GRM-KDG stock information for each item
+        const [prdWh, kdgWh] = await Promise.all([
+            prisma.warehouse.findUnique({ where: { code: "GRM-PRD" }, select: { id: true } }),
+            prisma.warehouse.findUnique({ where: { code: "GRM-KDG" }, select: { id: true } }),
+        ]);
+
+        if (prdWh) {
+            for (const item of result.items) {
+                const latestPeriod = await prisma.rawMaterialInventory.findFirst({
+                    where: { raw_material_id: item.raw_material_id },
+                    orderBy: [{ year: "desc" }, { month: "desc" }],
+                    select: { month: true, year: true },
+                });
+
+                if (latestPeriod) {
+                    const invRecords = await prisma.rawMaterialInventory.findMany({
+                        where: {
+                            raw_material_id: item.raw_material_id,
+                            warehouse_id: { in: [prdWh.id, kdgWh?.id].filter(Boolean) as number[] },
+                            month: latestPeriod.month,
+                            year: latestPeriod.year,
+                        },
+                    });
+
+                    const stockPRD = invRecords
+                        .filter((r) => r.warehouse_id === prdWh.id)
+                        .reduce((sum, r) => sum + Number(r.quantity), 0);
+
+                    const stockKDG = kdgWh
+                        ? invRecords
+                            .filter((r) => r.warehouse_id === kdgWh.id)
+                            .reduce((sum, r) => sum + Number(r.quantity), 0)
+                        : 0;
+
+                    (item as any).inventory_stock = {
+                        prd: stockPRD,
+                        kdg: stockKDG,
+                        total: stockPRD + stockKDG
+                    };
+                } else {
+                    (item as any).inventory_stock = { prd: 0, kdg: 0, total: 0 };
+                }
+            }
+        }
+
         await ManufacturingService.attachAuditUsers(result);
         return result;
     }
@@ -496,6 +530,35 @@ export class ManufacturingService {
             });
 
             return deleted;
+        });
+    }
+    
+    static async update(id: number, payload: RequestUpdateProductionDTO, userId: string = "system") {
+        return await prisma.$transaction(async (tx) => {
+            const order = await tx.productionOrder.findUnique({
+                where: { id },
+            });
+            if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
+
+            // Safety check: Only ALLOW update for PLANNING or RELEASED status
+            if (order.status !== ProductionStatus.PLANNING && order.status !== ProductionStatus.RELEASED) {
+                throw new ApiError(400, "Tidak dapat mengubah pesanan produksi yang sudah diproses atau selesai");
+            }
+
+            const updated = await tx.productionOrder.update({
+                where: { id },
+                data: {
+                    target_date: payload.target_date ?? order.target_date,
+                    notes: payload.notes ?? order.notes,
+                    fg_warehouse_id: payload.fg_warehouse_id ?? order.fg_warehouse_id,
+                    updated_by: userId,
+                },
+                include: { product: true, items: true },
+            });
+
+            await ManufacturingService.attachAuditUsers(updated);
+
+            return updated;
         });
     }
 
@@ -573,73 +636,28 @@ export class ManufacturingService {
     }
 
     private static async deductRMStock(tx: any, items: any[], orderId: number, userId: string) {
-        for (const item of items) {
-            if (!item.warehouse_id) {
-                throw new ApiError(
-                    400,
-                    `Item ${item.id} tidak memiliki alokasi gudang. Rilis pesanan terlebih dahulu.`,
-                );
-            }
+        const stockItems = items.map(item => ({
+            raw_material_id: item.raw_material_id,
+            quantity: Number(item.quantity_planned),
+            raw_material: { name: item.raw_material?.name }
+        }));
 
-            // 1. Get the latest available period for this material/warehouse
-            const latestPeriod = await tx.rawMaterialInventory.findFirst({
-                where: {
-                    raw_material_id: item.raw_material_id,
-                    warehouse_id: item.warehouse_id,
-                },
-                orderBy: [{ year: "desc" }, { month: "desc" }],
-                select: { month: true, year: true },
-            });
-
-            if (!latestPeriod) {
-                throw new ApiError(400, `Record inventory tidak ditemukan untuk material di gudang ${item.warehouse_id}`);
-            }
-
-            // 2. Sum up all records for that period (in case of multiple dates)
-            const periodRecords = await tx.rawMaterialInventory.findMany({
-                where: {
-                    raw_material_id: item.raw_material_id,
-                    warehouse_id: item.warehouse_id,
-                    month: latestPeriod.month,
-                    year: latestPeriod.year,
-                },
-                orderBy: { date: "desc" },
-            });
-
-            const needed = Number(item.quantity_planned);
-            const qtyBefore = periodRecords.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
-            const inv = periodRecords[0]; 
-
-            if (qtyBefore < needed) {
-                throw new ApiError(
-                    400,
-                    `Stok tidak mencukupi untuk Raw Material: ${item.raw_material.name}. Tersedia: ${qtyBefore}, Dibutuhkan: ${needed}`,
-                );
-            }
-
-            const qtyAfter = qtyBefore - needed;
-
-            await tx.rawMaterialInventory.update({
-                where: { id: inv.id },
-                data: { quantity: qtyAfter },
-            });
-
-            await tx.stockMovement.create({
-                data: {
-                    entity_type: MovementEntityType.RAW_MATERIAL,
-                    entity_id: item.raw_material_id,
-                    location_type: "WAREHOUSE",
-                    location_id: item.warehouse_id,
-                    movement_type: MovementType.OUT,
-                    quantity: needed,
-                    qty_before: qtyBefore,
-                    qty_after: qtyAfter,
-                    reference_id: orderId,
-                    reference_type: MovementRefType.PRODUCTION,
-                    created_by: userId,
-                },
-            });
+        // Use the same warehouse for all items in a production order typically (GRM-PRD)
+        const warehouseId = items[0]?.warehouse_id;
+        if (!warehouseId) {
+            throw new ApiError(400, "Alokasi gudang tidak ditemukan untuk item produksi.");
         }
+
+        await InventoryHelper.deductWarehouseStock(
+            tx,
+            warehouseId,
+            stockItems,
+            orderId,
+            MovementRefType.PRODUCTION,
+            MovementType.OUT,
+            userId,
+            MovementEntityType.RAW_MATERIAL
+        );
     }
 
     private static async addBackRMStock(
@@ -650,48 +668,17 @@ export class ManufacturingService {
         orderId: number,
         userId: string,
     ) {
-        const inv = await tx.rawMaterialInventory.findFirst({
-            where: { raw_material_id: rawMatId, warehouse_id: warehouseId },
-            orderBy: { created_at: "desc" },
-        });
-
-        const qtyBefore = inv ? Number(inv.quantity) : 0;
-        const qtyAfter = qtyBefore + quantity;
-
-        if (inv) {
-            await tx.rawMaterialInventory.update({
-                where: { id: inv.id },
-                data: { quantity: qtyAfter },
-            });
-        } else {
-            const now = new Date();
-            await tx.rawMaterialInventory.create({
-                data: {
-                    raw_material_id: rawMatId,
-                    warehouse_id: warehouseId,
-                    quantity: qtyAfter,
-                    date: now.getDate(),
-                    month: now.getMonth() + 1,
-                    year: now.getFullYear(),
-                },
-            });
-        }
-
-        await tx.stockMovement.create({
-            data: {
-                entity_type: MovementEntityType.RAW_MATERIAL,
-                entity_id: rawMatId,
-                location_type: "WAREHOUSE",
-                location_id: warehouseId,
-                movement_type: MovementType.IN,
-                quantity,
-                qty_before: qtyBefore,
-                qty_after: qtyAfter,
-                reference_id: orderId,
-                reference_type: MovementRefType.PRODUCTION,
-                created_by: userId,
-            },
-        });
+        await InventoryHelper.addWarehouseStock(
+            tx,
+            warehouseId,
+            [{ raw_material_id: rawMatId, quantity }],
+            orderId,
+            MovementRefType.PRODUCTION,
+            MovementType.IN,
+            userId,
+            "RM saving/return",
+            MovementEntityType.RAW_MATERIAL
+        );
     }
 
     private static async attachAuditUsers(orders: any | any[]) {

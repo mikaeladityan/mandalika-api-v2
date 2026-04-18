@@ -110,34 +110,34 @@ model Address {
 }
 
 model Product {
-  id                      Int                 @id @default(autoincrement())
-  name                    String              @db.VarChar(100)
+  id                      Int                    @id @default(autoincrement())
+  name                    String                 @db.VarChar(100)
   unit_id                 Int?
   type_id                 Int?
-  code                    String              @unique @db.VarChar(100)
-  gender                  GENDER              @default(UNISEX)
-  status                  STATUS              @default(PENDING)
+  code                    String                 @unique @db.VarChar(100)
+  gender                  GENDER                 @default(UNISEX)
+  status                  STATUS                 @default(PENDING)
   description             String?
-  z_value                 Decimal             @default(1.65) @db.Decimal(5, 2)
-  lead_time               Int                 @default(30)
-  review_period           Int                 @default(30)
-  created_at              DateTime            @default(now())
-  updated_at              DateTime            @updatedAt
+  z_value                 Decimal                @default(1.65) @db.Decimal(5, 2)
+  lead_time               Int                    @default(30)
+  review_period           Int                    @default(30)
+  created_at              DateTime               @default(now())
+  updated_at              DateTime               @updatedAt
   deleted_at              DateTime?
-  distribution_percentage Decimal?            @default(0) @db.Decimal(5, 2)
-  safety_percentage       Decimal?            @default(0) @db.Decimal(5, 2)
+  distribution_percentage Decimal?               @default(0) @db.Decimal(5, 2)
+  safety_percentage       Decimal?               @default(0) @db.Decimal(5, 2)
   size_id                 Int?
   forecasts               Forecast[]
   outlet_inventories      OutletInventory[]
   product_inventories     ProductInventory[]
   issuances               ProductIssuance[]
-  size                    ProductSize?        @relation(fields: [size_id], references: [id])
-  product_type            ProductType?        @relation(fields: [type_id], references: [id])
-  unit                    Unit?               @relation(fields: [unit_id], references: [id])
+  size                    ProductSize?           @relation(fields: [size_id], references: [id])
+  product_type            ProductType?           @relation(fields: [type_id], references: [id])
+  unit                    Unit?                  @relation(fields: [unit_id], references: [id])
   recipes                 Recipes[]
   safety_stock            SafetyStock[]
   stock_transfer_items    StockTransferItem[]
-  goods_receipt_items    GoodsReceiptItem[]
+  goods_receipt_items     GoodsReceiptItem[]
   returns                 StockReturnItem[]
   production_orders       ProductionOrder[]
   production_fg_wastes    ProductionOrderWaste[] @relation("ProductionWasteFG")
@@ -199,18 +199,18 @@ model UnitRawMaterial {
 }
 
 model RawMaterial {
-  id                      Int                     @id @default(autoincrement())
-  barcode                 String?                 @unique @db.VarChar(50)
-  name                    String                  @db.VarChar(255)
-  price                   Decimal                 @db.Decimal(18, 2)
-  min_buy                 Decimal?                @db.Decimal(18, 2)
-  min_stock               Decimal?                @db.Decimal(18, 2)
+  id                      Int                       @id @default(autoincrement())
+  barcode                 String?                   @unique @db.VarChar(50)
+  name                    String                    @db.VarChar(255)
+  price                   Decimal                   @db.Decimal(18, 2)
+  min_buy                 Decimal?                  @db.Decimal(18, 2)
+  min_stock               Decimal?                  @db.Decimal(18, 2)
   unit_id                 Int
   raw_mat_categories_id   Int?
   supplier_id             Int?
-  created_at              DateTime                @default(now())
+  created_at              DateTime                  @default(now())
   deleted_at              DateTime?
-  updated_at              DateTime?               @updatedAt
+  updated_at              DateTime?                 @updatedAt
   lead_time               Int?
   type                    MaterialType?
   source                  RawMaterialSource         @default(LOCAL)
@@ -223,7 +223,7 @@ model RawMaterial {
   unit_raw_material       UnitRawMaterial           @relation(fields: [unit_id], references: [id], onDelete: Cascade)
   recipes                 Recipes[]
   production_order_items  ProductionOrderItem[]
-  production_rm_wastes    ProductionOrderWaste[] @relation("ProductionWasteRM")
+  production_rm_wastes    ProductionOrderWaste[]    @relation("ProductionWasteRM")
 
   @@map("raw_materials")
 }
@@ -299,10 +299,10 @@ model Warehouse {
   transfers_as_destination StockTransfer[]        @relation("TransferToWarehouse")
   returns_as_source        StockReturn[]          @relation("ReturnFromWarehouse")
   returns_as_destination   StockReturn[]          @relation("ReturnToWarehouse")
-  goods_receipts               GoodsReceipt[]
-  warehouse_address            WarehouseAddress?
-  production_orders_fg         ProductionOrder[]        @relation("ProductionFGWarehouse")
-  production_order_items       ProductionOrderItem[]    @relation("ProductionItemWarehouse")
+  goods_receipts           GoodsReceipt[]
+  warehouse_address        WarehouseAddress?
+  production_orders_fg     ProductionOrder[]      @relation("ProductionFGWarehouse")
+  production_order_items   ProductionOrderItem[]  @relation("ProductionItemWarehouse")
 
   @@index([name])
   @@map("warehouses")
@@ -508,12 +508,12 @@ model OutletWarehouse {
 model OutletAddress {
   outlet_id       Int      @id
   street          String?
-  district        String?   @db.VarChar(100)
-  sub_district    String?   @db.VarChar(100)
-  city            String?   @db.VarChar(100)
-  province        String?   @db.VarChar(100)
-  country         String?   @db.VarChar(100)
-  postal_code     String?   @db.VarChar(6)
+  district        String?  @db.VarChar(100)
+  sub_district    String?  @db.VarChar(100)
+  city            String?  @db.VarChar(100)
+  province        String?  @db.VarChar(100)
+  country         String?  @db.VarChar(100)
+  postal_code     String?  @db.VarChar(6)
   notes           String?
   url_google_maps String?
   created_at      DateTime @default(now())
@@ -575,14 +575,14 @@ model StockTransfer {
   status            TransferStatus       @default(PENDING)
   notes             String?
   shipment_notes    String?
-  fulfillment_notes  String?
+  fulfillment_notes String?
   created_by        String               @db.VarChar(100)
   approved_by       String?              @db.VarChar(100)
   date              DateTime?
   approved_at       DateTime?
   shipped_at        DateTime?
   received_at       DateTime?
-  fulfilled_at       DateTime?
+  fulfilled_at      DateTime?
   cancelled_at      DateTime?
   cancelled_by      String?              @db.VarChar(100)
   created_at        DateTime             @default(now())
@@ -999,4 +999,3 @@ enum ReturnStatus {
   COMPLETED
   CANCELLED
 }
-
