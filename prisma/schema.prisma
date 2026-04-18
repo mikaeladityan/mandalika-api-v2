@@ -303,6 +303,7 @@ model Warehouse {
   warehouse_address        WarehouseAddress?
   production_orders_fg     ProductionOrder[]      @relation("ProductionFGWarehouse")
   production_order_items   ProductionOrderItem[]  @relation("ProductionItemWarehouse")
+  production_order_wastes  ProductionOrderWaste[] @relation("ProductionWasteWarehouse")
 
   @@index([name])
   @@map("warehouses")
@@ -769,12 +770,14 @@ model ProductionOrderWaste {
   waste_type          WasteType
   raw_material_id     Int?
   product_id          Int?
+  warehouse_id        Int?
   quantity            Decimal         @db.Decimal(18, 2)
   notes               String?
   created_at          DateTime        @default(now())
   production_order    ProductionOrder @relation(fields: [production_order_id], references: [id], onDelete: Cascade)
   raw_material        RawMaterial?    @relation("ProductionWasteRM", fields: [raw_material_id], references: [id])
   product             Product?        @relation("ProductionWasteFG", fields: [product_id], references: [id])
+  warehouse           Warehouse?      @relation("ProductionWasteWarehouse", fields: [warehouse_id], references: [id])
 
   @@index([production_order_id])
   @@map("production_order_wastes")

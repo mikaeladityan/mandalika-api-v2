@@ -318,6 +318,7 @@ export class ManufacturingService {
                         production_order_id: id,
                         waste_type: WasteType.FINISH_GOODS,
                         product_id: order.product_id,
+                        warehouse_id: payload.fg_warehouse_id,
                         quantity: payload.quantity_rejected,
                         notes: payload.qc_notes 
                             ? `Ditolak saat QC: ${payload.qc_notes}` 
@@ -330,6 +331,7 @@ export class ManufacturingService {
                 where: { id },
                 data: {
                     status: ProductionStatus.FINISHED,
+                    quantity_actual: payload.quantity_accepted,
                     quantity_accepted: payload.quantity_accepted,
                     quantity_rejected: payload.quantity_rejected,
                     fg_warehouse_id: payload.fg_warehouse_id,
