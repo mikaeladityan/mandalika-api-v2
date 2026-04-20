@@ -364,4 +364,16 @@ export class ConsolidationService {
 
         return await workbook.csv.writeBuffer();
     }
+
+    static async bulkUpdateStatus(ids: number[], status: any) {
+        return await prisma.materialPurchaseDraft.updateMany({
+            where: {
+                id: { in: ids },
+            },
+            data: {
+                status: status,
+                updated_at: new Date(),
+            },
+        });
+    }
 }

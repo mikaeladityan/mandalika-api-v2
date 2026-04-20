@@ -31,3 +31,10 @@ export const ResponseConsolidationSchema = z.object({
 });
 
 export type ResponseConsolidationDTO = z.infer<typeof ResponseConsolidationSchema>;
+
+export const BulkUpdateStatusSchema = z.object({
+    ids: z.array(z.number()),
+    status: z.enum(["DRAFT", "ACC", "REJECTED"]),
+});
+
+export type BulkUpdateStatusDTO = z.infer<typeof BulkUpdateStatusSchema>;
