@@ -8,6 +8,9 @@ export const QueryOpenPoSchema = z.object({
     month: z.coerce.number().min(1).max(12).optional(),
     year: z.coerce.number().min(2000).optional(),
     supplier_id: z.coerce.number().optional(),
+    selectedIds: z.string().optional(),
+    visibleColumns: z.string().optional(),
+    columnOrder: z.string().optional(),
 });
 
 export type QueryOpenPoDTO = z.infer<typeof QueryOpenPoSchema>;

@@ -1,4 +1,5 @@
 import prisma from "../../../config/prisma.js";
+import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { QueryConsolidationDTO } from "./consolidation.schema.js";
 import ExcelJS from "exceljs";
@@ -37,7 +38,7 @@ export class ConsolidationService {
         }
 
         const query_condition: any = {
-            status: "DRAFT",
+            status: { in: ["DRAFT", "ACC"] },
             month: currentMonth,
             year: currentYear,
             quantity: {
@@ -159,7 +160,7 @@ export class ConsolidationService {
         }
 
         const query_condition: any = {
-            status: "DRAFT",
+            status: { in: ["DRAFT", "ACC"] },
             month: currentMonth,
             year: currentYear,
             quantity: {
@@ -246,8 +247,8 @@ export class ConsolidationService {
     static async export(query: QueryConsolidationDTO) {
         const { data } = await this.list({ ...query, take: 1000000, page: 1 });
 
-        // Filter: Only include DRAFT items, exclude ORDERED (ACC)
-        const draftItems = data.filter((item) => item.status === "DRAFT");
+        // Filter: Include DRAFT and ACC items
+        const draftItems = data.filter((item) => ["DRAFT", "ACC"].includes(item.status));
         const supplierName = (draftItems.length > 0 && query.supplier_id) ? draftItems[0]?.supplier_name : "";
 
         const workbook = new ExcelJS.Workbook();
@@ -323,7 +324,7 @@ export class ConsolidationService {
                 ...(query.type === "impor" ? { price_usd: (item.price || 0) / 17000 } : {}),
                 total_price: totalPrice,
                 ...(query.type === "impor" ? { total_price_usd: totalPrice / 17000 } : {}),
-                status: "DRAFT",
+                status: item.status,
                 created_at: item.created_at
                     ? new Date(item.created_at).toLocaleString("id-ID")
                     : "-",
@@ -366,14 +367,103 @@ export class ConsolidationService {
     }
 
     static async bulkUpdateStatus(ids: number[], status: any) {
-        return await prisma.materialPurchaseDraft.updateMany({
-            where: {
-                id: { in: ids },
-            },
-            data: {
-                status: status,
-                updated_at: new Date(),
-            },
+        if (status === "DRAFT") {
+            return await prisma.$transaction(async (tx) => {
+                // 1. Find the drafts and their linked open POs
+                const drafts = await tx.materialPurchaseDraft.findMany({
+                    where: {
+                        id: { in: ids },
+                        status: "ACC",
+                        open_po_id: { not: null },
+                    },
+                    include: {
+                        open_po: true,
+                    },
+                });
+
+                // 2. Filter and Check: Block if already RECEIVED
+                for (const draft of drafts) {
+                    if (draft.open_po?.status === "RECEIVED") {
+                        throw new ApiError (
+                            400,
+                            `Data "${draft.id}" tidak dapat dikembalikan ke Draft karena sudah RECEIVE di Open PO.`,
+                        );
+                    }
+                }
+
+                // 3. Delete linked Open POs
+                const openPoIds = drafts
+                    .map((d) => d.open_po_id)
+                    .filter((id): id is number => id !== null);
+
+                if (openPoIds.length > 0) {
+                    await tx.rawMaterialOpenPo.deleteMany({
+                        where: {
+                            id: { in: openPoIds },
+                        },
+                    });
+                }
+
+                // 4. Reset drafts to DRAFT
+                return await tx.materialPurchaseDraft.updateMany({
+                    where: {
+                        id: { in: ids },
+                    },
+                    data: {
+                        status: "DRAFT",
+                        open_po_id: null,
+                        updated_at: new Date(),
+                    },
+                });
+            });
+        }
+
+        if (status !== "ACC") {
+
+        // Logic for ACC status: Create an Open PO for each draft being approved
+        const result = await prisma.$transaction(async (tx) => {
+            // 1. Find all drafts that are being approved and don't have an open PO yet
+            const drafts = await tx.materialPurchaseDraft.findMany({
+                where: {
+                    id: { in: ids },
+                    open_po_id: null,
+                },
+            });
+
+            // 2. Create Open PO records and link them
+            for (const draft of drafts) {
+                const openPo = await tx.rawMaterialOpenPo.create({
+                    data: {
+                        raw_material_id: draft.raw_mat_id,
+                        quantity: draft.quantity,
+                        po_number: null, // Default Null as requested
+                        status: "OPEN",
+                    },
+                });
+
+                await tx.materialPurchaseDraft.update({
+                    where: { id: draft.id },
+                    data: {
+                        status: "ACC",
+                        open_po_id: openPo.id,
+                        updated_at: new Date(),
+                    },
+                });
+            }
+
+            // 3. Final update for status in case some were already linked or for status-only updates
+            return await tx.materialPurchaseDraft.updateMany({
+                where: {
+                    id: { in: ids },
+                },
+                data: {
+                    status: "ACC",
+                    updated_at: new Date(),
+                },
+            });
         });
+
+        return result;
+        }
     }
 }

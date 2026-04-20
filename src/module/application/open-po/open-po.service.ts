@@ -27,6 +27,16 @@ export class OpenPoService {
             };
         }
 
+        if (query.selectedIds) {
+            const ids = query.selectedIds
+                .split(",")
+                .map(Number)
+                .filter((id) => !isNaN(id));
+            if (ids.length > 0) {
+                whereCondition.id = { in: ids };
+            }
+        }
+
         if (search) {
             whereCondition.OR = [
                 { po_number: { contains: search, mode: "insensitive" } },
@@ -79,6 +89,7 @@ export class OpenPoService {
             order_date: item.order_date,
             expected_arrival: item.expected_arrival,
             status: item.status,
+            lead_time: item.raw_material?.lead_time ?? null,
         }));
 
         return { data: parsedData, len: total };
@@ -174,7 +185,7 @@ export class OpenPoService {
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet(supplierName ? `PO Open - ${supplierName}` : "Tracking PO Open");
 
-        sheet.columns = [
+        const allColumns = [
             { header: "No", key: "no", width: 5 },
             { header: "PO Number", key: "po_number", width: 20 },
             { header: "Nama Material", key: "material_name", width: 35 },
@@ -187,6 +198,28 @@ export class OpenPoService {
             { header: "Est. Arrival", key: "expected_arrival", width: 15 },
             { header: "Status", key: "status", width: 12 },
         ];
+
+        let filteredColumns = allColumns;
+        if (query.visibleColumns) {
+            const visible = query.visibleColumns.split(",");
+            filteredColumns = allColumns.filter(
+                (col) => visible.includes(col.key) || col.key === "no",
+            );
+        }
+
+        if (query.columnOrder) {
+            const order = query.columnOrder.split(",");
+            filteredColumns.sort((a, b) => {
+                const indexA = order.indexOf(a.key);
+                const indexB = order.indexOf(b.key);
+                if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+                if (indexA !== -1) return -1;
+                if (indexB !== -1) return 1;
+                return 0;
+            });
+        }
+
+        sheet.columns = filteredColumns;
 
         let grandTotal = 0;
         data.forEach((item, index) => {
