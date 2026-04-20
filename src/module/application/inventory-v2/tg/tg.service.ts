@@ -233,30 +233,49 @@ export class TGService {
         updateData: Prisma.StockTransferUpdateInput,
         userId: string,
     ): Promise<Prisma.StockTransferUpdateInput> {
-        if (transfer.status !== TransferStatus.APPROVED) {
-            throw new ApiError(400, "TG harus disetujui (APPROVED) sebelum dikirim (SHIPMENT).");
+        if (transfer.status !== TransferStatus.APPROVED && transfer.status !== TransferStatus.PARTIAL) {
+            throw new ApiError(400, "TG harus disetujui (APPROVED) atau berstatus PARTIAL sebelum dikirim (SHIPMENT).");
         }
 
-        if (payload.items) {
-            const itemsToUpdate = payload.items.filter((i) => i.quantity_packed !== undefined);
-            await Promise.all(
-                itemsToUpdate.map((i) =>
-                    tx.stockTransferItem.update({
-                        where: { id: i.id },
-                        data: { quantity_packed: i.quantity_packed },
-                    }),
-                ),
-            );
+        const payloadItemMap = new Map(payload.items?.map((i) => [i.id, i]) ?? []);
+        const itemsToShip: StockItem[] = [];
+        const packUpdates: Promise<any>[] = [];
+
+        for (const dbItem of transfer.items) {
+            const alreadyFulfilled = Number(dbItem.quantity_fulfilled ?? 0);
+            const remaining = Number(dbItem.quantity_requested) - alreadyFulfilled;
+
+            if (remaining <= 0) continue;
+
+            const packed = Number(payloadItemMap.get(dbItem.id)?.quantity_packed ?? remaining);
+
+            if (packed < 0) {
+                throw new ApiError(400, `Qty kirim tidak boleh negatif untuk item ID ${dbItem.id}.`);
+            }
+            if (packed > remaining + 0.0001) {
+                throw new ApiError(
+                    400,
+                    `Qty kirim untuk ${dbItem.product?.name ?? `item ID ${dbItem.id}`} (${packed}) melebihi sisa kebutuhan (${remaining}).`,
+                );
+            }
+
+            if (packed > 0) {
+                packUpdates.push(
+                    tx.stockTransferItem.update({ where: { id: dbItem.id }, data: { quantity_packed: packed } }),
+                );
+                itemsToShip.push({ product_id: dbItem.product_id, quantity: packed, product: dbItem.product });
+            }
         }
+
+        if (itemsToShip.length === 0) {
+            throw new ApiError(400, "Tidak ada item yang perlu dikirim. Semua item sudah terpenuhi.");
+        }
+
+        await Promise.all(packUpdates);
 
         if (transfer.from_warehouse_id) {
-            const items: StockItem[] = transfer.items.map((i: any) => ({
-                product_id: i.product_id,
-                quantity: Number(i.quantity_packed || i.quantity_requested),
-                product: i.product,
-            }));
             await InventoryHelper.deductWarehouseStock(
-                tx, transfer.from_warehouse_id, items,
+                tx, transfer.from_warehouse_id, itemsToShip,
                 transfer.id, MovementRefType.STOCK_TRANSFER, MovementType.TRANSFER_OUT, userId,
             );
         }
@@ -322,47 +341,79 @@ export class TGService {
         if (transfer.status !== TransferStatus.RECEIVED) {
             throw new ApiError(400, "Data harus berstatus RECEIVED sebelum tahap FULFILLMENT.");
         }
-        if (!payload.items || payload.items.length !== transfer.items.length) {
-            throw new ApiError(400, "Semua item dalam TG harus diverifikasi pada tahap FULFILLMENT.");
+
+        const itemsPackedThisCycle = transfer.items.filter((i: any) => Number(i.quantity_packed ?? 0) > 0);
+        const verifiedIds = new Set(payload.items?.map((i) => i.id) ?? []);
+        const missingVerification = itemsPackedThisCycle.filter((i: any) => !verifiedIds.has(i.id));
+
+        if (missingVerification.length > 0) {
+            throw new ApiError(
+                400,
+                `Item berikut belum diverifikasi: ${missingVerification.map((i: any) => i.id).join(", ")}`,
+            );
         }
 
-        const fulfilledMap = new Map<number, number>();
+        const payloadItemMap = new Map(payload.items?.map((i) => [i.id, i]) ?? []);
+        const fulfilledItems: StockItem[] = [];
         const rejectedItemsList: Array<{ product_id: number; quantity_rejected: number; notes?: string | null }> = [];
+        const fulfillUpdates: Promise<any>[] = [];
+        let allItemsFullyFulfilled = true;
 
-        for (const reqItem of payload.items) {
-            const dbItem = transfer.items.find((i: any) => i.id === reqItem.id);
-            if (!dbItem) throw new ApiError(400, `Item ID ${reqItem.id} tidak valid untuk TG ini.`);
+        for (const dbItem of transfer.items) {
+            const packedThisCycle = Number(dbItem.quantity_packed ?? 0);
 
-            const fulfilled = Number(reqItem.quantity_fulfilled ?? 0);
-            const missing = Number(reqItem.quantity_missing ?? 0);
-            const rejected = Number(reqItem.quantity_rejected ?? 0);
+            if (packedThisCycle === 0) {
+                if (Number(dbItem.quantity_fulfilled ?? 0) < Number(dbItem.quantity_requested) - 0.0001) {
+                    allItemsFullyFulfilled = false;
+                }
+                continue;
+            }
 
-            if (fulfilled < 0 || missing < 0 || rejected < 0) {
+            const reqItem = payloadItemMap.get(dbItem.id);
+            if (!reqItem) throw new ApiError(400, `Item ID ${dbItem.id} (packed this cycle) harus diverifikasi.`);
+
+            const fulfilledThisCycle = Number(reqItem.quantity_fulfilled ?? 0);
+            const missingThisCycle = Number(reqItem.quantity_missing ?? 0);
+            const rejectedThisCycle = Number(reqItem.quantity_rejected ?? 0);
+
+            if (fulfilledThisCycle < 0 || missingThisCycle < 0 || rejectedThisCycle < 0) {
                 throw new ApiError(400, "Kuantitas tidak boleh bernilai negatif.");
             }
 
-            const expected = Number(dbItem.quantity_packed || dbItem.quantity_requested);
-            if (Math.abs(fulfilled + missing + rejected - expected) > 0.0001) {
+            if (Math.abs(fulfilledThisCycle + missingThisCycle + rejectedThisCycle - packedThisCycle) > 0.0001) {
                 throw new ApiError(
                     400,
-                    `Total verifikasi untuk item ID ${dbItem.id} (${fulfilled + missing + rejected}) tidak sesuai dengan Qty Pack (${expected}).`,
+                    `Total verifikasi untuk item ID ${dbItem.id} (${fulfilledThisCycle + missingThisCycle + rejectedThisCycle}) tidak sesuai dengan Qty Kirim siklus ini (${packedThisCycle}).`,
                 );
             }
 
-            await tx.stockTransferItem.update({
-                where: { id: reqItem.id },
-                data: { quantity_fulfilled: fulfilled, quantity_missing: missing, quantity_rejected: rejected },
-            });
+            const totalFulfilled = Number(dbItem.quantity_fulfilled ?? 0) + fulfilledThisCycle;
 
-            fulfilledMap.set(dbItem.product_id, fulfilled);
-            if (rejected > 0) {
-                rejectedItemsList.push({ product_id: dbItem.product_id, quantity_rejected: rejected, notes: dbItem.notes });
+            if (totalFulfilled < Number(dbItem.quantity_requested) - 0.0001) {
+                allItemsFullyFulfilled = false;
+            }
+
+            fulfillUpdates.push(
+                tx.stockTransferItem.update({
+                    where: { id: dbItem.id },
+                    data: {
+                        quantity_fulfilled: totalFulfilled,
+                        quantity_missing: missingThisCycle,
+                        quantity_rejected: rejectedThisCycle,
+                        quantity_packed: 0, // Reset so next cycle starts fresh
+                    },
+                }),
+            );
+
+            if (fulfilledThisCycle > 0) {
+                fulfilledItems.push({ product_id: dbItem.product_id, quantity: fulfilledThisCycle, product: dbItem.product });
+            }
+            if (rejectedThisCycle > 0) {
+                rejectedItemsList.push({ product_id: dbItem.product_id, quantity_rejected: rejectedThisCycle, notes: dbItem.notes });
             }
         }
 
-        const fulfilledItems: StockItem[] = transfer.items
-            .map((i: any) => ({ product_id: i.product_id, quantity: fulfilledMap.get(i.product_id) ?? 0 }))
-            .filter((i: StockItem) => i.quantity > 0);
+        await Promise.all(fulfillUpdates);
 
         if (fulfilledItems.length > 0 && transfer.to_warehouse_id) {
             await InventoryHelper.addWarehouseStock(
@@ -381,10 +432,12 @@ export class TGService {
             );
         }
 
+        const finalStatus = allItemsFullyFulfilled ? TransferStatus.COMPLETED : TransferStatus.PARTIAL;
+
         return {
             updateData: {
                 ...updateData,
-                status: TransferStatus.COMPLETED,
+                status: finalStatus,
                 fulfilled_at: new Date(),
                 fulfillment_notes: payload.notes,
             },

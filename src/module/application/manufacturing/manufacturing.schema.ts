@@ -75,6 +75,14 @@ export const QueryProductionSchema = z.object({
 
 export type QueryProductionDTO = z.infer<typeof QueryProductionSchema>;
 
+export const RequestUpdateProductionSchema = z.object({
+    target_date: z.coerce.date().optional(),
+    notes: z.string().optional(),
+    fg_warehouse_id: z.coerce.number().int().positive().optional(),
+});
+
+export type RequestUpdateProductionDTO = z.infer<typeof RequestUpdateProductionSchema>;
+
 export const QueryWasteSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),
     take: z.coerce.number().int().positive().max(100).default(10).optional(),

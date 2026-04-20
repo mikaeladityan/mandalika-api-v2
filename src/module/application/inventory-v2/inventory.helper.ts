@@ -8,15 +8,17 @@ import {
 import { ApiError } from "../../../lib/errors/api.error.js";
 
 export interface StockItem {
-    product_id: number;
+    product_id?: number;
+    raw_material_id?: number;
     quantity: number;
     product?: { name?: string; code?: string };
+    raw_material?: { name?: string };
 }
 
 export class InventoryHelper {
     /**
      * Deducts stock from a warehouse. Throws ApiError(400) if insufficient.
-     * Creates a StockMovement audit record.
+     * Consolidates monthly records and creates a StockMovement audit record.
      */
     static async deductWarehouseStock(
         tx: Prisma.TransactionClient,
@@ -26,38 +28,82 @@ export class InventoryHelper {
         ref_type: MovementRefType,
         movement_type: MovementType,
         userId: string,
+        entity_type: MovementEntityType = MovementEntityType.PRODUCT,
     ): Promise<void> {
+        const now = new Date();
+        const month = now.getMonth() + 1;
+        const year = now.getFullYear();
+
         for (const item of items) {
-            const pi = await tx.productInventory.findFirst({
-                where: { product_id: item.product_id, warehouse_id },
-                orderBy: { id: "desc" },
+            const entityId = entity_type === MovementEntityType.PRODUCT ? item.product_id : item.raw_material_id;
+            if (!entityId) throw new ApiError(400, "Entity ID (Product/Raw Material) is required");
+
+            const inventoryTable = entity_type === MovementEntityType.PRODUCT 
+                ? (tx as any).productInventory 
+                : (tx as any).rawMaterialInventory;
+
+            const idField = entity_type === MovementEntityType.PRODUCT ? 'product_id' : 'raw_material_id';
+
+            // 1. Get all records for this month to calculate total balance and consolidate
+            const periodRecords = await inventoryTable.findMany({
+                where: {
+                    [idField]: entityId,
+                    warehouse_id,
+                    month,
+                    year
+                },
+                orderBy: { date: 'asc' }
             });
 
-            if (!pi || Number(pi.quantity) < item.quantity) {
-                const label = item.product?.code
-                    ? `[${item.product.code}] ${item.product.name ?? item.product_id}`
-                    : String(item.product?.name ?? `ID:${item.product_id}`);
-                throw new ApiError(400, `Stok tidak mencukupi di Gudang untuk produk ${label}`);
+            const qtyBefore = periodRecords.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+            
+            if (qtyBefore < item.quantity) {
+                const label = entity_type === MovementEntityType.PRODUCT
+                    ? (item.product?.code ? `[${item.product.code}] ${item.product.name}` : `Product ID:${entityId}`)
+                    : (item.raw_material?.name || `Material ID:${entityId}`);
+                throw new ApiError(400, `Stok tidak mencukupi di Gudang untuk ${label}. Tersedia: ${qtyBefore}, Dibutuhkan: ${item.quantity}`);
             }
 
-            const qty_before = Number(pi.quantity);
-            const qty_after = qty_before - item.quantity;
+            const qtyAfter = qtyBefore - item.quantity;
 
-            await tx.productInventory.update({
-                where: { id: pi.id },
-                data: { quantity: qty_after },
-            });
+            // 2. Consolidate: Update/Create record on date 1 and delete others
+            if (periodRecords.length > 0) {
+                const [primary, ...others] = periodRecords;
+                await inventoryTable.update({
+                    where: { id: primary.id },
+                    data: { quantity: qtyAfter, date: 1 }
+                });
+                if (others.length > 0) {
+                    await inventoryTable.deleteMany({
+                        where: { id: { in: others.map((o: any) => o.id) } }
+                    });
+                }
+            } else {
+                // This case should theoretically not happen if qtyBefore < item.quantity check passes,
+                // but for safety:
+                await inventoryTable.create({
+                    data: {
+                        [idField]: entityId,
+                        warehouse_id,
+                        quantity: qtyAfter,
+                        date: 1,
+                        month,
+                        year
+                    }
+                });
+            }
 
+            // 3. Create StockMovement
             await tx.stockMovement.create({
                 data: {
-                    entity_type: MovementEntityType.PRODUCT,
-                    entity_id: item.product_id,
+                    entity_type,
+                    entity_id: entityId,
                     location_type: MovementLocationType.WAREHOUSE,
                     location_id: warehouse_id,
                     movement_type,
                     quantity: item.quantity,
-                    qty_before,
-                    qty_after,
+                    qty_before: qtyBefore,
+                    qty_after: qtyAfter,
                     reference_id: ref_id,
                     reference_type: ref_type,
                     created_by: userId,
@@ -68,7 +114,7 @@ export class InventoryHelper {
 
     /**
      * Adds stock to a warehouse. Creates the inventory record if it doesn't exist.
-     * Creates a StockMovement audit record.
+     * Consolidates monthly records and creates a StockMovement audit record.
      */
     static async addWarehouseStock(
         tx: Prisma.TransactionClient,
@@ -79,45 +125,72 @@ export class InventoryHelper {
         movement_type: MovementType,
         userId: string,
         notes?: string,
+        entity_type: MovementEntityType = MovementEntityType.PRODUCT,
     ): Promise<void> {
         const now = new Date();
+        const month = now.getMonth() + 1;
+        const year = now.getFullYear();
+
         for (const item of items) {
-            const pi = await tx.productInventory.findFirst({
-                where: { product_id: item.product_id, warehouse_id },
-                orderBy: { id: "desc" },
+            const entityId = entity_type === MovementEntityType.PRODUCT ? item.product_id : item.raw_material_id;
+            if (!entityId) throw new ApiError(400, "Entity ID (Product/Raw Material) is required");
+
+            const inventoryTable = entity_type === MovementEntityType.PRODUCT 
+                ? (tx as any).productInventory 
+                : (tx as any).rawMaterialInventory;
+
+            const idField = entity_type === MovementEntityType.PRODUCT ? 'product_id' : 'raw_material_id';
+
+            // 1. Get all records for this month
+            const periodRecords = await inventoryTable.findMany({
+                where: {
+                    [idField]: entityId,
+                    warehouse_id,
+                    month,
+                    year
+                },
+                orderBy: { date: 'asc' }
             });
 
-            const qty_before = pi ? Number(pi.quantity) : 0;
-            const qty_after = qty_before + item.quantity;
+            const qtyBefore = periodRecords.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+            const qtyAfter = qtyBefore + item.quantity;
 
-            if (pi) {
-                await tx.productInventory.update({
-                    where: { id: pi.id },
-                    data: { quantity: qty_after },
+            // 2. Consolidate: Update/Create primary and delete others
+            if (periodRecords.length > 0) {
+                const [primary, ...others] = periodRecords;
+                await inventoryTable.update({
+                    where: { id: primary.id },
+                    data: { quantity: qtyAfter, date: 1 }
                 });
+                if (others.length > 0) {
+                    await inventoryTable.deleteMany({
+                        where: { id: { in: others.map((o: any) => o.id) } }
+                    });
+                }
             } else {
-                await tx.productInventory.create({
+                await inventoryTable.create({
                     data: {
-                        product_id: item.product_id,
+                        [idField]: entityId,
                         warehouse_id,
-                        quantity: item.quantity,
-                        date: now.getDate(),
-                        month: now.getMonth() + 1,
-                        year: now.getFullYear(),
-                    },
+                        quantity: qtyAfter,
+                        date: 1,
+                        month,
+                        year
+                    }
                 });
             }
 
+            // 3. Create StockMovement
             await tx.stockMovement.create({
                 data: {
-                    entity_type: MovementEntityType.PRODUCT,
-                    entity_id: item.product_id,
+                    entity_type,
+                    entity_id: entityId,
                     location_type: MovementLocationType.WAREHOUSE,
                     location_id: warehouse_id,
                     movement_type,
                     quantity: item.quantity,
-                    qty_before,
-                    qty_after,
+                    qty_before: qtyBefore,
+                    qty_after: qtyAfter,
                     reference_id: ref_id,
                     reference_type: ref_type,
                     created_by: userId,
@@ -128,8 +201,7 @@ export class InventoryHelper {
     }
 
     /**
-     * Deducts stock from an outlet. Throws ApiError(400) if insufficient.
-     * Creates a StockMovement audit record.
+     * Deducts stock from an outlet. (Products only)
      */
     static async deductOutletStock(
         tx: Prisma.TransactionClient,
@@ -141,6 +213,8 @@ export class InventoryHelper {
         userId: string,
     ): Promise<void> {
         for (const item of items) {
+            if (!item.product_id) throw new ApiError(400, "Product ID is required for outlet deduction");
+            
             const oi = await tx.outletInventory.findUnique({
                 where: { outlet_id_product_id: { outlet_id, product_id: item.product_id } },
             });
@@ -177,8 +251,7 @@ export class InventoryHelper {
     }
 
     /**
-     * Adds stock to an outlet. Creates the inventory record if it doesn't exist.
-     * Creates a StockMovement audit record.
+     * Adds stock to an outlet. (Products only)
      */
     static async addOutletStock(
         tx: Prisma.TransactionClient,
@@ -191,6 +264,8 @@ export class InventoryHelper {
         notes?: string,
     ): Promise<void> {
         for (const item of items) {
+            if (!item.product_id) throw new ApiError(400, "Product ID is required for outlet addition");
+
             const oi = await tx.outletInventory.findUnique({
                 where: { outlet_id_product_id: { outlet_id, product_id: item.product_id } },
             });
@@ -205,7 +280,7 @@ export class InventoryHelper {
                 });
             } else {
                 await tx.outletInventory.create({
-                    data: { outlet_id, product_id: item.product_id, quantity: item.quantity },
+                    data: { outlet_id, product_id: item.product_id, quantity: qty_after },
                 });
             }
 
@@ -227,9 +302,7 @@ export class InventoryHelper {
             });
         }
     }
-    /**
-     * Generates a CSV string from an array of objects and a header map.
-     */
+
     static toCSV(data: any[], headers: Record<string, string>): string {
         const headerRow = Object.values(headers).join(",");
         const keys = Object.keys(headers);

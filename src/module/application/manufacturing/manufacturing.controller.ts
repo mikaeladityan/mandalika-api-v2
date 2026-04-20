@@ -7,6 +7,7 @@ import {
     RequestSubmitResultDTO,
     RequestChangeStatusDTO,
     QueryWasteSchema,
+    RequestUpdateProductionDTO,
 } from "./manufacturing.schema.js";
 
 export class ManufacturingController {
@@ -87,6 +88,20 @@ export class ManufacturingController {
     static async delete(c: Context) {
         const id = Number(c.req.param("id"));
         const result = await ManufacturingService.delete(id);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async update(c: Context) {
+        const id = Number(c.req.param("id"));
+        const body = c.get("body") as RequestUpdateProductionDTO;
+        const user = c.get("user");
+        const userId = user?.id || "system";
+        const result = await ManufacturingService.update(id, body, userId);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async cleanCancelled(c: Context) {
+        const result = await ManufacturingService.cleanCancelled();
         return ApiResponse.sendSuccess(c, result, 200);
     }
 }

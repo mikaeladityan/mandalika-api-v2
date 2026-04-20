@@ -6,6 +6,7 @@ import {
     RequestSubmitResultDTO,
     RequestQcActionDTO,
     QueryProductionDTO,
+    RequestUpdateProductionDTO,
 } from "./manufacturing.schema.js";
 import {
     ProductionStatus,
@@ -15,7 +16,8 @@ import {
     GoodsReceiptType,
     GoodsReceiptStatus,
     WasteType,
-    WarehouseType,
+    TransferLocationType,
+    TransferStatus,
 } from "../../../generated/prisma/enums.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
@@ -38,6 +40,15 @@ function generateGrNumber(): string {
         .toString()
         .padStart(4, "0");
     return `GR-${ym}-${seq}`;
+}
+
+function generateTrmNumber(): string {
+    const now = new Date();
+    const ymd = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const seq = Math.floor(Math.random() * 10000)
+        .toString()
+        .padStart(4, "0");
+    return `TRM-${ymd}-${seq}`;
 }
 
 export class ManufacturingService {
@@ -88,11 +99,127 @@ export class ManufacturingService {
                         })),
                     },
                 },
-                include: { items: true, product: true },
+                include: { 
+                    items: {
+                        include: { raw_material: true }
+                    }, 
+                    product: true 
+                },
             });
+
+            // Handle Automated RM Transfer (Penerimaan RM)
+            await this.handleAutomaticRMTransfer(tx, order, userId);
+
+            // STRICT VALIDATION: Ensure all materials are "Ready" (Total Stock PRD+KDG >= Planned)
+            // This is a safety check if the frontend validation is bypassed
+            const [prdWh, kdgWh] = await Promise.all([
+                tx.warehouse.findUnique({ where: { code: "GRM-PRD" } }),
+                tx.warehouse.findUnique({ where: { code: "GRM-KDG" } }),
+            ]);
+
+            if (prdWh) {
+                for (const item of order.items) {
+                    const needed = Number(item.quantity_planned);
+                    const stockPRD = await this.getLatestRMStock(tx, item.raw_material_id, prdWh.id);
+                    const stockKDG = kdgWh ? await this.getLatestRMStock(tx, item.raw_material_id, kdgWh.id) : 0;
+                    const totalAvailable = stockPRD + stockKDG;
+
+                    if (totalAvailable < needed) {
+                        throw new ApiError(
+                            400,
+                            `Stok tidak cukup untuk ${item.raw_material.name}. ` +
+                            `Dibutuhkan: ${needed.toLocaleString()}, Tersedia: ${totalAvailable.toLocaleString()}. ` +
+                            `Mohon pastikan stok Mencukupi sebelum membuat jadwal.`
+                        );
+                    }
+                }
+            }
 
             return order;
         });
+    }
+
+    private static async getLatestRMStock(tx: any, rmId: number, warehouseId: number): Promise<number> {
+        // 1. Get the latest available period for this RM and Warehouse
+        const latestPeriod = await tx.rawMaterialInventory.findFirst({
+            where: { raw_material_id: rmId, warehouse_id: warehouseId },
+            orderBy: [{ year: "desc" }, { month: "desc" }],
+            select: { month: true, year: true },
+        });
+
+        if (!latestPeriod) return 0;
+
+        // 2. Map all records in that month (consistent with InventoryHelper SUM logic)
+        const records = await tx.rawMaterialInventory.findMany({
+            where: {
+                raw_material_id: rmId,
+                warehouse_id: warehouseId,
+                month: latestPeriod.month,
+                year: latestPeriod.year,
+            },
+        });
+
+        return records.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+    }
+
+    private static async handleAutomaticRMTransfer(tx: any, order: any, userId: string) {
+        const [prdWh, kdgWh] = await Promise.all([
+            tx.warehouse.findUnique({ where: { code: "GRM-PRD" } }),
+            tx.warehouse.findUnique({ where: { code: "GRM-KDG" } }),
+        ]);
+
+        if (!prdWh || !kdgWh) return;
+
+        const transferItems: any[] = [];
+
+        for (const item of order.items) {
+            const needed = Number(item.quantity_planned);
+
+            // Independent stock check for each warehouse
+            const [stockPRD, stockKDG] = await Promise.all([
+                this.getLatestRMStock(tx, item.raw_material_id, prdWh.id),
+                this.getLatestRMStock(tx, item.raw_material_id, kdgWh.id),
+            ]);
+
+            if (stockPRD < needed) {
+                const shortfall = needed - stockPRD;
+                // Move what is available in KDG to cover shortfall
+                const transferQty = Math.min(shortfall, stockKDG);
+
+                if (transferQty > 0) {
+                    transferItems.push({
+                        raw_material_id: item.raw_material_id,
+                        quantity_requested: transferQty,
+                        notes: `Auto-generated for Order ${order.mfg_number}`,
+                    });
+                }
+            }
+        }
+
+        if (transferItems.length > 0) {
+            await tx.stockTransfer.create({
+                data: {
+                    transfer_number: generateTrmNumber(),
+                    from_type: TransferLocationType.WAREHOUSE,
+                    from_warehouse_id: kdgWh.id,
+                    to_type: TransferLocationType.WAREHOUSE,
+                    to_warehouse_id: prdWh.id,
+                    status: TransferStatus.PENDING,
+                    notes: `Penerimaan RM Otomatis - Pesanan: ${order.mfg_number}`,
+                    created_by: userId,
+                    barcode: `BC-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    date: new Date(),
+                    production_order_id: order.id,
+                    items: {
+                        create: transferItems.map(ti => ({
+                            raw_material_id: ti.raw_material_id,
+                            quantity_requested: ti.quantity_requested,
+                            notes: ti.notes,
+                        })),
+                    },
+                },
+            });
+        }
     }
 
     static async changeStatus(id: number, payload: RequestChangeStatusDTO, userId: string = "system") {
@@ -198,37 +325,16 @@ export class ManufacturingService {
 
                 if (wasteQty < 0 && dbItem.warehouse_id) {
                     const overUsage = Math.abs(wasteQty);
-                    const inv = await tx.rawMaterialInventory.findFirst({
-                        where: { raw_material_id: dbItem.raw_material_id, warehouse_id: dbItem.warehouse_id },
-                        orderBy: { created_at: "desc" },
-                    });
-                    if (!inv || Number(inv.quantity) < overUsage) {
-                        throw new ApiError(
-                            400,
-                            `Stok bahan baku tidak mencukupi untuk kelebihan penggunaan Raw Material: ${dbItem.raw_material.name}`,
-                        );
-                    }
-                    const qtyBefore = Number(inv.quantity);
-                    const qtyAfter = qtyBefore - overUsage;
-                    await tx.rawMaterialInventory.update({
-                        where: { id: inv.id },
-                        data: { quantity: qtyAfter },
-                    });
-                    await tx.stockMovement.create({
-                        data: {
-                            entity_type: MovementEntityType.RAW_MATERIAL,
-                            entity_id: dbItem.raw_material_id,
-                            location_type: "WAREHOUSE",
-                            location_id: dbItem.warehouse_id,
-                            movement_type: MovementType.OUT,
-                            quantity: overUsage,
-                            qty_before: qtyBefore,
-                            qty_after: qtyAfter,
-                            reference_id: id,
-                            reference_type: MovementRefType.PRODUCTION,
-                            created_by: userId,
-                        },
-                    });
+                    await InventoryHelper.deductWarehouseStock(
+                        tx, 
+                        dbItem.warehouse_id, 
+                        [{ raw_material_id: dbItem.raw_material_id, quantity: overUsage, raw_material: { name: dbItem.raw_material.name } }], 
+                        id, 
+                        MovementRefType.PRODUCTION, 
+                        MovementType.OUT, 
+                        userId,
+                        MovementEntityType.RAW_MATERIAL
+                    );
 
                     // Log as Waste RM
                     await tx.productionOrderWaste.create({
@@ -338,6 +444,7 @@ export class ManufacturingService {
                         production_order_id: id,
                         waste_type: WasteType.FINISH_GOODS,
                         product_id: order.product_id,
+                        warehouse_id: payload.fg_warehouse_id,
                         quantity: payload.quantity_rejected,
                         notes: payload.qc_notes 
                             ? `Ditolak saat QC: ${payload.qc_notes}` 
@@ -350,6 +457,7 @@ export class ManufacturingService {
                 where: { id },
                 data: {
                     status: ProductionStatus.FINISHED,
+                    quantity_actual: payload.quantity_accepted,
                     quantity_accepted: payload.quantity_accepted,
                     quantity_rejected: payload.quantity_rejected,
                     fg_warehouse_id: payload.fg_warehouse_id,
@@ -414,10 +522,18 @@ export class ManufacturingService {
         const result = await prisma.productionOrder.findUnique({
             where: { id },
             include: {
-                product: { select: { id: true, name: true, code: true } },
+                product: { 
+                    include: { 
+                        unit: { select: { id: true, name: true } }
+                    }
+                },
                 items: {
                     include: {
-                        raw_material: { select: { id: true, name: true, barcode: true } },
+                        raw_material: { 
+                            include: { 
+                                unit_raw_material: { select: { id: true, name: true } }
+                            }
+                        },
                         warehouse: { select: { id: true, name: true, type: true } },
                     },
                 },
@@ -433,6 +549,52 @@ export class ManufacturingService {
         });
 
         if (!result) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
+
+        // Fetch GRM-PRD and GRM-KDG stock information for each item
+        const [prdWh, kdgWh] = await Promise.all([
+            prisma.warehouse.findUnique({ where: { code: "GRM-PRD" }, select: { id: true } }),
+            prisma.warehouse.findUnique({ where: { code: "GRM-KDG" }, select: { id: true } }),
+        ]);
+
+        if (prdWh) {
+            for (const item of result.items) {
+                const latestPeriod = await prisma.rawMaterialInventory.findFirst({
+                    where: { raw_material_id: item.raw_material_id },
+                    orderBy: [{ year: "desc" }, { month: "desc" }],
+                    select: { month: true, year: true },
+                });
+
+                if (latestPeriod) {
+                    const invRecords = await prisma.rawMaterialInventory.findMany({
+                        where: {
+                            raw_material_id: item.raw_material_id,
+                            warehouse_id: { in: [prdWh.id, kdgWh?.id].filter(Boolean) as number[] },
+                            month: latestPeriod.month,
+                            year: latestPeriod.year,
+                        },
+                    });
+
+                    const stockPRD = invRecords
+                        .filter((r) => r.warehouse_id === prdWh.id)
+                        .reduce((sum, r) => sum + Number(r.quantity), 0);
+
+                    const stockKDG = kdgWh
+                        ? invRecords
+                            .filter((r) => r.warehouse_id === kdgWh.id)
+                            .reduce((sum, r) => sum + Number(r.quantity), 0)
+                        : 0;
+
+                    (item as any).inventory_stock = {
+                        prd: stockPRD,
+                        kdg: stockKDG,
+                        total: stockPRD + stockKDG
+                    };
+                } else {
+                    (item as any).inventory_stock = { prd: 0, kdg: 0, total: 0 };
+                }
+            }
+        }
+
         await ManufacturingService.attachAuditUsers(result);
         return result;
     }
@@ -490,12 +652,102 @@ export class ManufacturingService {
                 where: { production_order_id: id }
             });
 
+            // Delete associated stock transfers (Penerimaan RM / Auto-generated RM Transfers)
+            // Note: We only delete if they are still in PENDING or APPROVED status (not yet processed/shipped)
+            await tx.stockTransfer.deleteMany({
+                where: { 
+                    production_order_id: id,
+                    status: { in: [TransferStatus.PENDING, TransferStatus.APPROVED] }
+                }
+            });
+
             // Delete the order
             const deleted = await tx.productionOrder.delete({
                 where: { id }
             });
 
             return deleted;
+        });
+    }
+
+    static async cleanCancelled() {
+        return await prisma.$transaction(async (tx) => {
+            // Target: Find ProductionOrders that have an associated StockTransfer with status CANCELLED
+            // Since ProductionStatus doesn't have CANCELLED, we identify them via the linked transfer
+            const cancelledProductions = await tx.productionOrder.findMany({
+                where: {
+                    stock_transfer: {
+                        status: TransferStatus.CANCELLED
+                    }
+                },
+                select: { id: true }
+            });
+
+            const ids = cancelledProductions.map(p => p.id);
+            if (ids.length === 0) return { count: 0 };
+
+            // 1. Delete associated Stock Transfer dependencies
+            await tx.stockTransferItem.deleteMany({
+                where: { transfer: { production_order_id: { in: ids } } }
+            });
+            await tx.stockTransferPhoto.deleteMany({
+                where: { transfer: { production_order_id: { in: ids } } }
+            });
+            await tx.stockTransfer.deleteMany({
+                where: { production_order_id: { in: ids } }
+            });
+
+            // 2. Delete associated Goods Receipt dependencies (if any)
+            await tx.goodsReceiptItem.deleteMany({
+                where: { goods_receipt: { production_order_id: { in: ids } } }
+            });
+            await tx.goodsReceipt.deleteMany({
+                where: { production_order_id: { in: ids } }
+            });
+
+            // 3. Delete Production detail dependencies
+            await tx.productionOrderItem.deleteMany({
+                where: { production_order_id: { in: ids } }
+            });
+            await tx.productionOrderWaste.deleteMany({
+                where: { production_order_id: { in: ids } }
+            });
+
+            // 4. Finally delete the Production Orders
+            const deleted = await tx.productionOrder.deleteMany({
+                where: { id: { in: ids } }
+            });
+
+            return deleted;
+        });
+    }
+    
+    static async update(id: number, payload: RequestUpdateProductionDTO, userId: string = "system") {
+        return await prisma.$transaction(async (tx) => {
+            const order = await tx.productionOrder.findUnique({
+                where: { id },
+            });
+            if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
+
+            // Safety check: Only ALLOW update for PLANNING or RELEASED status
+            if (order.status !== ProductionStatus.PLANNING && order.status !== ProductionStatus.RELEASED) {
+                throw new ApiError(400, "Tidak dapat mengubah pesanan produksi yang sudah diproses atau selesai");
+            }
+
+            const updated = await tx.productionOrder.update({
+                where: { id },
+                data: {
+                    target_date: payload.target_date ?? order.target_date,
+                    notes: payload.notes ?? order.notes,
+                    fg_warehouse_id: payload.fg_warehouse_id ?? order.fg_warehouse_id,
+                    updated_by: userId,
+                },
+                include: { product: true, items: true },
+            });
+
+            await ManufacturingService.attachAuditUsers(updated);
+
+            return updated;
         });
     }
 
@@ -573,73 +825,28 @@ export class ManufacturingService {
     }
 
     private static async deductRMStock(tx: any, items: any[], orderId: number, userId: string) {
-        for (const item of items) {
-            if (!item.warehouse_id) {
-                throw new ApiError(
-                    400,
-                    `Item ${item.id} tidak memiliki alokasi gudang. Rilis pesanan terlebih dahulu.`,
-                );
-            }
+        const stockItems = items.map(item => ({
+            raw_material_id: item.raw_material_id,
+            quantity: Number(item.quantity_planned),
+            raw_material: { name: item.raw_material?.name }
+        }));
 
-            // 1. Get the latest available period for this material/warehouse
-            const latestPeriod = await tx.rawMaterialInventory.findFirst({
-                where: {
-                    raw_material_id: item.raw_material_id,
-                    warehouse_id: item.warehouse_id,
-                },
-                orderBy: [{ year: "desc" }, { month: "desc" }],
-                select: { month: true, year: true },
-            });
-
-            if (!latestPeriod) {
-                throw new ApiError(400, `Record inventory tidak ditemukan untuk material di gudang ${item.warehouse_id}`);
-            }
-
-            // 2. Sum up all records for that period (in case of multiple dates)
-            const periodRecords = await tx.rawMaterialInventory.findMany({
-                where: {
-                    raw_material_id: item.raw_material_id,
-                    warehouse_id: item.warehouse_id,
-                    month: latestPeriod.month,
-                    year: latestPeriod.year,
-                },
-                orderBy: { date: "desc" },
-            });
-
-            const needed = Number(item.quantity_planned);
-            const qtyBefore = periodRecords.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
-            const inv = periodRecords[0]; 
-
-            if (qtyBefore < needed) {
-                throw new ApiError(
-                    400,
-                    `Stok tidak mencukupi untuk Raw Material: ${item.raw_material.name}. Tersedia: ${qtyBefore}, Dibutuhkan: ${needed}`,
-                );
-            }
-
-            const qtyAfter = qtyBefore - needed;
-
-            await tx.rawMaterialInventory.update({
-                where: { id: inv.id },
-                data: { quantity: qtyAfter },
-            });
-
-            await tx.stockMovement.create({
-                data: {
-                    entity_type: MovementEntityType.RAW_MATERIAL,
-                    entity_id: item.raw_material_id,
-                    location_type: "WAREHOUSE",
-                    location_id: item.warehouse_id,
-                    movement_type: MovementType.OUT,
-                    quantity: needed,
-                    qty_before: qtyBefore,
-                    qty_after: qtyAfter,
-                    reference_id: orderId,
-                    reference_type: MovementRefType.PRODUCTION,
-                    created_by: userId,
-                },
-            });
+        // Use the same warehouse for all items in a production order typically (GRM-PRD)
+        const warehouseId = items[0]?.warehouse_id;
+        if (!warehouseId) {
+            throw new ApiError(400, "Alokasi gudang tidak ditemukan untuk item produksi.");
         }
+
+        await InventoryHelper.deductWarehouseStock(
+            tx,
+            warehouseId,
+            stockItems,
+            orderId,
+            MovementRefType.PRODUCTION,
+            MovementType.OUT,
+            userId,
+            MovementEntityType.RAW_MATERIAL
+        );
     }
 
     private static async addBackRMStock(
@@ -650,48 +857,17 @@ export class ManufacturingService {
         orderId: number,
         userId: string,
     ) {
-        const inv = await tx.rawMaterialInventory.findFirst({
-            where: { raw_material_id: rawMatId, warehouse_id: warehouseId },
-            orderBy: { created_at: "desc" },
-        });
-
-        const qtyBefore = inv ? Number(inv.quantity) : 0;
-        const qtyAfter = qtyBefore + quantity;
-
-        if (inv) {
-            await tx.rawMaterialInventory.update({
-                where: { id: inv.id },
-                data: { quantity: qtyAfter },
-            });
-        } else {
-            const now = new Date();
-            await tx.rawMaterialInventory.create({
-                data: {
-                    raw_material_id: rawMatId,
-                    warehouse_id: warehouseId,
-                    quantity: qtyAfter,
-                    date: now.getDate(),
-                    month: now.getMonth() + 1,
-                    year: now.getFullYear(),
-                },
-            });
-        }
-
-        await tx.stockMovement.create({
-            data: {
-                entity_type: MovementEntityType.RAW_MATERIAL,
-                entity_id: rawMatId,
-                location_type: "WAREHOUSE",
-                location_id: warehouseId,
-                movement_type: MovementType.IN,
-                quantity,
-                qty_before: qtyBefore,
-                qty_after: qtyAfter,
-                reference_id: orderId,
-                reference_type: MovementRefType.PRODUCTION,
-                created_by: userId,
-            },
-        });
+        await InventoryHelper.addWarehouseStock(
+            tx,
+            warehouseId,
+            [{ raw_material_id: rawMatId, quantity }],
+            orderId,
+            MovementRefType.PRODUCTION,
+            MovementType.IN,
+            userId,
+            "RM saving/return",
+            MovementEntityType.RAW_MATERIAL
+        );
     }
 
     private static async attachAuditUsers(orders: any | any[]) {

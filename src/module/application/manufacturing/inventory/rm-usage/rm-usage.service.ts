@@ -1,11 +1,11 @@
 import { Prisma } from "../../../../../generated/prisma/client.js";
 import prisma from "../../../../../config/prisma.js";
-import { QueryRmMovmentDTO } from "./rm-movement.schema.js";
+import { QueryRmUsageDTO } from "./rm-usage.schema.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
 import { MovementEntityType, MovementRefType, MovementType } from "../../../../../generated/prisma/enums.js";
 
-export class RmMovmentService {
-    static async getMovements(query: QueryRmMovmentDTO) {
+export class RmUsageService {
+    static async getUsage(query: QueryRmUsageDTO) {
         const {
             page = 1,
             take = 10,
@@ -19,6 +19,8 @@ export class RmMovmentService {
 
         const where: Prisma.StockMovementWhereInput = {
             entity_type: MovementEntityType.RAW_MATERIAL,
+            reference_type: MovementRefType.PRODUCTION,
+            movement_type: { in: [MovementType.OUT, MovementType.TRANSFER_OUT] },
             ...(warehouse_id && { location_id: warehouse_id }),
             ...(fromDate || toDate ? {
                 created_at: {
@@ -37,8 +39,6 @@ export class RmMovmentService {
             ...(search && {
                 OR: [
                     { notes: { contains: search, mode: "insensitive" } },
-                    // Search by MFG number will be handled by mapping reference_id if needed, 
-                    // but for now we search through common text fields.
                 ]
             })
         };
@@ -78,7 +78,7 @@ export class RmMovmentService {
         const data = movements.map(m => {
             const rm = rawMatMap.get(m.entity_id);
             const wh = warehouseMap.get(m.location_id);
-            const order = m.reference_type === MovementRefType.PRODUCTION ? orderMap.get(m.reference_id as number) : null;
+            const order = orderMap.get(m.reference_id as number);
 
             return {
                 id: m.id,
@@ -88,9 +88,7 @@ export class RmMovmentService {
                 rm_sku: rm?.barcode || rm?.id.toString() || "Unknown",
                 unit: rm?.unit_raw_material.name || "-",
                 warehouse_name: wh?.name || "Unknown",
-                qty_in: m.movement_type === MovementType.IN ? Number(m.quantity) : 0,
-                qty_out: m.movement_type === MovementType.OUT ? Number(m.quantity) : 0,
-                qty_before: Number(m.qty_before),
+                qty_out: Number(m.quantity),
                 qty_after: Number(m.qty_after),
                 notes: m.notes,
             };
