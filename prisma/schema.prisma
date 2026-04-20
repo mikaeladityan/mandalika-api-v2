@@ -771,16 +771,16 @@ model ProductionOrderItem {
 }
 
 model ProductionOrderWaste {
-  id                  Int             @id @default(autoincrement())
-  production_order_id Int
+  id                  Int              @id @default(autoincrement())
+  production_order_id Int?
   waste_type          WasteType
   raw_material_id     Int?
   product_id          Int?
   warehouse_id        Int?
-  quantity            Decimal         @db.Decimal(18, 2)
+  quantity            Decimal          @db.Decimal(18, 2)
   notes               String?
-  created_at          DateTime        @default(now())
-  production_order    ProductionOrder @relation(fields: [production_order_id], references: [id], onDelete: Cascade)
+  created_at          DateTime         @default(now())
+  production_order    ProductionOrder? @relation(fields: [production_order_id], references: [id], onDelete: Cascade)
   raw_material        RawMaterial?    @relation("ProductionWasteRM", fields: [raw_material_id], references: [id])
   product             Product?        @relation("ProductionWasteFG", fields: [product_id], references: [id])
   warehouse           Warehouse?      @relation("ProductionWasteWarehouse", fields: [warehouse_id], references: [id])

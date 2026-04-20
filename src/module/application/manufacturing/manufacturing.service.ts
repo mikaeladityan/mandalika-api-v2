@@ -110,6 +110,31 @@ export class ManufacturingService {
             // Handle Automated RM Transfer (Penerimaan RM)
             await this.handleAutomaticRMTransfer(tx, order, userId);
 
+            // STRICT VALIDATION: Ensure all materials are "Ready" (Total Stock PRD+KDG >= Planned)
+            // This is a safety check if the frontend validation is bypassed
+            const [prdWh, kdgWh] = await Promise.all([
+                tx.warehouse.findUnique({ where: { code: "GRM-PRD" } }),
+                tx.warehouse.findUnique({ where: { code: "GRM-KDG" } }),
+            ]);
+
+            if (prdWh) {
+                for (const item of order.items) {
+                    const needed = Number(item.quantity_planned);
+                    const stockPRD = await this.getLatestRMStock(tx, item.raw_material_id, prdWh.id);
+                    const stockKDG = kdgWh ? await this.getLatestRMStock(tx, item.raw_material_id, kdgWh.id) : 0;
+                    const totalAvailable = stockPRD + stockKDG;
+
+                    if (totalAvailable < needed) {
+                        throw new ApiError(
+                            400,
+                            `Stok tidak cukup untuk ${item.raw_material.name}. ` +
+                            `Dibutuhkan: ${needed.toLocaleString()}, Tersedia: ${totalAvailable.toLocaleString()}. ` +
+                            `Mohon pastikan stok Mencukupi sebelum membuat jadwal.`
+                        );
+                    }
+                }
+            }
+
             return order;
         });
     }
@@ -627,9 +652,70 @@ export class ManufacturingService {
                 where: { production_order_id: id }
             });
 
+            // Delete associated stock transfers (Penerimaan RM / Auto-generated RM Transfers)
+            // Note: We only delete if they are still in PENDING or APPROVED status (not yet processed/shipped)
+            await tx.stockTransfer.deleteMany({
+                where: { 
+                    production_order_id: id,
+                    status: { in: [TransferStatus.PENDING, TransferStatus.APPROVED] }
+                }
+            });
+
             // Delete the order
             const deleted = await tx.productionOrder.delete({
                 where: { id }
+            });
+
+            return deleted;
+        });
+    }
+
+    static async cleanCancelled() {
+        return await prisma.$transaction(async (tx) => {
+            // Target: Find ProductionOrders that have an associated StockTransfer with status CANCELLED
+            // Since ProductionStatus doesn't have CANCELLED, we identify them via the linked transfer
+            const cancelledProductions = await tx.productionOrder.findMany({
+                where: {
+                    stock_transfer: {
+                        status: TransferStatus.CANCELLED
+                    }
+                },
+                select: { id: true }
+            });
+
+            const ids = cancelledProductions.map(p => p.id);
+            if (ids.length === 0) return { count: 0 };
+
+            // 1. Delete associated Stock Transfer dependencies
+            await tx.stockTransferItem.deleteMany({
+                where: { transfer: { production_order_id: { in: ids } } }
+            });
+            await tx.stockTransferPhoto.deleteMany({
+                where: { transfer: { production_order_id: { in: ids } } }
+            });
+            await tx.stockTransfer.deleteMany({
+                where: { production_order_id: { in: ids } }
+            });
+
+            // 2. Delete associated Goods Receipt dependencies (if any)
+            await tx.goodsReceiptItem.deleteMany({
+                where: { goods_receipt: { production_order_id: { in: ids } } }
+            });
+            await tx.goodsReceipt.deleteMany({
+                where: { production_order_id: { in: ids } }
+            });
+
+            // 3. Delete Production detail dependencies
+            await tx.productionOrderItem.deleteMany({
+                where: { production_order_id: { in: ids } }
+            });
+            await tx.productionOrderWaste.deleteMany({
+                where: { production_order_id: { in: ids } }
+            });
+
+            // 4. Finally delete the Production Orders
+            const deleted = await tx.productionOrder.deleteMany({
+                where: { id: { in: ids } }
             });
 
             return deleted;

@@ -99,4 +99,9 @@ export class ManufacturingController {
         const result = await ManufacturingService.update(id, body, userId);
         return ApiResponse.sendSuccess(c, result, 200);
     }
+
+    static async cleanCancelled(c: Context) {
+        const result = await ManufacturingService.cleanCancelled();
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
 }
