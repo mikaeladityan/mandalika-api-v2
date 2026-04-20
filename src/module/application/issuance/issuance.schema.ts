@@ -30,7 +30,10 @@ export const QueryIssuanceSchema = z.object({
     size: z.number().optional(),
     variant: z.string().optional(),
     gender: z.enum(GENDER).optional(),
-    horizon: z.number().optional(),
+    start_month: z.number().min(1).max(12).optional(),
+    start_year: z.number().int().positive().optional(),
+    end_month: z.number().min(1).max(12).optional(),
+    end_year: z.number().int().positive().optional(),
     product_id: z.number().optional(),
     product_id_2: z.number().optional(),
 

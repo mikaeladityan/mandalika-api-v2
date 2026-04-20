@@ -60,20 +60,28 @@ export class IssuanceService {
         });
     }
 
-    private static getLastNMonths(n: number): { year: number; month: number }[] {
+    private static getRangePeriods(startM: number, startY: number, endM: number, endY: number): { year: number; month: number }[] {
         const periods: { year: number; month: number }[] = [];
-        const now = new Date();
+        let currY = startY;
+        let currM = startM;
 
-        for (let i = n - 1; i >= 0; i--) {
-            const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1 - i, 1));
-            periods.push({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 });
+        while (currY < endY || (currY === endY && currM <= endM)) {
+            periods.push({ year: currY, month: currM });
+            currM++;
+            if (currM > 12) {
+                currM = 1;
+                currY++;
+            }
         }
         return periods;
     }
 
     static async list({
         gender,
-        horizon = 6,
+        start_month,
+        start_year,
+        end_month,
+        end_year,
         size,
         variant,
         product_id,
@@ -85,12 +93,20 @@ export class IssuanceService {
         search,
         type,
     }: QueryIssuanceDTO): Promise<{ issuances: IssuanceListItem[]; len: number }> {
-        const periods = this.getLastNMonths(horizon || 13);
-        const start = periods[0]!;
-        const end = periods.at(-1)!;
+        // Default range: 6 months back from now if not specified
+        const now = new Date();
+        const defaultEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+        const defaultStart = new Date(Date.UTC(defaultEnd.getUTCFullYear(), defaultEnd.getUTCMonth() - 5, 1));
 
-        const startVal = start.year * 12 + start.month;
-        const endVal = end.year * 12 + end.month;
+        const finalStartM = start_month ?? defaultStart.getUTCMonth() + 1;
+        const finalStartY = start_year ?? defaultStart.getUTCFullYear();
+        const finalEndM = end_month ?? defaultEnd.getUTCMonth() + 1;
+        const finalEndY = end_year ?? defaultEnd.getUTCFullYear();
+
+        const periods = this.getRangePeriods(finalStartM, finalStartY, finalEndM, finalEndY);
+        
+        const startVal = finalStartY * 12 + finalStartM;
+        const endVal = finalEndY * 12 + finalEndM;
 
         const { skip, take: limit } = GetPagination(page, take);
 
@@ -227,8 +243,8 @@ export class IssuanceService {
 
             return {
                 product_id: row.id,
-                year: end.year,
-                month: end.month,
+                year: finalEndY,
+                month: finalEndM,
                 product: {
                     id: row.id,
                     code: row.code,
