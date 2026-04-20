@@ -12,6 +12,15 @@ export const RequestIssuanceSchema = z.object({
 
 export type RequestIssuanceDTO = z.infer<typeof RequestIssuanceSchema>;
 
+export const RequestIssuanceBulkSchema = z.object({
+    product_id: z.number(),
+    month: z.number(),
+    year: z.number(),
+    data: z.array(RequestIssuanceSchema),
+});
+
+export type RequestIssuanceBulkDTO = z.infer<typeof RequestIssuanceBulkSchema>;
+
 export const ResponseIssuanceSchema = RequestIssuanceSchema.extend({
     id: z.number().optional(),
     month: z.number(),
@@ -25,6 +34,21 @@ export const ResponseIssuanceSchema = RequestIssuanceSchema.extend({
         product_type: true,
     }),
 });
+
+export const ResponseIssuanceDetailSchema = z.object({
+    product: ResponseProductSchema.pick({
+        id: true,
+        code: true,
+        name: true,
+        product_type: true,
+    }),
+    year: z.number(),
+    month: z.number(),
+    issuances: z.array(ResponseIssuanceSchema),
+    totalQuantity: z.number(),
+});
+
+export type ResponseIssuanceDetailDTO = z.infer<typeof ResponseIssuanceDetailSchema>;
 
 export const QueryIssuanceSchema = z.object({
     size: z.number().optional(),

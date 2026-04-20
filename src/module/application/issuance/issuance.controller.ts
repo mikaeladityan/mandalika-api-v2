@@ -6,7 +6,7 @@ import { QueryIssuanceDTO, QueryIssuanceRekapDTO } from "./issuance.schema.js";
 export class IssuanceController {
     static async save(c: Context) {
         const body = c.get("body");
-        await IssuanceService.save(body);
+        await IssuanceService.saveBulk(body);
         return ApiResponse.sendSuccess(c, undefined, 200);
     }
 
@@ -53,12 +53,11 @@ export class IssuanceController {
 
     static async detail(c: Context) {
         const product_id = c.req.param("product_id");
-        const { year, month, type } = c.req.query();
+        const { year, month } = c.req.query();
         const data = await IssuanceService.detail(
             Number(product_id),
             Number(year),
             Number(month),
-            type as any,
         );
         return ApiResponse.sendSuccess(c, data, 200);
     }

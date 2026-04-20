@@ -3,7 +3,7 @@ import { Prisma, IssuanceType, Trend } from "../../../generated/prisma/client.js
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 
-import { QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO } from "./issuance.schema.js";
+import { QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO, RequestIssuanceBulkDTO, ResponseIssuanceDetailDTO } from "./issuance.schema.js";
 
 // Periode <= threshold → ambil type='ALL'; periode > threshold → SUM semua type non-ALL
 export const ISSUANCE_THRESHOLD_PERIOD = 2026 * 12 + 2; // February 2026
@@ -30,33 +30,42 @@ export class IssuanceService {
         });
     }
 
-    static async save(body: RequestIssuanceDTO): Promise<void> {
-        const { product_id, quantity, month: rawMonth, year: rawYear, type } = body;
+    static async saveBulk(body: RequestIssuanceBulkDTO): Promise<void> {
+        const { product_id, month, year, data } = body;
 
         const product = await this.findProduct(product_id);
         if (!product) throw new ApiError(404, "Produk tersebut tidak ditemukan");
 
-        const { month, year } = this.resolvePeriod(rawMonth, rawYear);
         const forceAll = (year * 12 + month) <= IssuanceService.THRESHOLD_PERIOD;
 
-        if (forceAll && type !== IssuanceType.ALL) {
-            throw new ApiError(
-                400,
-                `Untuk periode ${month}/${year} dan sebelumnya, sistem hanya menerima tipe pengeluaran 'ALL'`,
-            );
-        }
+        await prisma.$transaction(async (tx) => {
+            for (const item of data) {
+                if (forceAll && item.type !== IssuanceType.ALL) {
+                    throw new ApiError(
+                        400,
+                        `Untuk periode ${month}/${year} dan sebelumnya, sistem hanya menerima tipe pengeluaran 'ALL'`,
+                    );
+                }
 
-        await prisma.productIssuance.upsert({
-            where: {
-                product_id_year_month_type: {
-                    product_id,
-                    month,
-                    year,
-                    type,
-                },
-            },
-            update: { quantity },
-            create: { product_id, quantity, month, year, type },
+                await tx.productIssuance.upsert({
+                    where: {
+                        product_id_year_month_type: {
+                            product_id,
+                            month,
+                            year,
+                            type: item.type,
+                        },
+                    },
+                    update: { quantity: item.quantity },
+                    create: {
+                        product_id,
+                        quantity: item.quantity,
+                        month,
+                        year,
+                        type: item.type,
+                    },
+                });
+            }
         });
     }
 
@@ -73,7 +82,8 @@ export class IssuanceService {
                 currY++;
             }
         }
-        return periods;
+        // Always sort ascending to be safe
+        return periods.sort((a, b) => (a.year * 12 + a.month) - (b.year * 12 + b.month));
     }
 
     static async list({
@@ -93,16 +103,22 @@ export class IssuanceService {
         search,
         type,
     }: QueryIssuanceDTO): Promise<{ issuances: IssuanceListItem[]; len: number }> {
-        // Default range: 6 months back from now if not specified
+        // 1. Calculate Defaults
         const now = new Date();
         const defaultEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-        const defaultStart = new Date(Date.UTC(defaultEnd.getUTCFullYear(), defaultEnd.getUTCMonth() - 5, 1));
+        let defaultStart = new Date(Date.UTC(defaultEnd.getUTCFullYear(), defaultEnd.getUTCMonth() - 5, 1));
+        
+        // Hard limit: Jan 2026
+        const jan2026 = new Date(Date.UTC(2026, 0, 1));
+        if (defaultStart < jan2026) defaultStart = jan2026;
 
-        const finalStartM = start_month ?? defaultStart.getUTCMonth() + 1;
-        const finalStartY = start_year ?? defaultStart.getUTCFullYear();
-        const finalEndM = end_month ?? defaultEnd.getUTCMonth() + 1;
-        const finalEndY = end_year ?? defaultEnd.getUTCFullYear();
-
+        // 2. Resolve Final Periods (Allow partial input)
+        // If end is provided but start is not, start from Jan 2026
+        // If start is provided but end is not, end at defaultEnd
+        const finalStartM = start_month ?? (end_month ? 1 : defaultStart.getUTCMonth() + 1);
+        const finalStartY = start_year ?? (end_year ? 2026 : defaultStart.getUTCFullYear());
+        const finalEndM = end_month ?? (start_month ? defaultEnd.getUTCMonth() + 1 : defaultEnd.getUTCMonth() + 1);
+        const finalEndY = end_year ?? (start_year ? defaultEnd.getUTCFullYear() : defaultEnd.getUTCFullYear());
         const periods = this.getRangePeriods(finalStartM, finalStartY, finalEndM, finalEndY);
         
         const startVal = finalStartY * 12 + finalStartM;
@@ -188,7 +204,7 @@ export class IssuanceService {
                             'year',     sa.year,
                             'month',    sa.month,
                             'quantity', sa.quantity
-                        )
+                        ) ORDER BY sa.year ASC, sa.month ASC
                     ) FILTER (WHERE sa.year IS NOT NULL),
                     '[]'::json
                 )                                AS issuances_data
@@ -267,56 +283,47 @@ export class IssuanceService {
         product_id: number,
         year: number,
         month: number,
-        type?: IssuanceType,
-    ): Promise<ResponseIssuanceDTO> {
+    ): Promise<ResponseIssuanceDetailDTO> {
         if (!year || !month) throw new ApiError(400, "Tahun dan bulan wajib diisi");
 
-        const forceAll = (year * 12 + month) <= IssuanceService.THRESHOLD_PERIOD;
-        const typeSql = type 
-            ? forceAll 
-                ? Prisma.sql`AND type = 'ALL'::"IssuanceType"`
-                : Prisma.sql`AND type = CAST(${type} AS "IssuanceType")`
-            : Prisma.empty;
-
-        // Prioritized logic: Sum of specific types OR 'ALL' type
-        const issuanceRows = await prisma.$queryRaw<any[]>(Prisma.sql`
-            SELECT 
-                COALESCE(SUM(CASE WHEN (year * 12 + month) > ${IssuanceService.THRESHOLD_PERIOD} AND type::text != 'ALL' THEN quantity ELSE 0 END), 0) as others_sum,
-                COALESCE(SUM(CASE WHEN (year * 12 + month) <= ${IssuanceService.THRESHOLD_PERIOD} AND type::text = 'ALL' THEN quantity ELSE 0 END), 0) as all_val,
-                MAX(id) as last_id
-            FROM product_issuances
-            WHERE product_id = ${product_id} AND year = ${year} AND month = ${month}
-            ${typeSql}
-        `);
-
-        if (!issuanceRows[0] || (issuanceRows[0].others_sum === 0 && issuanceRows[0].all_val === 0)) {
-            throw new ApiError(404, "Data pengeluaran tidak ditemukan");
-        }
-
-        const stats = issuanceRows[0];
-        const finalQuantity = stats.others_sum > 0 ? stats.others_sum : stats.all_val;
-
-        // Fetch basic info from product
         const product = await prisma.product.findUniqueOrThrow({
             where: { id: product_id },
-            include: { product_type: true }
+            include: { product_type: true },
         });
 
+        const issuances = await prisma.productIssuance.findMany({
+            where: { product_id, year, month },
+            orderBy: { type: "asc" },
+        });
+
+        const totalQuantity = issuances.reduce((acc, curr) => acc + Number(curr.quantity), 0);
+
         return {
-            id: stats.last_id,
-            product_id,
-            year,
-            month,
-            type: type ?? (stats.others_sum > 0 ? IssuanceType.ALL : IssuanceType.ALL), // Placeholder or specific mapping
-            quantity: Number(finalQuantity),
-            created_at: new Date(), // Mocked for summary, as it's consolidated
-            updated_at: new Date(),
             product: {
                 id: product.id,
                 name: product.name,
                 code: product.code,
                 product_type: product.product_type ?? null,
             },
+            year,
+            month,
+            issuances: issuances.map((i) => ({
+                id: i.id,
+                product_id: i.product_id,
+                month: i.month,
+                year: i.year,
+                type: i.type,
+                quantity: Number(i.quantity),
+                created_at: i.created_at,
+                updated_at: i.updated_at,
+                product: {
+                    id: product.id,
+                    name: product.name,
+                    code: product.code,
+                    product_type: product.product_type ?? null,
+                },
+            })),
+            totalQuantity,
         };
     }
 

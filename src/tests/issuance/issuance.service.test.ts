@@ -20,7 +20,12 @@ describe("IssuanceService", () => {
              // @ts-ignore
              prisma.productIssuance.upsert.mockResolvedValue({ id: 1, ...mockBody });
  
-             await expect(IssuanceService.save(mockBody)).resolves.toBeUndefined();
+             await expect(IssuanceService.saveBulk({
+                 product_id: 1,
+                 month: 3,
+                 year: 2025,
+                 data: [mockBody]
+             })).resolves.toBeUndefined();
              // @ts-ignore
              expect(prisma.productIssuance.upsert).toHaveBeenCalledWith(
                  expect.objectContaining({
@@ -43,8 +48,12 @@ describe("IssuanceService", () => {
              prisma.product.findUnique.mockResolvedValue({ id: 1, name: "T-Shirt" });
              // @ts-ignore
              prisma.productIssuance.upsert.mockResolvedValue({ id: 1 });
- 
-             await IssuanceService.save({ product_id: 1, quantity: 100, type: IssuanceType.ALL });
+              await IssuanceService.saveBulk({
+                  product_id: 1,
+                  month: expectedMonth,
+                  year: expectedYear,
+                  data: [{ product_id: 1, quantity: 100, type: IssuanceType.ALL }]
+              });
  
              // @ts-ignore
              expect(prisma.productIssuance.upsert).toHaveBeenCalledWith(
@@ -57,27 +66,37 @@ describe("IssuanceService", () => {
          it("should throw 404 if product not found", async () => {
              // @ts-ignore
              prisma.product.findUnique.mockResolvedValue(null);
- 
-             await expect(IssuanceService.save({ product_id: 999, quantity: 100, type: IssuanceType.ALL })).rejects.toThrow(ApiError);
-             await expect(IssuanceService.save({ product_id: 999, quantity: 100, type: IssuanceType.ALL })).rejects.toThrow(
-                 "Produk tersebut tidak ditemukan",
-             );
+              await expect(IssuanceService.saveBulk({
+                  product_id: 999,
+                  month: 3,
+                  year: 2025,
+                  data: [{ product_id: 999, quantity: 100, type: IssuanceType.ALL }]
+              })).rejects.toThrow("Produk tersebut tidak ditemukan");
          });
  
          it("should throw 400 if type is not ALL for historical data (<= Feb 2026)", async () => {
              // @ts-ignore
              prisma.product.findUnique.mockResolvedValue({ id: 1, name: "T-Shirt" });
- 
-             await expect(
-                 IssuanceService.save({ product_id: 1, quantity: 100, month: 2, year: 2026, type: IssuanceType.OFFLINE }),
-             ).rejects.toThrow("sistem hanya menerima tipe pengeluaran 'ALL'");
+              await expect(
+                  IssuanceService.saveBulk({
+                      product_id: 1,
+                      month: 2,
+                      year: 2026,
+                      data: [{ product_id: 1, quantity: 100, month: 2, year: 2026, type: IssuanceType.OFFLINE }]
+                  }),
+              ).rejects.toThrow("sistem hanya menerima tipe pengeluaran 'ALL'");
          });
  
          it("should not call upsert if product not found", async () => {
              // @ts-ignore
              prisma.product.findUnique.mockResolvedValue(null);
  
-             await expect(IssuanceService.save({ product_id: 999, quantity: 100, type: IssuanceType.ALL })).rejects.toThrow(ApiError);
+             await expect(IssuanceService.saveBulk({
+                 product_id: 999,
+                 month: 3,
+                 year: 2025,
+                 data: [{ product_id: 999, quantity: 100, type: IssuanceType.ALL }]
+             })).rejects.toThrow(ApiError);
              // @ts-ignore
              expect(prisma.productIssuance.upsert).not.toHaveBeenCalled();
          });
@@ -88,58 +107,62 @@ describe("IssuanceService", () => {
     describe("detail", () => {
         it("should return issuance detail", async () => {
             // @ts-ignore
-            prisma.productIssuance.findUnique.mockResolvedValue({
+            prisma.product.findUniqueOrThrow.mockResolvedValue({
+                id: 1,
+                code: "TSHIRT",
+                name: "T-Shirt",
+                product_type: { id: 1, name: "Apparel", slug: "apparel" },
+            });
+            // @ts-ignore
+            prisma.productIssuance.findMany.mockResolvedValue([{
                 id: 1,
                 product_id: 1,
                 month: 3,
                 year: 2025,
                 quantity: "100",
+                type: IssuanceType.ALL,
                 created_at: new Date(),
                 updated_at: new Date(),
-                product: {
-                    id: 1,
-                    code: "TSHIRT",
-                    name: "T-Shirt",
-                    product_type: { id: 1, name: "Apparel", slug: "apparel" },
-                },
-            });
+            }]);
 
             const result = await IssuanceService.detail(1, 2025, 3);
 
             expect(result).toBeDefined();
-            expect(result.product_id).toBe(1);
-            expect(result.quantity).toBe(100); // Decimal → Number
+            expect(result.issuances).toHaveLength(1);
+            expect(result.totalQuantity).toBe(100);
             expect(result.product.name).toBe("T-Shirt");
         });
 
         it("should convert Decimal quantity to number", async () => {
             // @ts-ignore
-            prisma.productIssuance.findUnique.mockResolvedValue({
+            prisma.product.findUniqueOrThrow.mockResolvedValue({
+                id: 1, code: "TSHIRT", name: "T-Shirt",
+                product_type: { id: 1, name: "Apparel", slug: "apparel" },
+            });
+            // @ts-ignore
+            prisma.productIssuance.findMany.mockResolvedValue([{
                 id: 1,
                 product_id: 1,
                 month: 1,
                 year: 2025,
                 quantity: "250.5",
+                type: IssuanceType.ALL,
                 created_at: new Date(),
                 updated_at: new Date(),
-                product: {
-                    id: 1, code: "TSHIRT", name: "T-Shirt",
-                    product_type: { id: 1, name: "Apparel", slug: "apparel" },
-                },
-            });
+            }]);
 
             const result = await IssuanceService.detail(1, 2025, 1);
-            expect(typeof result.quantity).toBe("number");
-            expect(result.quantity).toBe(250.5);
+            expect(typeof result.totalQuantity).toBe("number");
+            expect(result.totalQuantity).toBe(250.5);
         });
 
         it("should return null for product_type if not set", async () => {
             // @ts-ignore
-            prisma.productIssuance.findUnique.mockResolvedValue({
-                id: 1, product_id: 1, month: 1, year: 2025, quantity: "50",
-                created_at: new Date(), updated_at: new Date(),
-                product: { id: 1, code: "TSHIRT", name: "T-Shirt", product_type: null },
+            prisma.product.findUniqueOrThrow.mockResolvedValue({
+                id: 1, code: "TSHIRT", name: "T-Shirt", product_type: null
             });
+            // @ts-ignore
+            prisma.productIssuance.findMany.mockResolvedValue([]);
 
             const result = await IssuanceService.detail(1, 2025, 1);
             expect(result.product.product_type).toBeNull();
@@ -154,12 +177,11 @@ describe("IssuanceService", () => {
             await expect(IssuanceService.detail(1, 2025, 0)).rejects.toThrow(ApiError);
         });
 
-        it("should throw 404 if issuance not found", async () => {
+        it("should throw if product is not found", async () => {
             // @ts-ignore
-            prisma.productIssuance.findUnique.mockResolvedValue(null);
+            prisma.product.findUniqueOrThrow.mockRejectedValue(new Error("P404"));
 
-            await expect(IssuanceService.detail(999, 2025, 3)).rejects.toThrow(ApiError);
-            await expect(IssuanceService.detail(999, 2025, 3)).rejects.toThrow("Data pengeluaran tidak ditemukan");
+            await expect(IssuanceService.detail(999, 2025, 3)).rejects.toThrow();
         });
     });
 
