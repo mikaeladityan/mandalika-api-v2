@@ -209,12 +209,17 @@ describe("IssuanceService", () => {
             expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
         });
 
-        it("should handle horizon parameter for period range", async () => {
+        it("should handle period range parameters", async () => {
             (prisma.$queryRaw as any)
                 .mockResolvedValueOnce([{ total: 1 }])
                 .mockResolvedValueOnce([mockRow]);
 
-            const result = await IssuanceService.list({ sortBy: "quantity", sortOrder: "desc", horizon: 6 });
+            const result = await IssuanceService.list({ 
+                sortBy: "quantity", 
+                sortOrder: "desc", 
+                start_month: 1, start_year: 2025,
+                end_month: 6, end_year: 2025
+            });
 
             expect(result.issuances[0]?.quantity).toHaveLength(6);
         });
@@ -290,7 +295,12 @@ describe("IssuanceService", () => {
                     },
                 }]);
 
-            const result = await IssuanceService.list({ sortBy: "quantity", sortOrder: "desc", horizon: 3 });
+            const result = await IssuanceService.list({ 
+                sortBy: "quantity", 
+                sortOrder: "desc", 
+                start_month: 1, start_year: 2025,
+                end_month: 3, end_year: 2025
+            });
             expect(result.issuances[0]?.quantity[0]?.trend).toBe("STABLE");
         });
 
@@ -312,7 +322,12 @@ describe("IssuanceService", () => {
                     issuances_data: JSON.stringify(actuals),
                 }]);
 
-            const result = await IssuanceService.list({ sortBy: "quantity", sortOrder: "desc", horizon: 2 });
+            const result = await IssuanceService.list({ 
+                sortBy: "quantity", 
+                sortOrder: "desc", 
+                start_month: p1.getUTCMonth() + 1, start_year: p1.getUTCFullYear(),
+                end_month: p2.getUTCMonth() + 1, end_year: p2.getUTCFullYear()
+            });
             const series = result.issuances[0]?.quantity!;
             expect(series[1]?.trend).toBe("UP");
         });
@@ -334,7 +349,12 @@ describe("IssuanceService", () => {
                     issuances_data: JSON.stringify(actuals),
                 }]);
 
-            const result = await IssuanceService.list({ sortBy: "quantity", sortOrder: "desc", horizon: 2 });
+            const result = await IssuanceService.list({ 
+                sortBy: "quantity", 
+                sortOrder: "desc", 
+                start_month: p1.getUTCMonth() + 1, start_year: p1.getUTCFullYear(),
+                end_month: p2.getUTCMonth() + 1, end_year: p2.getUTCFullYear()
+            });
             const series = result.issuances[0]?.quantity!;
             expect(series[1]?.trend).toBe("DOWN");
         });
@@ -352,7 +372,12 @@ describe("IssuanceService", () => {
                     issuances_data: JSON.stringify(actuals),
                 }]);
 
-            const result = await IssuanceService.list({ sortBy: "quantity", sortOrder: "desc", horizon: 2 });
+            const result = await IssuanceService.list({ 
+                sortBy: "quantity", 
+                sortOrder: "desc", 
+                start_month: 11, start_year: 2024,
+                end_month: 12, end_year: 2024
+            });
             const series = result.issuances[0]?.quantity!;
             // prev is 0, delta is Infinity → STABLE (guarded)
             expect(series[1]?.trend).toBe("STABLE");
