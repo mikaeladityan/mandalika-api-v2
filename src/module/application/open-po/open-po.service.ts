@@ -65,6 +65,7 @@ export class OpenPoService {
                     raw_material: {
                         include: {
                             supplier: true,
+                            unit_raw_material: true,
                         },
                     },
                 },
@@ -87,9 +88,9 @@ export class OpenPoService {
             price: Number(item.raw_material?.price) || 0,
             subtotal: (Number(item.quantity) || 0) * (Number(item.raw_material?.price) || 0),
             order_date: item.order_date,
-            expected_arrival: item.expected_arrival,
+            expected_arrival: item.expected_arrival || (item.order_date ? new Date(new Date(item.order_date).getTime() + (item.raw_material?.lead_time || 0) * 24 * 60 * 60 * 1000) : null),
             status: item.status,
-            lead_time: item.raw_material?.lead_time ?? null,
+            lead_time: item.raw_material?.lead_time || null,
         }));
 
         return { data: parsedData, len: total };
@@ -172,6 +173,8 @@ export class OpenPoService {
                 uom: item.raw_material?.unit_raw_material?.name,
                 status: item.status,
                 order_date: item.order_date,
+                expected_arrival: item.expected_arrival || (item.order_date ? new Date(new Date(item.order_date).getTime() + (item.raw_material?.lead_time || 0) * 24 * 60 * 60 * 1000) : null),
+                lead_time: item.raw_material?.lead_time || null,
             });
         });
 
