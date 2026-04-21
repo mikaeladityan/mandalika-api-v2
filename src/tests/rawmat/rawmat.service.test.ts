@@ -3,6 +3,49 @@ import { RawMaterialService } from "../../module/application/rawmat/rawmat.servi
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
 
+vi.mock("../../config/prisma.js", () => {
+    const mockPrisma = {
+        $transaction: vi.fn(),
+        rawMaterial: { 
+            create: vi.fn().mockResolvedValue({ id: 1, name: "Mock RM", price: 100 }), 
+            findUnique: vi.fn().mockResolvedValue({ id: 1, name: "Mock RM", price: 100, deleted_at: null }), 
+            findFirst: vi.fn().mockResolvedValue({ id: 1, name: "Mock RM", price: 100, deleted_at: null }), 
+            findMany: vi.fn().mockResolvedValue([{ id: 1, name: "Mock RM" }]), 
+            count: vi.fn().mockResolvedValue(1), 
+            update: vi.fn().mockResolvedValue({ id: 1, name: "Updated Mock RM", price: 100 }), 
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }), 
+            updateMany: vi.fn().mockResolvedValue({ count: 1 }) 
+        },
+        unitRawMaterial: { 
+            findUnique: vi.fn().mockResolvedValue({ id: 1, name: "pcs", slug: "pcs" }), 
+            create: vi.fn().mockResolvedValue({ id: 1, name: "pcs", slug: "pcs" }), 
+            findMany: vi.fn().mockResolvedValue([{ name: "pcs", slug: "pcs" }]), 
+            count: vi.fn().mockResolvedValue(1) 
+        },
+        rawMatCategories: { 
+            findUnique: vi.fn().mockResolvedValue({ id: 1, name: "Cat", slug: "cat" }), 
+            create: vi.fn().mockResolvedValue({ id: 1, name: "Cat", slug: "cat" }), 
+            findMany: vi.fn().mockResolvedValue([{ name: "Cat", slug: "cat" }]), 
+            count: vi.fn().mockResolvedValue(1) 
+        },
+        supplier: { 
+            findUnique: vi.fn().mockResolvedValue({ id: 1, name: "Sup" }), 
+            findMany: vi.fn().mockResolvedValue([{ id: 1, name: "Sup" }]), 
+            count: vi.fn().mockResolvedValue(1) 
+        },
+        stockMovement: { 
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }), 
+            create: vi.fn().mockResolvedValue({ id: 1 }) 
+        },
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 1, name: "Mock RM", price: 100, unit_id: 1, unit_name: "pcs", unit_slug: "pcs", count: 1 }]),
+    };
+    mockPrisma.$transaction.mockImplementation(async (cb: any) => {
+        if (Array.isArray(cb)) return Promise.all(cb);
+        return cb(mockPrisma);
+    });
+    return { default: mockPrisma };
+});
+
 describe("RawMaterialService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -255,6 +298,8 @@ describe("RawMaterialService", () => {
         it("should permanently delete all soft-deleted raw materials", async () => {
             // @ts-ignore
             prisma.rawMaterial.count.mockResolvedValue(3);
+            // @ts-ignore
+            prisma.rawMaterial.findMany.mockResolvedValue([{ id: 1, name: "Soft Deleted" }]);
 
             const result = await RawMaterialService.clean();
             expect(result).toBeDefined();
@@ -263,6 +308,8 @@ describe("RawMaterialService", () => {
         });
 
         it("should throw 400 if no deleted raw materials", async () => {
+            // @ts-ignore
+            prisma.rawMaterial.findMany.mockResolvedValue([]);
             // @ts-ignore
             prisma.rawMaterial.count.mockResolvedValue(0);
 
@@ -359,6 +406,10 @@ describe("RawMaterialService", () => {
 
     describe("getUtils", () => {
         it("should return units, suppliers, and categories", async () => {
+            (prisma.unitRawMaterial.findMany as any).mockResolvedValue([]);
+            (prisma.supplier.findMany as any).mockResolvedValue([]);
+            (prisma.rawMatCategories.findMany as any).mockResolvedValue([]);
+
             const result = await RawMaterialService.getUtils();
 
             expect(result).toHaveProperty("units");
@@ -370,6 +421,10 @@ describe("RawMaterialService", () => {
 
     describe("countUtils", () => {
         it("should return counts for units, suppliers, and categories", async () => {
+            (prisma.unitRawMaterial.count as any).mockResolvedValue(0);
+            (prisma.supplier.count as any).mockResolvedValue(0);
+            (prisma.rawMatCategories.count as any).mockResolvedValue(0);
+
             const result = await RawMaterialService.countUtils();
 
             expect(result).toHaveProperty("units");

@@ -195,4 +195,14 @@ export class RawMaterialController {
         const result = await RawMaterialService.countUtils();
         return ApiResponse.sendSuccess(c, result, 200);
     }
+
+    static async getUtils(c: Context) {
+        const result = await RawMaterialService.getUtils();
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async redisRawMaterial(c: Context) {
+        const result = await RawMaterialService.redisRawMaterial();
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
 }

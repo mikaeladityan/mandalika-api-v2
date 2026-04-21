@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "../../app.js";
+import prisma from "../../config/prisma.js";
 
 vi.mock("../../config/redis.js", () => {
     const mockRedis = {
@@ -38,6 +39,43 @@ vi.mock("hono/cookie", async (importOriginal) => {
 vi.mock("../../middleware/csrf.js", () => ({
     csrfMiddleware: async (c: any, next: any) => await next(),
 }));
+
+vi.mock("../../config/prisma.js", () => {
+    const mockPrisma = {
+        $transaction: vi.fn(),
+        rawMaterial: { 
+            create: vi.fn().mockResolvedValue({ id: 1, name: "RM A" }), 
+            findUnique: vi.fn().mockResolvedValue({ id: 1, name: "RM A", deleted_at: null }), 
+            findMany: vi.fn().mockResolvedValue([{ id: 1, name: "RM A" }]), 
+            count: vi.fn().mockResolvedValue(1), 
+            update: vi.fn().mockResolvedValue({ id: 1, name: "Updated RM" }), 
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }), 
+            findFirst: vi.fn().mockResolvedValue({ id: 1, name: "RM A", deleted_at: null }) 
+        },
+        unitRawMaterial: { 
+            findUnique: vi.fn().mockResolvedValue({ id: 1, name: "Unit A" }), 
+            count: vi.fn().mockResolvedValue(1), 
+            findMany: vi.fn().mockResolvedValue([{ id: 1, name: "Unit A" }]) 
+        },
+        rawMatCategories: { 
+            findUnique: vi.fn().mockResolvedValue({ id: 1, name: "Cat A" }), 
+            count: vi.fn().mockResolvedValue(1), 
+            findMany: vi.fn().mockResolvedValue([{ id: 1, name: "Cat A" }]) 
+        },
+        supplier: { 
+            findUnique: vi.fn().mockResolvedValue({ id: 1, name: "Sup A" }), 
+            count: vi.fn().mockResolvedValue(1), 
+            findMany: vi.fn().mockResolvedValue([{ id: 1, name: "Sup A" }]) 
+        },
+        stockMovement: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 1, name: "RM A", code: "RM-A" }]),
+    };
+    mockPrisma.$transaction.mockImplementation(async (cb: any) => {
+        if (Array.isArray(cb)) return Promise.all(cb);
+        return cb(mockPrisma);
+    });
+    return { default: mockPrisma };
+});
 
 describe("RawMaterialRoutes", () => {
     beforeEach(() => {
@@ -83,6 +121,11 @@ describe("RawMaterialRoutes", () => {
     // ─── CREATE ───────────────────────────────────────────────────────────────
 
     it("POST /api/app/rawmat should create raw material and return 201", async () => {
+        // @ts-ignore
+        prisma.rawMaterial.findUnique.mockResolvedValue(null);
+        // @ts-ignore
+        prisma.rawMaterial.create.mockResolvedValue({ id: 99, name: "Kain Polyester" });
+
         const payload = {
             barcode: "BARCODE_NOTFOUND",
             name: "Kain Polyester",
@@ -114,6 +157,11 @@ describe("RawMaterialRoutes", () => {
     // ─── UPDATE ───────────────────────────────────────────────────────────────
 
     it("PUT /api/app/rawmat/:id should update raw material and return 201", async () => {
+        // @ts-ignore
+        prisma.rawMaterial.findUnique.mockResolvedValue({ id: 1, name: "RM A" });
+        // @ts-ignore
+        prisma.rawMaterial.update.mockResolvedValue({ id: 1, name: "Updated RM" });
+
         const payload = { name: "Kain Katun Updated" };
 
         const res = await app.request("/api/app/rawmat/1", {
@@ -128,6 +176,11 @@ describe("RawMaterialRoutes", () => {
     // ─── DELETE (soft) ────────────────────────────────────────────────────────
 
     it("DELETE /api/app/rawmat/:id should soft delete and return 200", async () => {
+        // @ts-ignore
+        prisma.rawMaterial.findUnique.mockResolvedValue({ id: 1, name: "RM A", deleted_at: null });
+        // @ts-ignore
+        prisma.rawMaterial.update.mockResolvedValue({ id: 1, name: "RM A", deleted_at: new Date() });
+
         const res = await app.request("/api/app/rawmat/1", { method: "DELETE" });
         const body = await res.json();
 
@@ -138,7 +191,11 @@ describe("RawMaterialRoutes", () => {
     // ─── RESTORE ──────────────────────────────────────────────────────────────
 
     it("PATCH /api/app/rawmat/:id/restore should restore and return 200", async () => {
-        // id=2 is mocked to return deleted_at: new Date() (see setup.ts)
+        // @ts-ignore
+        prisma.rawMaterial.findUnique.mockResolvedValue({ id: 2, name: "RM B", deleted_at: new Date() });
+        // @ts-ignore
+        prisma.rawMaterial.update.mockResolvedValue({ id: 2, name: "RM B", deleted_at: null });
+
         const res = await app.request("/api/app/rawmat/2/restore", { method: "PATCH" });
         const body = await res.json();
 
@@ -149,6 +206,13 @@ describe("RawMaterialRoutes", () => {
     // ─── CLEAN ────────────────────────────────────────────────────────────────
 
     it("DELETE /api/app/rawmat/clean should permanently delete and return 200", async () => {
+        // @ts-ignore
+        prisma.rawMaterial.count.mockResolvedValue(1);
+        // @ts-ignore
+        prisma.rawMaterial.findMany.mockResolvedValue([{ id: 1 }]);
+        // @ts-ignore
+        prisma.rawMaterial.deleteMany.mockResolvedValue({ count: 1 });
+
         const res = await app.request("/api/app/rawmat/clean", { method: "DELETE" });
         const body = await res.json();
 

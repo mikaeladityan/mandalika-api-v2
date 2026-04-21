@@ -166,4 +166,15 @@ export class GoodsReceiptService {
         return InventoryHelper.toCSV(mappedData, headers);
     }
 
+    static async getStats() {
+        const [total, pending, completed, cancelled] = await Promise.all([
+            prisma.goodsReceipt.count(),
+            prisma.goodsReceipt.count({ where: { status: GoodsReceiptStatus.PENDING } }),
+            prisma.goodsReceipt.count({ where: { status: GoodsReceiptStatus.COMPLETED } }),
+            prisma.goodsReceipt.count({ where: { status: GoodsReceiptStatus.CANCELLED } }),
+        ]);
+
+        return { total, pending, completed, cancelled };
+    }
+
 }

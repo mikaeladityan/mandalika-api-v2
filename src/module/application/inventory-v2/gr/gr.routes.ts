@@ -6,6 +6,7 @@ import { RequestGoodsReceiptSchema } from "./gr.schema.js";
 export const GRRoutes = new Hono();
 
 GRRoutes.get("/", GRController.list);
+GRRoutes.get("/stats", GRController.stats);
 GRRoutes.get("/export", GRController.export);
 GRRoutes.get("/:id", GRController.detail);
 GRRoutes.post("/", validateBody(RequestGoodsReceiptSchema), GRController.create);

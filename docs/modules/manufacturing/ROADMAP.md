@@ -9,12 +9,13 @@ Modul Manufacturing mengelola siklus produksi dari perencanaan hingga Finished G
 ## Lifecycle Status
 
 ```
-PLANNING → RELEASED → PROCESSING → COMPLETED → QC_REVIEW → FINISHED
+PLANNING (or CANCELLED) → RELEASED → PROCESSING → COMPLETED → QC_REVIEW → FINISHED
 ```
 
 | Status | Trigger | Efek Stok |
 |---|---|---|
 | PLANNING | `POST /manufacturing` | Tidak ada |
+| CANCELLED | `PATCH /:id/cancel` | Tidak ada (Hanya dari PLANNING) |
 | RELEASED | `PATCH /:id/status` | Validasi ketersediaan RM lintas gudang RAW_MATERIAL |
 | PROCESSING | `PATCH /:id/status` | Deduct RM dari RawMaterialInventory + StockMovement (OUT) |
 | COMPLETED | `POST /:id/result` | Update qty aktual; catat Waste RM (selisih planned vs actual) |
@@ -89,6 +90,18 @@ Sistem menggunakan dua gudang utama untuk Raw Material:
 - Saat **Create**: Jika stok di `GRM-PRD` < kebutuhan, sistem otomatis membuat **Stock Transfer (TG)** dari `GRM-KDG` ke `GRM-PRD`.
 - Saat **RELEASED**: Sistem melakukan alokasi final (greedy allocation) untuk memastikan semua item memiliki `warehouse_id` yang valid dengan stok tersedia.
 - Saat **PROCESSING**: Stok benar-benar dipotong dari inventory.
+
+---
+
+## Calendar & Scheduling View
+
+Modul ini mendukung tampilan kalender interaktif untuk manajemen jadwal produksi:
+
+### Fitur Kalender:
+- **Tampilan Mingguan & Bulanan**: Mendukung navigasi dinamis per minggu (default) atau per bulan.
+- **URL Persistence**: Parameter `?view=week` atau `?view=month` disimpan di URL sehingga tampilan tidak hilang saat refresh.
+- **Warna Status**: Setiap entri kalender memiliki warna yang mencerminkan status terkini (misal: PLANNING=Blue, PROCESSING=Yellow, FINISHED=Green).
+- **Detail Popup**: Klik pada entri kalender untuk membuka modal detail produksi.
 
 ---
 

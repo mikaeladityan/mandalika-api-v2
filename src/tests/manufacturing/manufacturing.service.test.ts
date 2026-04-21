@@ -4,6 +4,28 @@ import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
 import { ProductionStatus } from "../../generated/prisma/enums.js";
 
+vi.mock("../../config/prisma.js", () => {
+    const mockPrisma = {
+        $transaction: vi.fn(),
+        productionOrder: { create: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
+        productionOrderItem: { update: vi.fn(), updateMany: vi.fn() },
+        productionOrderWaste: { create: vi.fn() },
+        productInventory: { findMany: vi.fn(), update: vi.fn(), create: vi.fn(), findFirst: vi.fn() },
+        rawMaterialInventory: { findMany: vi.fn(), update: vi.fn(), create: vi.fn(), findFirst: vi.fn() },
+        stockTransfer: { create: vi.fn() },
+        warehouse: { findUnique: vi.fn(), findFirst: vi.fn() },
+        product: { findUnique: vi.fn() },
+        goodsReceipt: { create: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
+        stockMovement: { create: vi.fn() },
+        rawMaterial: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+    };
+    mockPrisma.$transaction.mockImplementation(async (cb: any) => {
+        if (Array.isArray(cb)) return Promise.all(cb);
+        return cb(mockPrisma);
+    });
+    return { default: mockPrisma };
+});
+
 const mockProduct = {
     id: 1,
     name: "Parfum EDP 100ml",
@@ -22,8 +44,8 @@ const mockOrder = {
     quantity_actual: null,
     status: ProductionStatus.PLANNING,
     items: [
-        { id: 10, production_order_id: 1, raw_material_id: 10, warehouse_id: 3, quantity_planned: 200, quantity_actual: null },
-        { id: 11, production_order_id: 1, raw_material_id: 11, warehouse_id: 3, quantity_planned: 50, quantity_actual: null },
+        { id: 10, production_order_id: 1, raw_material_id: 10, warehouse_id: 3, quantity_planned: 200, quantity_actual: null, raw_material: { id: 10, name: "Material A" } },
+        { id: 11, production_order_id: 1, raw_material_id: 11, warehouse_id: 3, quantity_planned: 50, quantity_actual: null, raw_material: { id: 11, name: "Material B" } },
     ],
     goods_receipt: null,
     product: { id: 1, name: "Parfum EDP 100ml", code: "EDP_100" },
@@ -32,11 +54,14 @@ const mockOrder = {
 describe("ManufacturingService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        // @ts-ignore
-        prisma.$transaction.mockImplementation(async (cb) => {
-            if (Array.isArray(cb)) return Promise.all(cb);
-            return cb(prisma);
-        });
+        (prisma.productInventory.findMany as any).mockResolvedValue([
+            { id: 1, quantity: 1000, product: { id: 1, name: "Parfum EDP 100ml", code: "EDP_100" } }
+        ]);
+        (prisma.rawMaterialInventory.findMany as any).mockResolvedValue([
+            { id: 1, quantity: 1000, raw_material: { id: 10, name: "Material A" } }
+        ]);
+        (prisma.productInventory.findFirst as any).mockResolvedValue({ id: 1, quantity: 1000, product: { id: 1, name: "Parfum EDP 100ml", code: "EDP_100" } });
+        (prisma.rawMaterialInventory.findFirst as any).mockResolvedValue({ id: 1, quantity: 1000, raw_material: { id: 10, name: "Material A" } });
     });
 
     describe("create", () => {
@@ -92,6 +117,44 @@ describe("ManufacturingService", () => {
             // @ts-ignore
             prisma.product.findUnique.mockResolvedValue({ ...mockProduct, recipes: [] });
             await expect(ManufacturingService.create({ product_id: 1, quantity_planned: 100 })).rejects.toThrow(ApiError);
+        });
+
+        it("should trigger automatic RM transfer if stock is low in PRD but high in KDG", async () => {
+            // @ts-ignore
+            prisma.product.findUnique.mockResolvedValue(mockProduct);
+            // @ts-ignore
+            prisma.productionOrder.create.mockResolvedValue(mockOrder);
+            // @ts-ignore
+            prisma.warehouse.findUnique.mockImplementation(({ where }: any) => {
+                if (where.code === "GRM-PRD") return Promise.resolve({ id: 3, code: "GRM-PRD" });
+                if (where.code === "GRM-KDG") return Promise.resolve({ id: 4, code: "GRM-KDG" });
+                return Promise.resolve(null);
+            });
+            // @ts-ignore
+            prisma.rawMaterialInventory.findFirst.mockResolvedValue({ month: 4, year: 2026 });
+            // PRD has 10, KDG has 500. Needed is 200.
+            // @ts-ignore
+            prisma.rawMaterialInventory.findMany.mockImplementation(({ where }: any) => {
+                if (where.warehouse_id === 3) return Promise.resolve([{ id: 1, quantity: 10 }]); 
+                if (where.warehouse_id === 4) return Promise.resolve([{ id: 2, quantity: 500 }]);
+                return Promise.resolve([]);
+            });
+            // @ts-ignore
+            prisma.stockTransfer.create.mockResolvedValue({ id: 100 });
+
+            await ManufacturingService.create({ product_id: 1, quantity_planned: 100 });
+
+            // Should create stock transfer for shortfall (190)
+            // @ts-ignore
+            expect(prisma.stockTransfer.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        production_order_id: mockOrder.id,
+                        from_warehouse_id: 4,
+                        to_warehouse_id: 3,
+                    })
+                })
+            );
         });
     });
 
@@ -253,6 +316,76 @@ describe("ManufacturingService", () => {
             const payload = { quantity_actual: 95, items: [] };
             await expect(ManufacturingService.submitResult(1, payload)).rejects.toThrow(ApiError);
         });
+
+        it("should handle overconsumption and deduct more stock", async () => {
+            const processingOrder = { ...mockOrder, status: ProductionStatus.PROCESSING };
+            // @ts-ignore
+            prisma.productionOrder.findUnique.mockResolvedValue(processingOrder);
+            // @ts-ignore
+            prisma.productionOrderItem.update.mockResolvedValue({});
+            
+            const payload = {
+                quantity_actual: 100,
+                items: [
+                    { id: 10, quantity_actual: 250 }, // used MORE than 200 → additional deduction
+                ],
+            };
+
+            // @ts-ignore
+            prisma.rawMaterialInventory.findFirst.mockResolvedValue({ id: 1, quantity: 500 });
+            // @ts-ignore
+            prisma.productionOrder.update.mockResolvedValue({
+                ...processingOrder,
+                status: ProductionStatus.COMPLETED,
+            });
+
+            await ManufacturingService.submitResult(1, payload);
+
+            // Verify waste creation for overconsumption
+            // @ts-ignore
+            expect(prisma.productionOrderWaste.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({ 
+                        waste_type: "RAW_MATERIAL", 
+                        quantity: 50,
+                        notes: "Pemakaian Berlebih (Overconsumption)"
+                    }),
+                }),
+            );
+        });
+
+        it("should create yield loss waste if actual product < planned", async () => {
+             const processingOrder = { ...mockOrder, status: ProductionStatus.PROCESSING };
+            // @ts-ignore
+            prisma.productionOrder.findUnique.mockResolvedValue(processingOrder);
+            // @ts-ignore
+            prisma.productionOrder.update.mockResolvedValue({
+                ...processingOrder,
+                status: ProductionStatus.QC_REVIEW,
+            });
+
+            const payload = {
+                quantity_actual: 80, // planned was 100
+                items: [
+                    { id: 10, quantity_actual: 200 },
+                    { id: 11, quantity_actual: 50 },
+                ],
+            };
+
+            await ManufacturingService.submitResult(1, payload);
+
+            // Verify yield loss waste
+            // @ts-ignore
+            expect(prisma.productionOrderWaste.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({ 
+                        waste_type: "RAW_MATERIAL", 
+                        quantity: 20, // 100 - 80
+                        notes: "Selisih Hasil Produksi (Yield Loss)"
+                    }),
+                }),
+            );
+        });
     });
 
     describe("qcAction", () => {
@@ -307,9 +440,9 @@ describe("ManufacturingService", () => {
         });
 
         it("should throw 400 if order is not in QC_REVIEW status", async () => {
-            const completedOrder = { ...mockOrder, status: ProductionStatus.COMPLETED };
+            const planningOrder = { ...mockOrder, status: ProductionStatus.PLANNING };
             // @ts-ignore
-            prisma.productionOrder.findUnique.mockResolvedValue(completedOrder);
+            prisma.productionOrder.findUnique.mockResolvedValue(planningOrder);
 
             const payload = { quantity_accepted: 90, quantity_rejected: 5, fg_warehouse_id: 1 };
             await expect(ManufacturingService.qcAction(1, payload)).rejects.toThrow(ApiError);

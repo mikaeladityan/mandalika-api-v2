@@ -20,6 +20,8 @@ RawMaterialRoutes.route("/stocks", RawMaterialStockRoutes);
 
 RawMaterialRoutes.get("/export", RawMaterialController.export);
 RawMaterialRoutes.get("/count-utils", RawMaterialController.countUtils);
+RawMaterialRoutes.get("/utils", RawMaterialController.getUtils);
+RawMaterialRoutes.get("/redis", RawMaterialController.redisRawMaterial);
 RawMaterialRoutes.delete("/clean", RawMaterialController.clean);
 RawMaterialRoutes.put(
     "/bulk-status",

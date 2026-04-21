@@ -5,34 +5,28 @@ import { ApiError } from "../../../../lib/errors/api.error.js";
 import { TransferStatus, TransferLocationType } from "../../../../generated/prisma/enums.js";
 
 // Mocking the prisma service
-vi.mock("../../../../config/prisma.js", () => ({
-    default: {
-        stockTransfer: {
-            create: vi.fn(),
-            findMany: vi.fn(),
-            count: vi.fn(),
-            findUnique: vi.fn(),
-            update: vi.fn(),
-        },
-        stockTransferItem: {
-            update: vi.fn(),
-        },
-        stockTransferPhoto: {
-            createMany: vi.fn(),
-        },
-        $transaction: vi.fn((cb) => cb(prisma)),
-    },
-}));
+vi.mock("../../../../config/prisma.js", () => {
+    const mockPrisma = {
+        $transaction: vi.fn(),
+        stockTransfer: { create: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
+        stockTransferItem: { update: vi.fn() },
+        rawMaterialInventory: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), create: vi.fn() },
+        productInventory: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), create: vi.fn() },
+        stockMovement: { create: vi.fn() },
+    };
+    mockPrisma.$transaction.mockImplementation(async (cb: any) => {
+        if (Array.isArray(cb)) return Promise.all(cb);
+        return cb(mockPrisma);
+    });
+    return { default: mockPrisma };
+});
 
 describe("RmTransferService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mock("../../../../module/application/inventory-v2/inventory.helper.js", () => ({
-            InventoryHelper: {
-                deductWarehouseStock: vi.fn().mockResolvedValue({}),
-                addWarehouseStock: vi.fn().mockResolvedValue({}),
-            }
-        }));
+        (prisma.rawMaterialInventory.findFirst as any).mockResolvedValue({ id: 1, month: 1, year: 2026 });
+        (prisma.rawMaterialInventory.findMany as any).mockResolvedValue([{ id: 1, quantity: 100 }]);
+        (prisma.productInventory.findMany as any).mockResolvedValue([{ id: 1, quantity: 100 }]);
     });
 
     describe("create", () => {

@@ -33,6 +33,45 @@ vi.mock("../../middleware/csrf.js", () => ({
     csrfMiddleware: async (c: any, next: any) => await next(),
 }));
 
+vi.mock("../../config/prisma.js", () => {
+    const mockPrisma = {
+        $transaction: vi.fn(),
+        product: { 
+            findUnique: vi.fn().mockResolvedValue({ id: 1 }), 
+            findMany: vi.fn().mockResolvedValue([]), 
+            count: vi.fn().mockResolvedValue(0), 
+            update: vi.fn().mockResolvedValue({}), 
+            create: vi.fn().mockResolvedValue({}), 
+            deleteMany: vi.fn().mockResolvedValue({ count: 0 }), 
+            findFirst: vi.fn().mockResolvedValue({}) 
+        },
+        rawMaterial: { 
+            findUnique: vi.fn().mockResolvedValue({ id: 1 }), 
+            findMany: vi.fn().mockResolvedValue([]), 
+            count: vi.fn().mockResolvedValue(0), 
+            update: vi.fn().mockResolvedValue({}), 
+            create: vi.fn().mockResolvedValue({}), 
+            deleteMany: vi.fn().mockResolvedValue({ count: 0 }), 
+            findFirst: vi.fn().mockResolvedValue({}) 
+        },
+        rawMaterialInventory: { findFirst: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]) },
+        recipe: { 
+            findUnique: vi.fn().mockResolvedValue({ id: 1 }), 
+            findMany: vi.fn().mockResolvedValue([]), 
+            count: vi.fn().mockResolvedValue(0), 
+            update: vi.fn().mockResolvedValue({}), 
+            create: vi.fn().mockResolvedValue({}), 
+            deleteMany: vi.fn().mockResolvedValue({ count: 0 }) 
+        },
+        $queryRaw: vi.fn().mockResolvedValue([mockRawRecipeRow]), // Return a valid row by default
+    };
+    mockPrisma.$transaction.mockImplementation(async (cb: any) => {
+        if (Array.isArray(cb)) return Promise.all(cb);
+        return cb(mockPrisma);
+    });
+    return { default: mockPrisma };
+});
+
 // ── Shared mock data ──────────────────────────────────────────────────────────
 
 const mockRawRecipeRow = {

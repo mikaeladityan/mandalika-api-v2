@@ -4,6 +4,22 @@ import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
 import { IssuanceType } from "../../generated/prisma/enums.js";
 
+vi.mock("../../config/prisma.js", () => {
+    const mockPrisma = {
+        $transaction: vi.fn(),
+        $queryRaw: vi.fn(),
+        product: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findMany: vi.fn(), count: vi.fn() },
+        productIssuance: { upsert: vi.fn(), findMany: vi.fn(), createMany: vi.fn(), findFirst: vi.fn() },
+        productType: { findUnique: vi.fn(), findFirst: vi.fn() },
+        unitProduct: { findUnique: vi.fn(), findFirst: vi.fn() },
+    };
+    mockPrisma.$transaction.mockImplementation(async (cb: any) => {
+        if (Array.isArray(cb)) return Promise.all(cb);
+        return cb(mockPrisma);
+    });
+    return { default: mockPrisma };
+});
+
 describe("IssuanceService", () => {
     beforeEach(() => {
         vi.clearAllMocks();

@@ -23,6 +23,27 @@ vi.mock("../../middleware/csrf.js", () => ({
     csrfMiddleware: async (c: any, next: any) => await next(),
 }));
 
+vi.mock("../../config/prisma.js", () => {
+    const mockPrisma = {
+        $transaction: vi.fn(),
+        productionOrder: { create: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
+        productionOrderItem: { create: vi.fn(), deleteMany: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
+        productionOrderWaste: { create: vi.fn() },
+        productInventory: { findMany: vi.fn(), update: vi.fn(), create: vi.fn(), findFirst: vi.fn() },
+        rawMaterialInventory: { findMany: vi.fn(), update: vi.fn(), create: vi.fn(), findFirst: vi.fn() },
+        stockTransfer: { create: vi.fn() },
+        warehouse: { findUnique: vi.fn(), findFirst: vi.fn() },
+        product: { findUnique: vi.fn() },
+        goodsReceipt: { create: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
+        stockMovement: { create: vi.fn(), deleteMany: vi.fn() },
+    };
+    mockPrisma.$transaction.mockImplementation(async (cb: any) => {
+        if (Array.isArray(cb)) return Promise.all(cb);
+        return cb(mockPrisma);
+    });
+    return { default: mockPrisma };
+});
+
 const mockOrder = {
     id: 1,
     mfg_number: "MFG-202604-0001",
@@ -32,19 +53,8 @@ const mockOrder = {
     quantity_accepted: null,
     quantity_rejected: null,
     status: ProductionStatus.PLANNING,
-    target_date: null,
-    notes: null,
-    qc_notes: null,
-    released_at: null,
-    processing_at: null,
-    completed_at: null,
-    finished_at: null,
-    fg_warehouse_id: null,
-    created_by: "system",
-    created_at: new Date(),
-    updated_at: new Date(),
     items: [
-        { id: 10, raw_material_id: 10, warehouse_id: 3, quantity_planned: 200, quantity_actual: null },
+        { id: 10, production_order_id: 1, raw_material_id: 10, warehouse_id: 3, quantity_planned: 200, quantity_actual: null, raw_material: { id: 10, name: "Material A" } },
     ],
     product: { id: 1, name: "Parfum EDP", code: "EDP_100" },
     wastes: [],
@@ -54,10 +64,27 @@ const mockOrder = {
 describe("ManufacturingRoutes", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        // @ts-ignore
-        prisma.$transaction.mockImplementation(async (cb) => {
-            if (Array.isArray(cb)) return Promise.all(cb);
-            return cb(prisma);
+        // Setup default mocks for InventoryHelper success
+        (prisma.rawMaterialInventory.findMany as any).mockResolvedValue([
+            { id: 1, quantity: 1000, raw_material: { id: 10, name: "Material A" } }
+        ]);
+        (prisma.productInventory.findMany as any).mockResolvedValue([
+            { id: 1, quantity: 1000, product: { id: 1, name: "Product A", code: "PA" } }
+        ]);
+        (prisma.rawMaterialInventory.findFirst as any).mockResolvedValue({ id: 1, quantity: 1000, raw_material: { id: 10, name: "Material A" }, month: 4, year: 2026 });
+        (prisma.productInventory.findFirst as any).mockResolvedValue({ id: 1, quantity: 1000, product: { id: 1, name: "Product A", code: "PA" }, month: 4, year: 2026 });
+        
+        // prisma.$transaction.mockImplementation(async (cb: any) => {
+        //     if (Array.isArray(cb)) return Promise.all(cb);
+        //     return cb(prisma);
+        // });
+
+        // Default warehouse mocks for Manufacturing status transitions
+        (prisma.warehouse.findUnique as any).mockImplementation(({ where }: any) => {
+            if (where.code === "GRM-PRD") return { id: 3, code: "GRM-PRD", name: "Gudang Produksi" };
+            if (where.code === "GRM-KDG") return { id: 4, code: "GRM-KDG", name: "Gudang Kandang" };
+            if (where.id === 1) return { id: 1, name: "Gudang FG", type: "FINISH_GOODS" };
+            return null;
         });
     });
 
@@ -166,7 +193,6 @@ describe("ManufacturingRoutes", () => {
             });
 
             const body = (await res.json()) as any;
-            if (res.status !== 200) console.log("RELEASED ERROR:", JSON.stringify(body));
             expect(res.status).toBe(200);
             expect(body.data.status).toBe("RELEASED");
         });
@@ -210,7 +236,6 @@ describe("ManufacturingRoutes", () => {
             });
 
             const body = (await res.json()) as any;
-            if (res.status !== 200) console.log("RESULT ERROR:", JSON.stringify(body));
             expect(res.status).toBe(200);
             expect(body.data.status).toBe("COMPLETED");
         });
@@ -260,7 +285,6 @@ describe("ManufacturingRoutes", () => {
             });
 
             const body = (await res.json()) as any;
-            if (res.status !== 200) console.log("QC ERROR:", JSON.stringify(body));
             expect(res.status).toBe(200);
             expect(body.data.status).toBe("FINISHED");
         });

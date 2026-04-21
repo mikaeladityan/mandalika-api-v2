@@ -95,4 +95,9 @@ export class GRController {
         return c.text(csv);
     }
 
+    static async stats(c: Context) {
+        const result = await GoodsReceiptService.getStats();
+        return ApiResponse.sendSuccess(c, result);
+    }
+
 }
