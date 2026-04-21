@@ -32,6 +32,8 @@ modules/
 | recipe | - | - | - | ✅ Ada |
 | stock-movement | - | - | - | ✅ Ada |
 | stock-transfer | - | - | - | ✅ Ada |
+| [inventory-v2](./modules/inventory-v2/ROADMAP.md) | [✅](./modules/inventory-v2/ROADMAP.md) | [✅](./modules/inventory-v2/ENDPOINT.md) | [✅](./modules/inventory-v2/FRONTEND_INTEGRATION.md) | ✅ Ada |
+| [manufacturing](./modules/manufacturing/ROADMAP.md) | [✅](./modules/manufacturing/ROADMAP.md) | [✅](./modules/manufacturing/ENDPOINT.md) | [✅](./modules/manufacturing/FRONTEND_INTEGRATION.md) | ✅ Ada |
 
 > Modul yang belum memiliki docs per-modul masih terdokumentasi di [`../ENDPOINT.md`](../ENDPOINT.md) dan [`../ROADMAP.md`](../ROADMAP.md) (format lama, consolidated).
 

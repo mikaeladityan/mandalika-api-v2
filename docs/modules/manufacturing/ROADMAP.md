@@ -46,6 +46,8 @@ ProductionOrder
 - Input: `product_id`, `quantity_planned`, `target_date?`, `notes?`, `items[]?`
 - Jika `items` tidak disertakan → auto-populate dari BOM aktif (`recipes` dengan `is_active=true`)
 - Hitung `quantity_planned` item BOM = `recipe.quantity × order.quantity_planned`
+- **Automated RM Transfer**: Sistem akan melakukan pengecekan stok di gudang produksi (`GRM-PRD`). Jika kurang, sistem otomatis membuat `StockTransfer` (TG) dari gudang pusat (`GRM-KDG`) untuk memenuhi kekurangan tersebut.
+- **Strict Validation**: Memastikan total stok di `GRM-PRD` + `GRM-KDG` cukup untuk memenuhi rencana produksi.
 - Output: `ProductionOrder` status `PLANNING`
 
 ### `changeStatus(id, payload, userId)`
@@ -77,14 +79,16 @@ ProductionOrder
 
 ---
 
-## Dynamic Warehouse Pool (RM Allocation)
+## Automated RM Transfer & Allocation
 
-Saat RELEASED, sistem mencari **semua** `RawMaterialInventory` dengan:
-- `raw_material_id` sesuai item
-- `warehouse.type = RAW_MATERIAL`
-- `quantity > 0`
+Sistem menggunakan dua gudang utama untuk Raw Material:
+1. **`GRM-PRD` (Gudang Produksi)**: Gudang tempat bahan baku benar-benar dikonsumsi.
+2. **`GRM-KDG` (Gudang Pusat/Kandang)**: Gudang penyimpanan stok utama.
 
-Di-sort by `quantity DESC`. Alokasi greedy: pilih warehouse pertama dengan stok terbesar untuk memenuhi kebutuhan per item. Jika total tersedia < needed → throw 400.
+### Alur Alokasi:
+- Saat **Create**: Jika stok di `GRM-PRD` < kebutuhan, sistem otomatis membuat **Stock Transfer (TG)** dari `GRM-KDG` ke `GRM-PRD`.
+- Saat **RELEASED**: Sistem melakukan alokasi final (greedy allocation) untuk memastikan semua item memiliki `warehouse_id` yang valid dengan stok tersedia.
+- Saat **PROCESSING**: Stok benar-benar dipotong dari inventory.
 
 ---
 

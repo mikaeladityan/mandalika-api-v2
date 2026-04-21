@@ -241,7 +241,36 @@ Finalisasi QC. Hanya bisa dari status `QC_REVIEW`.
 }
 ```
 
-### Errors
-| Code | Reason |
-|---|---|
-| 404 | Order not found |
+---
+
+## 7. Update Production Order
+
+**PATCH** `/api/app/manufacturing/:id`
+
+Mengubah informasi target date atau catatan pada order yang belum diproses.
+
+---
+
+## 8. Delete Production Order
+
+**DELETE** `/api/app/manufacturing/:id`
+
+Menghapus order yang masih berstatus `PLANNING`.
+
+---
+
+## 9. Clean Cancelled Orders
+
+**DELETE** `/api/app/manufacturing/clean/cancelled`
+
+Membersihkan semua riwayat order produksi yang dibatalkan (termasuk stock transfer terkait).
+
+---
+
+## 10. List Production Wastes
+
+**GET** `/api/app/manufacturing/wastes`
+
+### Query Parameters
+- `page`, `take`, `search`
+- `waste_type`: `RAW_MATERIAL` | `FINISH_GOODS`
