@@ -19,7 +19,7 @@ export const RawmatImportRowSchema = z.object({
     CATEGORY: z.string().min(1, "Kategori wajib diisi"),
     UOM: z.preprocess(sanitizeString, z.string().optional()),
     MOQ: z.preprocess(sanitizeNumber, z.coerce.number().optional()),
-    "MIN STOK": z.preprocess(sanitizeNumber, z.coerce.number().optional()),
+    "MIN STOCK": z.preprocess(sanitizeNumber, z.coerce.number().optional()),
     "LEAD TIME": z.preprocess(sanitizeNumber, z.coerce.number().optional()),
     SUPPLIER: z.preprocess(sanitizeString, z.string().optional()),
     "LOCAL/IMPORT": z.preprocess(sanitizeString, z.string().optional()),

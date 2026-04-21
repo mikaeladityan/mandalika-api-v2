@@ -59,10 +59,8 @@ export class RawmatImportService {
             }
 
             const data = parsed.data;
-            const inputCountry = String(data.COUNTRY || data["LOCAL/IMPORT"] || "LOCAL").toUpperCase().trim();
-            
-            // Logic: Indonesia/Indo/Local/Lokal -> LOCAL, others -> IMPORT
-            const source = (inputCountry === "IMPORT" || (inputCountry !== "LOCAL" && inputCountry !== "LOKAL" && !inputCountry.includes("INDONESIA") && !inputCountry.includes("INDO"))) 
+            const sourceValue = String(data["LOCAL/IMPORT"] || "LOCAL").toUpperCase().trim();
+            const source = (sourceValue === "IMPORT" || (sourceValue !== "LOCAL" && sourceValue !== "LOKAL")) 
                 ? "IMPORT" 
                 : "LOCAL";
             
@@ -71,11 +69,11 @@ export class RawmatImportService {
                 name: String(data["MATERIAL NAME"] || "").trim(),
                 price: data.PRICE ?? 0,
                 min_buy: data.MOQ ?? 0,
-                min_stock: data["MIN STOK"] ?? 0,
+                min_stock: data["MIN STOCK"] ?? 0,
                 unit: (data.UOM || "UNIT").toUpperCase().trim(),
                 category: data.CATEGORY.toUpperCase().trim(),
                 supplier: (data.SUPPLIER || "UNKNOWN").toUpperCase().trim(),
-                country: inputCountry,
+                country: "", // Skipped per user request
                 source,
                 lead_time: data["LEAD TIME"] ?? 0,
                 errors: [],

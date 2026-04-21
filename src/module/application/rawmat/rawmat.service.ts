@@ -323,18 +323,20 @@ export class RawMaterialService {
         const hasVisibility = visibleCols.length > 0;
 
         const allColumns = [
+             // Additional Columns
             { header: "ID", key: "id", width: 10, id: "id" },
-            { header: "Barcode", key: "barcode", width: 20, id: "barcode" },
-            { header: "Nama Material", key: "name", width: 40, id: "name" },
-            { header: "Kategori", key: "category", width: 25, id: "category" },
-            { header: "Supplier", key: "supplier", width: 25, id: "supplier" },
-            { header: "Satuan", key: "unit", width: 15, id: "unit" },
+            // Mandatory Columns (Match Import Template)
+            { header: "BARCODE", key: "barcode", width: 20, id: "barcode" },
+            { header: "CATEGORY", key: "category", width: 25, id: "category" },
+            { header: "MATERIAL NAME", key: "name", width: 40, id: "name" },
+            { header: "UOM", key: "unit", width: 15, id: "unit" },
+            { header: "SUPPLIER", key: "supplier", width: 25, id: "supplier" },
+            { header: "PRICE", key: "price", width: 15, id: "price" },
+            { header: "MOQ", key: "min_buy", width: 12, id: "min_buy" },
+            { header: "MIN STOCK", key: "min_stock", width: 12, id: "min_stock" },
+            { header: "LEAD TIME", key: "lead_time", width: 12, id: "lead_time" },
+            { header: "LOCAL/IMPORT", key: "source", width: 15, id: "source" },
             { header: "Tipe", key: "type", width: 15, id: "type" },
-            { header: "Source", key: "source", width: 15, id: "source" },
-            { header: "Harga", key: "price", width: 15, id: "price" },
-            { header: "Min. Beli", key: "min_buy", width: 12, id: "min_buy" },
-            { header: "Min. Stok", key: "min_stock", width: 12, id: "min_stock" },
-            { header: "Lead Time", key: "lead_time", width: 12, id: "lead_time" },
             { header: "Dibuat", key: "created_at", width: 15, id: "created_at" },
             { header: "Update", key: "updated_at", width: 15, id: "updated_at" },
         ];
@@ -346,13 +348,13 @@ export class RawMaterialService {
         sheet.columns = filteredColumns.map(({ header, key, width }) => ({ header, key, width }));
 
         data.forEach((item, index) => {
-            const typeLabel = item.type === "FO" ? "FO" : item.type === "PCKG" ? "PCKG" : "-";
+            const typeLabel = item.type === "FO" ? "FO" : item.type === "PCKG" ? "PCKG" : "";
             sheet.addRow({
                 id: item.id,
-                barcode: item.barcode || "-",
+                barcode: item.barcode || "",
                 name: item.name,
-                category: item.raw_mat_category?.name || "-",
-                supplier: item.supplier?.name || "-",
+                category: item.raw_mat_category?.name || "",
+                supplier: item.supplier?.name || "",
                 unit: item.unit_raw_material.name,
                 type: typeLabel,
                 source: item.source,

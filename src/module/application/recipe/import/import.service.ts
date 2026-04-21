@@ -209,6 +209,13 @@ export class RecipeImportService {
                         Prisma.sql`INSERT INTO recipes (product_id, raw_mat_id, quantity, version, is_active, use_size_calc) VALUES ${Prisma.join(values)}`,
                     );
                 }
+
+                // ── Post-Import Normalization (from seed.ts) ───────────────────────
+                // Ensure all recipes with quantity >= 1 have use_size_calc disabled.
+                await tx.recipes.updateMany({
+                    where: { quantity: { gte: 1 } },
+                    data: { use_size_calc: false },
+                });
             },
             { maxWait: 300000, timeout: 300000 },
         );
