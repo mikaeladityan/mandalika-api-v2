@@ -71,6 +71,10 @@ export const QueryIssuanceSchema = z.object({
 
     sortBy: z.enum(["product_id", "name", "code", "quantity"]).default("quantity"),
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
+
+    visibleColumns: z.string().optional(),
+    columnOrder: z.string().optional(),
+    selectedIds: z.string().optional(),
 });
 
 export type ResponseIssuanceDTO = z.infer<typeof ResponseIssuanceSchema>;
@@ -87,6 +91,10 @@ export const QueryIssuanceRekapSchema = z.object({
     take: z.number().int().positive().max(100).default(50).optional(),
     sortBy: z.enum(["name", "code", "offline", "online", "spin_wheel", "garansi_out", "b2b", "all_qty", "total_qty"]).default("total_qty"),
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
+
+    visibleColumns: z.string().optional(),
+    columnOrder: z.string().optional(),
+    selectedIds: z.string().optional(),
 });
 
 export type QueryIssuanceRekapDTO = z.infer<typeof QueryIssuanceRekapSchema>;

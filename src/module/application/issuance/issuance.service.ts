@@ -2,6 +2,7 @@ import prisma from "../../../config/prisma.js";
 import { Prisma, IssuanceType, Trend } from "../../../generated/prisma/client.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
+import ExcelJS from "exceljs";
 
 import { QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO, RequestIssuanceBulkDTO, ResponseIssuanceDetailDTO } from "./issuance.schema.js";
 
@@ -443,6 +444,165 @@ export class IssuanceService {
             if (!Number.isFinite(delta) || Math.abs(delta) < threshold) return Trend.STABLE;
             return delta > 0 ? Trend.UP : Trend.DOWN;
         });
+    }
+
+    static async export(query: QueryIssuanceDTO) {
+        let { issuances: data } = await this.list({ ...query, take: 1000000, page: 1 });
+
+        // Filter by selected IDs if provided
+        if (query.selectedIds) {
+            const ids = query.selectedIds.split(",").map(Number).filter(Boolean);
+            if (ids.length > 0) {
+                data = data.filter((row) => ids.includes(row.product_id));
+            }
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet("Pengeluaran Produk");
+
+        const monthsShort = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Ags", "Sep", "Okt", "Nov", "Des"];
+
+        const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : null;
+
+        const isVisible = (uiId: string) => {
+            if (!visibleCols) return true;
+            return visibleCols.includes(uiId);
+        };
+
+        // Define All Possible Columns
+        const allColumns: any[] = [
+            { header: "CODE", key: "code", width: 15, uiId: "code" },
+            { header: "PRODUK", key: "name", width: 35, uiId: "name" },
+            { header: "TIPE", key: "pt_name", width: 15, uiId: "type" },
+            { header: "UKURAN", key: "size", width: 15, uiId: "size" },
+        ];
+
+        // Dynamic Period Headers
+        if (data.length > 0 && data[0]?.quantity) {
+            data[0].quantity.forEach((p) => {
+                const yearShort = String(p.year).slice(-2);
+                allColumns.push({
+                    header: `${monthsShort[p.month - 1]?.toUpperCase()} '${yearShort}`,
+                    key: `period_${p.year}_${p.month}`,
+                    width: 12,
+                    uiId: "periods",
+                });
+            });
+        }
+
+        allColumns.push({ header: "TOTAL", key: "totalQuantity", width: 15, uiId: "total" });
+
+        // Filter based on visibility
+        const filteredColumns = allColumns.filter((col) => {
+            if (!col.uiId) return true;
+            return isVisible(col.uiId);
+        });
+
+        // Apply custom order if provided
+        if (query.columnOrder) {
+            const orderArr = query.columnOrder.split(",");
+            filteredColumns.sort((a, b) => {
+                const indexA = orderArr.indexOf(a.uiId || "");
+                const indexB = orderArr.indexOf(b.uiId || "");
+                if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+                if (indexA !== -1) return -1;
+                if (indexB !== -1) return 1;
+                return 0;
+            });
+        }
+
+        sheet.columns = filteredColumns;
+
+        // Add Data
+        data.forEach((row) => {
+            const formattedRow: any = {
+                code: row.product.code,
+                name: row.product.name,
+                pt_name: row.product.product_type?.name || "-",
+                size: row.product.size,
+                totalQuantity: row.totalQuantity,
+            };
+
+            row.quantity.forEach((p) => {
+                formattedRow[`period_${p.year}_${p.month}`] = p.quantity;
+            });
+
+            sheet.addRow(formattedRow);
+        });
+
+        const buffer = await workbook.csv.writeBuffer();
+        return buffer;
+    }
+
+    static async exportRekap(query: QueryIssuanceRekapDTO) {
+        let { rekap: data } = await this.rekap({ ...query, take: 1000000, page: 1 });
+
+        if (query.selectedIds) {
+            const ids = query.selectedIds.split(",").map(Number).filter(Boolean);
+            if (ids.length > 0) {
+                data = data.filter((row) => ids.includes(row.product_id));
+            }
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet("Rekap Pengeluaran");
+
+        const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : null;
+
+        const isVisible = (uiId: string) => {
+            if (!visibleCols) return true;
+            return visibleCols.includes(uiId);
+        };
+
+        const allColumns: any[] = [
+            { header: "CODE", key: "code", width: 15, uiId: "code" },
+            { header: "PRODUK", key: "name", width: 35, uiId: "name" },
+            { header: "TIPE", key: "pt_name", width: 15, uiId: "type" },
+            { header: "UKURAN", key: "size", width: 15, uiId: "size" },
+            { header: "OFFLINE", key: "offline", width: 12, uiId: "offline" },
+            { header: "ONLINE", key: "online", width: 12, uiId: "online" },
+            { header: "SPIN WHEEL", key: "spin_wheel", width: 12, uiId: "spin_wheel" },
+            { header: "GARANSI OUT", key: "garansi_out", width: 12, uiId: "garansi_out" },
+            { header: "B2B", key: "b2b", width: 12, uiId: "b2b" },
+            { header: "TOTAL", key: "total_qty", width: 15, uiId: "total_qty" },
+        ];
+
+        const filteredColumns = allColumns.filter((col) => {
+            if (!col.uiId) return true;
+            return isVisible(col.uiId);
+        });
+
+        if (query.columnOrder) {
+            const orderArr = query.columnOrder.split(",");
+            filteredColumns.sort((a, b) => {
+                const indexA = orderArr.indexOf(a.uiId || "");
+                const indexB = orderArr.indexOf(b.uiId || "");
+                if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+                if (indexA !== -1) return -1;
+                if (indexB !== -1) return 1;
+                return 0;
+            });
+        }
+
+        sheet.columns = filteredColumns;
+
+        data.forEach((row) => {
+            sheet.addRow({
+                code: row.product.code,
+                name: row.product.name,
+                pt_name: row.product.product_type || "-",
+                size: row.product.size,
+                offline: row.offline,
+                online: row.online,
+                spin_wheel: row.spin_wheel,
+                garansi_out: row.garansi_out,
+                b2b: row.b2b,
+                total_qty: row.total_qty,
+            });
+        });
+
+        const buffer = await workbook.csv.writeBuffer();
+        return buffer;
     }
 }
 

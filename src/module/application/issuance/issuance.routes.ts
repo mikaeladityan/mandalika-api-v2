@@ -7,7 +7,9 @@ import IssuanceImportRoutes from "./import/import.routes.js";
 export const IssuanceRoutes = new Hono();
 IssuanceRoutes.route("/import", IssuanceImportRoutes);
 
+IssuanceRoutes.get("/rekap/export", IssuanceController.exportRekap);
 IssuanceRoutes.get("/rekap", IssuanceController.rekap);
+IssuanceRoutes.get("/export", IssuanceController.export);
 IssuanceRoutes.get("/:product_id", IssuanceController.detail);
 
 IssuanceRoutes.get("/", IssuanceController.list);

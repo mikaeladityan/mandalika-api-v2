@@ -92,4 +92,92 @@ export class IssuanceController {
         const result = await IssuanceService.rekap(params);
         return ApiResponse.sendSuccess(c, result, 200);
     }
+
+    static async export(c: Context) {
+        const {
+            product_id,
+            product_id_2,
+            sortBy,
+            sortOrder,
+            gender,
+            start_month,
+            start_year,
+            end_month,
+            end_year,
+            size,
+            variant,
+            search,
+            type,
+            visibleColumns,
+            columnOrder,
+            selectedIds,
+        } = c.req.query();
+
+        const params: QueryIssuanceDTO = {
+            sortBy: (sortBy as QueryIssuanceDTO["sortBy"]) || "quantity",
+            sortOrder: (sortOrder as QueryIssuanceDTO["sortOrder"]) || "desc",
+            gender: (gender as QueryIssuanceDTO["gender"]) || undefined,
+            variant: variant || undefined,
+            size: size ? Number(size) : undefined,
+            start_month: start_month ? Number(start_month) : undefined,
+            start_year: start_year ? Number(start_year) : undefined,
+            end_month: end_month ? Number(end_month) : undefined,
+            end_year: end_year ? Number(end_year) : undefined,
+            product_id: product_id ? Number(product_id) : undefined,
+            product_id_2: product_id_2 ? Number(product_id_2) : undefined,
+            search: search || undefined,
+            page: 1,
+            take: 1000000,
+            type: (type as QueryIssuanceDTO["type"]) || undefined,
+            visibleColumns,
+            columnOrder,
+            selectedIds,
+        };
+
+        const buffer = await IssuanceService.export(params);
+
+        c.header("Content-Type", "text/csv");
+        c.header("Content-Disposition", `attachment; filename=Pengeluaran_Produk_${new Date().getTime()}.csv`);
+
+        return c.body(buffer as any);
+    }
+
+    static async exportRekap(c: Context) {
+        const {
+            year,
+            month,
+            search,
+            gender,
+            size,
+            variant,
+            sortBy,
+            sortOrder,
+            visibleColumns,
+            columnOrder,
+            selectedIds,
+        } = c.req.query();
+
+        const params: QueryIssuanceRekapDTO = {
+            year: year ? Number(year) : undefined,
+            month: month ? Number(month) : undefined,
+            search: search || undefined,
+            gender: (gender as QueryIssuanceRekapDTO["gender"]) || undefined,
+            size: size ? Number(size) : undefined,
+            variant: variant || undefined,
+            page: 1,
+            take: 1000000,
+            sortBy: (sortBy as QueryIssuanceRekapDTO["sortBy"]) || "total_qty",
+            sortOrder: (sortOrder as QueryIssuanceRekapDTO["sortOrder"]) || "desc",
+            visibleColumns,
+            columnOrder,
+            selectedIds,
+        };
+
+        const buffer = await IssuanceService.exportRekap(params);
+
+        c.header("Content-Type", "text/csv");
+        c.header("Content-Disposition", `attachment; filename=Rekap_Pengeluaran_${new Date().getTime()}.csv`);
+
+        return c.body(buffer as any);
+    }
 }
