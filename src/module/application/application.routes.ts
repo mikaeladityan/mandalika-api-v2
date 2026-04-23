@@ -16,6 +16,7 @@ import StockTransferRoutes from "./stock-transfer/stock-transfer.routes.js";
 import StockMovementRoutes from "./stock-movement/stock-movement.routes.js";
 import { InventoryV2Routes } from "./inventory-v2/inventory-v2.routes.js";
 import ManufacturingRoutes from "./manufacturing/manufacturing.routes.js";
+import PurchaseRoutes from "./purchase/purchase.routes.js";
 
 export const ApplicationRoutes = new Hono().use(authMiddleware);
 
@@ -35,3 +36,4 @@ ApplicationRoutes.route("/stock-transfers", StockTransferRoutes);
 ApplicationRoutes.route("/stock-movements", StockMovementRoutes);
 ApplicationRoutes.route("/inventory-v2", InventoryV2Routes);
 ApplicationRoutes.route("/manufacturing", ManufacturingRoutes);
+ApplicationRoutes.route("/purchase", PurchaseRoutes);

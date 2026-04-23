@@ -191,7 +191,7 @@ export class RawmatImportService {
             //   b) Cari juga by LOWER(TRIM(name)) untuk record lama tanpa slug
             //   c) Backfill slug pada record lama yang ditemukan via nama
             //   d) INSERT hanya yang benar-benar baru
-            const supplierSlugMap = new Map<string, { name: string; lowerName: string; country: string }>();
+            const supplierSlugMap = new Map<string, { name: string; lowerName: string; country: string; source: string }>();
             for (const d of data) {
                 if (d.supplier?.trim()) {
                     const slug = normalizeSlug(d.supplier);
@@ -199,6 +199,7 @@ export class RawmatImportService {
                         name: d.supplier.trim(),
                         lowerName: d.supplier.trim().toLowerCase(),
                         country: d.country,
+                        source: d.source,
                     });
                 }
             }
@@ -251,19 +252,21 @@ export class RawmatImportService {
                 if (supplierSlugs.length) {
                     const allNames = supplierSlugs.map((s) => supplierSlugMap.get(s)!.name);
                     const allCountries = supplierSlugs.map((s) => supplierSlugMap.get(s)!.country);
+                    const allSources = supplierSlugs.map((s) => supplierSlugMap.get(s)!.source);
 
                     // Use atomic aligned unnest (standard PG way)
-                    // We update 'country' and 'updated_at' on conflict.
-                    // 'addresses' is defaulting to '-' for new records.
+                    // We update 'country', 'source' and 'updated_at' on conflict.
                     const upserted = await tx.$queryRaw<{ id: number; slug: string }[]>`
-                        INSERT INTO suppliers (name, slug, addresses, country, created_at, updated_at)
-                        SELECT t.name, t.slug, '-', t.country, NOW(), NOW()
+                        INSERT INTO suppliers (name, slug, addresses, country, source, created_at, updated_at)
+                        SELECT t.name, t.slug, '-', t.country, t.source::"RawMaterialSource", NOW(), NOW()
                         FROM unnest(
                             ${allNames}::text[],
                             ${supplierSlugs}::text[],
-                            ${allCountries}::text[]
-                        ) AS t(name, slug, country)
+                            ${allCountries}::text[],
+                            ${allSources}::text[]
+                        ) AS t(name, slug, country, source)
                         ON CONFLICT (slug) DO UPDATE SET 
+                            source = EXCLUDED.source,
                             updated_at = NOW()
                         RETURNING id, slug
                     `;

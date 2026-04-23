@@ -1,36 +1,67 @@
 import prisma from "../src/config/prisma.js";
 
-async function seed() {
-    console.log("🌱 Cleaning up Forecast data...");
+// async function seedRecipes() {
+//     console.log("🌱 Cleaning up Forecast data...");
+//     try {
+//         const minQty = 1;
+//         const findRecipe = await prisma.recipes.updateMany({
+//             where: { quantity: { gte: minQty } },
+//             data: { use_size_calc: false },
+//         });
+//         console.log(`✅ Found ${findRecipe.count} recipes.`);
+//     } catch (error) {
+//         console.error("❌ Cleanup failed:", error);
+//         throw error;
+//     }
+// }
+
+async function seedSupplierSource() {
+    console.log("🌱 Migrating source from raw_materials → suppliers...");
 
     try {
-        const minQty = 1;
-        const findRecipe = await prisma.recipes.updateMany({
-            where: { quantity: { gte: minQty } },
-            data: {
-                use_size_calc: false,
+        // Aggregate: per supplier, collect all distinct source values from its raw materials.
+        // Priority: if any raw material is IMPORT → supplier becomes IMPORT, else LOCAL.
+        const rawMaterials = await prisma.rawMaterial.findMany({
+            where: {
+                supplier_id: { not: null },
+            },
+            select: {
+                supplier_id: true,
+                source: true,
             },
         });
 
-        console.log(`✅ Found ${findRecipe.count} recipes.`);
-        // const delForecast = await prisma.forecast.deleteMany({});
-        // const delPercentage = await prisma.forecastPercentage.deleteMany({});
-        // const delPo = await prisma.rawMaterialOpenPo.deleteMany({});
-        // const delDraft = await prisma.materialPurchaseDraft.deleteMany({});
+        // Group by supplier_id, pick IMPORT if any row is IMPORT
+        const supplierSourceMap = new Map<number, "LOCAL" | "IMPORT">();
+        for (const rm of rawMaterials) {
+            if (rm.supplier_id === null) continue;
+            const current = supplierSourceMap.get(rm.supplier_id);
+            if (current === "IMPORT") continue; // already escalated
+            supplierSourceMap.set(rm.supplier_id, rm.source as "LOCAL" | "IMPORT");
+        }
 
-        // console.log(`✅ Deleted ${delForecast.count} forecast records.`);
-        // console.log(`✅ Deleted ${delPercentage.count} forecast percentage records.`);
-        // console.log(`✅ Deleted ${delPo.count} open po records.`);
-        // console.log(`✅ Deleted ${delDraft.count} work order/purchase draft records.`);
+        if (supplierSourceMap.size === 0) {
+            console.log("⚠️  No raw materials with supplier_id found. Nothing to migrate.");
+            return;
+        }
 
-        // console.log("🌱 Cleanup completed.");
+        let updated = 0;
+        for (const [supplierId, source] of supplierSourceMap.entries()) {
+            await prisma.supplier.update({
+                where: { id: supplierId },
+                data: { source },
+            });
+            updated++;
+        }
+
+        console.log(`✅ Updated source for ${updated} suppliers.`);
     } catch (error) {
-        console.error("❌ Cleanup failed:", error);
+        console.error("❌ Migration failed:", error);
         throw error;
     }
 }
 
-seed()
+seedSupplierSource()
     .catch((err) => {
         console.error("❌ Seeding failed:", err);
         process.exit(1);

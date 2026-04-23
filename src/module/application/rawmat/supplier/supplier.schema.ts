@@ -16,6 +16,7 @@ export const RequestSupplierSchema = z.object({
         .max(20, "Nomor telepon maksimal 20 karakter")
         .nullable()
         .optional(),
+    source: z.enum(["LOCAL", "IMPORT"]).default("LOCAL").optional(),
 });
 
 export const ResponseSupplierSchema = RequestSupplierSchema.extend({

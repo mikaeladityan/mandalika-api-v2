@@ -3,6 +3,7 @@ import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { QueryConsolidationDTO } from "./consolidation.schema.js";
 import ExcelJS from "exceljs";
+import { generateRFQNumber } from "../purchase/rfq/rfq.service.js";
 
 export class ConsolidationService {
     static async list(query: QueryConsolidationDTO) {
@@ -25,13 +26,14 @@ export class ConsolidationService {
             if (query.type === "ffo") {
                 type_condition.raw_mat_category = ffoFilter;
             } else if (query.type === "lokal" || query.type === "impor") {
-                type_condition.source = query.type === "lokal" ? "LOCAL" : "IMPORT";
-                type_condition.OR = [
-                    { raw_mat_categories_id: null },
+                const targetSource = query.type === "lokal" ? "LOCAL" : "IMPORT";
+                type_condition.AND = [
+                    { OR: [{ source: targetSource }, { supplier: { source: targetSource } }] },
                     {
-                        raw_mat_category: {
-                            NOT: ffoFilter,
-                        },
+                        OR: [
+                            { raw_mat_categories_id: null },
+                            { raw_mat_category: { NOT: ffoFilter } },
+                        ],
                     },
                 ];
             }
@@ -147,13 +149,14 @@ export class ConsolidationService {
             if (query.type === "ffo") {
                 type_condition.raw_mat_category = ffoFilter;
             } else if (query.type === "lokal" || query.type === "impor") {
-                type_condition.source = query.type === "lokal" ? "LOCAL" : "IMPORT";
-                type_condition.OR = [
-                    { raw_mat_categories_id: null },
+                const targetSource = query.type === "lokal" ? "LOCAL" : "IMPORT";
+                type_condition.AND = [
+                    { OR: [{ source: targetSource }, { supplier: { source: targetSource } }] },
                     {
-                        raw_mat_category: {
-                            NOT: ffoFilter,
-                        },
+                        OR: [
+                            { raw_mat_categories_id: null },
+                            { raw_mat_category: { NOT: ffoFilter } },
+                        ],
                     },
                 ];
             }
@@ -208,7 +211,7 @@ export class ConsolidationService {
             const supplierAddress = item.raw_material?.supplier?.addresses || "";
             const supplierPhone = item.raw_material?.supplier?.phone || "";
             const supplierCountry = item.raw_material?.supplier?.country || "";
-            const source = item.raw_material?.source || "LOCAL";
+            const source = (item.raw_material?.supplier as any)?.source || item.raw_material?.source || "LOCAL";
 
             if (!grouping[supplierId]) {
                 grouping[supplierId] = {
@@ -418,52 +421,120 @@ export class ConsolidationService {
             });
         }
 
-        if (status !== "ACC") {
-
-        // Logic for ACC status: Create an Open PO for each draft being approved
-        const result = await prisma.$transaction(async (tx) => {
-            // 1. Find all drafts that are being approved and don't have an open PO yet
-            const drafts = await tx.materialPurchaseDraft.findMany({
-                where: {
-                    id: { in: ids },
-                    open_po_id: null,
-                },
-            });
-
-            // 2. Create Open PO records and link them
-            for (const draft of drafts) {
-                const openPo = await tx.rawMaterialOpenPo.create({
-                    data: {
-                        raw_material_id: draft.raw_mat_id,
-                        quantity: draft.quantity,
-                        po_number: null, // Default Null as requested
-                        status: "OPEN",
+        if (status === "ACC") {
+            // Logic for ACC status: Create an RFQ and Open PO for each group of drafts by supplier
+            const result = await prisma.$transaction(async (tx) => {
+                // 1. Find all drafts that are being approved and don't have an open PO yet
+                const drafts = await tx.materialPurchaseDraft.findMany({
+                    where: {
+                        id: { in: ids },
+                        open_po_id: null,
+                    },
+                    include: {
+                        raw_material: {
+                            include: {
+                                supplier: true,
+                            },
+                        },
                     },
                 });
 
-                await tx.materialPurchaseDraft.update({
-                    where: { id: draft.id },
-                    data: {
-                        status: "ACC",
-                        open_po_id: openPo.id,
-                        updated_at: new Date(),
-                    },
-                });
-            }
+                if (drafts.length === 0) return { count: 0 };
 
-            // 3. Final update for status in case some were already linked or for status-only updates
-            return await tx.materialPurchaseDraft.updateMany({
-                where: {
-                    id: { in: ids },
-                },
-                data: {
-                    status: "ACC",
-                    updated_at: new Date(),
-                },
+                // 2. Group drafts by supplier_id
+                const vendorGroups: Record<number, any[]> = {};
+                for (const draft of drafts) {
+                    const vendorId = draft.raw_material?.supplier_id;
+                    if (!vendorId) continue;
+                    if (!vendorGroups[vendorId]) vendorGroups[vendorId] = [];
+                    vendorGroups[vendorId].push(draft);
+                }
+
+                let totalProcessed = 0;
+
+                // 3. Process each supplier group
+                for (const vendorIdStr in vendorGroups) {
+                    const vendorId = Number(vendorIdStr);
+                    const vendorDrafts = vendorGroups[vendorId];
+                    if (!vendorDrafts) continue;
+
+                    // Create RFQ for this supplier
+                    const rfq = await tx.requestForQuotation.create({
+                        data: {
+                            rfq_number: generateRFQNumber(),
+                            vendor_id: vendorId,
+                            date: new Date(),
+                            status: "DRAFT", // Initial status for auto-created RFQ
+                        },
+                    });
+
+                    // Create items for this RFQ
+                    for (const draft of vendorDrafts) {
+                        // Create Open PO record linked to RFQ
+                        const openPo = await tx.rawMaterialOpenPo.create({
+                            data: {
+                                raw_material_id: draft.raw_mat_id,
+                                quantity: draft.quantity,
+                                po_number: null,
+                                status: "OPEN",
+                                rfq_id: rfq.id,
+                            },
+                        });
+
+                        // Create RFQ Item
+                        await tx.rFQItem.create({
+                            data: {
+                                rfq_id: rfq.id,
+                                raw_material_id: draft.raw_mat_id,
+                                purchase_draft_id: draft.id,
+                                quantity: draft.quantity,
+                                notes: "Auto-created from Consolidation",
+                            },
+                        });
+
+                        // Link draft to Open PO and update status
+                        await tx.materialPurchaseDraft.update({
+                            where: { id: draft.id },
+                            data: {
+                                status: "ACC",
+                                open_po_id: openPo.id,
+                                updated_at: new Date(),
+                            },
+                        });
+
+                        totalProcessed++;
+                    }
+                }
+
+                // 4. Handle any remaining ids that didn't have a vendor_id (unlikely but safe)
+                const remainingIds = drafts
+                    .filter((d) => !d.raw_material?.supplier_id)
+                    .map((d) => d.id);
+                
+                if (remainingIds.length > 0) {
+                    await tx.materialPurchaseDraft.updateMany({
+                        where: { id: { in: remainingIds } },
+                        data: {
+                            status: "ACC",
+                            updated_at: new Date(),
+                        },
+                    });
+                    totalProcessed += remainingIds.length;
+                }
+
+                return { count: totalProcessed };
             });
-        });
 
-        return result;
+            return result;
         }
+
+        // Handle other statuses (e.g. REJECTED)
+        return await prisma.materialPurchaseDraft.updateMany({
+            where: { id: { in: ids } },
+            data: {
+                status: status,
+                updated_at: new Date(),
+            },
+        });
     }
 }

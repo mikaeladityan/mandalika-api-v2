@@ -505,7 +505,7 @@ export class BOMService {
                     category: rawMat.raw_mat_category?.name || "-",
                     supplier: rawMat.supplier?.name || "-",
                     supplier_country: rawMat.supplier?.country || "-",
-                    source: rawMat.source,
+                    source: rawMat.supplier?.source ?? "LOCAL",
                     unit: rawMat.unit_raw_material?.name || "UNIT",
                 },
                 inventory: {

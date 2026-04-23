@@ -187,7 +187,7 @@ export class RawMaterialService {
                 rm.price::float8 AS price,
                 rm.min_buy::float8 AS min_buy,
                 rm.min_stock::float8 AS min_stock,
-                rm.lead_time, rm.type, rm.source,
+                rm.lead_time, rm.type, COALESCE(s.source, rm.source) AS source,
                 rm.created_at, rm.updated_at, rm.deleted_at,
                 urm.id AS unit_id, urm.name AS unit_name, urm.slug AS unit_slug,
                 rmc.id AS cat_id, rmc.name AS cat_name, rmc.slug AS cat_slug,
@@ -264,7 +264,7 @@ export class RawMaterialService {
                     rm.price::float8 AS price,
                     rm.min_buy::float8 AS min_buy,
                     rm.min_stock::float8 AS min_stock,
-                    rm.lead_time, rm.type, rm.source,
+                    rm.lead_time, rm.type, COALESCE(s.source, rm.source) AS source,
                     rm.created_at, rm.updated_at, rm.deleted_at,
                     urm.id AS unit_id, urm.name AS unit_name, urm.slug AS unit_slug,
                     rmc.id AS cat_id, rmc.name AS cat_name, rmc.slug AS cat_slug,
@@ -399,12 +399,12 @@ export class RawMaterialService {
 
     static async getUtils(): Promise<{
         units: Pick<UnitRawMaterial, "name" | "slug">[];
-        suppliers: Pick<Supplier, "name" | "id" | "country">[];
+        suppliers: Pick<Supplier, "name" | "id" | "country" | "source">[];
         categories: Pick<RawMatCategories, "slug" | "name">[];
     }> {
         const [units, suppliers, categories] = await Promise.all([
             prisma.unitRawMaterial.findMany({ select: { name: true, slug: true } }),
-            prisma.supplier.findMany({ select: { id: true, name: true, country: true } }),
+            prisma.supplier.findMany({ select: { id: true, name: true, country: true, source: true } }),
             prisma.rawMatCategories.findMany({
                 select: { name: true, slug: true },
                 where: { status: { notIn: ["BLOCK", "DELETE", "PENDING"] } },

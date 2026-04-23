@@ -25,7 +25,8 @@ export class SupplierService {
                 slug: normalizeSlug(data.name),
                 addresses: data.addresses,
                 country: data.country,
-                phone: data.phone,
+                phone: data.phone || null,
+                source: data.source as any,
             },
         });
     }
@@ -53,14 +54,15 @@ export class SupplierService {
                 }),
                 ...(payload.addresses !== undefined && { addresses: payload.addresses }),
                 ...(payload.country !== undefined && { country: payload.country }),
-                ...(payload.phone !== undefined && { phone: payload.phone }),
+                ...(payload.phone !== undefined && { phone: payload.phone || null }),
+                ...(payload.source !== undefined && { source: payload.source as any }),
             },
         });
     }
 
     static async detail(id: number): Promise<ResponseSupplierDTO> {
         const rows = await prisma.$queryRaw<ResponseSupplierDTO[]>(Prisma.sql`
-            SELECT id, name, addresses, country, phone, created_at, updated_at
+            SELECT id, name, addresses, country, phone, source, created_at, updated_at
             FROM suppliers
             WHERE id = ${id}
             LIMIT 1
@@ -121,7 +123,7 @@ export class SupplierService {
 
         const [rows, [{ count }]] = await Promise.all([
             prisma.$queryRaw<ResponseSupplierDTO[]>(Prisma.sql`
-                SELECT id, name, addresses, country, phone, created_at, updated_at
+                SELECT id, name, addresses, country, phone, source, created_at, updated_at
                 FROM suppliers ${where}
                 ORDER BY ${sortCol} ${sortDir}
                 LIMIT ${limit} OFFSET ${skip}
