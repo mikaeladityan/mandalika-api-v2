@@ -139,7 +139,7 @@ export class ManufacturingService {
         });
     }
 
-    private static async getLatestRMStock(tx: any, rmId: number, warehouseId: number): Promise<number> {
+    private static async getLatestRMStock(tx: any, rmId: number, warehouseId: number, excludeOrderId?: number): Promise<number> {
         // 1. Get the latest available period for this RM and Warehouse
         const latestPeriod = await tx.rawMaterialInventory.findFirst({
             where: { raw_material_id: rmId, warehouse_id: warehouseId },
@@ -149,7 +149,7 @@ export class ManufacturingService {
 
         if (!latestPeriod) return 0;
 
-        // 2. Map all records in that month (consistent with InventoryHelper SUM logic)
+        // 2. Get on-hand stock (sum of inventory records for that month)
         const records = await tx.rawMaterialInventory.findMany({
             where: {
                 raw_material_id: rmId,
@@ -159,7 +159,25 @@ export class ManufacturingService {
             },
         });
 
-        return records.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+        const onHand = records.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+
+        // 3. Calculate booked quantity (from RELEASED production orders, excluding the current order if specified)
+        const bookedResult = await tx.productionOrderItem.aggregate({
+            where: {
+                raw_material_id: rmId,
+                warehouse_id: warehouseId,
+                production_order: {
+                    status: ProductionStatus.RELEASED,
+                    ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
+                },
+            },
+            _sum: { quantity_planned: true },
+        });
+
+        const booked = Number(bookedResult._sum.quantity_planned || 0);
+
+        // 4. Available = On-Hand - Booked
+        return Math.max(0, onHand - booked);
     }
 
     private static async handleAutomaticRMTransfer(tx: any, order: any, userId: string) {
@@ -574,23 +592,57 @@ export class ManufacturingService {
                         },
                     });
 
-                    const stockPRD = invRecords
+                    const onHandPRD = invRecords
                         .filter((r) => r.warehouse_id === prdWh.id)
                         .reduce((sum, r) => sum + Number(r.quantity), 0);
 
-                    const stockKDG = kdgWh
+                    const onHandKDG = kdgWh
                         ? invRecords
                             .filter((r) => r.warehouse_id === kdgWh.id)
                             .reduce((sum, r) => sum + Number(r.quantity), 0)
                         : 0;
 
+                    // Calculate booked quantities from other RELEASED orders (exclude this order)
+                    const warehouseIds = [prdWh.id, kdgWh?.id].filter(Boolean) as number[];
+                    const bookedRecords = await prisma.productionOrderItem.groupBy({
+                        by: ["warehouse_id"],
+                        where: {
+                            raw_material_id: item.raw_material_id,
+                            warehouse_id: { in: warehouseIds },
+                            production_order: {
+                                status: ProductionStatus.RELEASED,
+                                id: { not: result.id },
+                            },
+                        },
+                        _sum: { quantity_planned: true },
+                    });
+
+                    const bookedPRD = Number(
+                        bookedRecords.find((b) => b.warehouse_id === prdWh.id)?._sum.quantity_planned || 0
+                    );
+                    const bookedKDG = kdgWh
+                        ? Number(bookedRecords.find((b) => b.warehouse_id === kdgWh.id)?._sum.quantity_planned || 0)
+                        : 0;
+
+                    const availPRD = Math.max(0, onHandPRD - bookedPRD);
+                    const availKDG = Math.max(0, onHandKDG - bookedKDG);
+
                     (item as any).inventory_stock = {
-                        prd: stockPRD,
-                        kdg: stockKDG,
-                        total: stockPRD + stockKDG
+                        prd: onHandPRD,
+                        kdg: onHandKDG,
+                        total: onHandPRD + onHandKDG,
+                        prd_avail: availPRD,
+                        kdg_avail: availKDG,
+                        total_avail: availPRD + availKDG,
+                        booked_prd: bookedPRD,
+                        booked_kdg: bookedKDG,
                     };
                 } else {
-                    (item as any).inventory_stock = { prd: 0, kdg: 0, total: 0 };
+                    (item as any).inventory_stock = {
+                        prd: 0, kdg: 0, total: 0,
+                        prd_avail: 0, kdg_avail: 0, total_avail: 0,
+                        booked_prd: 0, booked_kdg: 0,
+                    };
                 }
             }
         }
@@ -765,40 +817,16 @@ export class ManufacturingService {
         for (const item of items) {
             const needed = Number(item.quantity_planned);
 
-            // 2. Get latest period for this material
-            const latestPeriod = await tx.rawMaterialInventory.findFirst({
-                where: { raw_material_id: item.raw_material_id },
-                orderBy: [{ year: "desc" }, { month: "desc" }],
-                select: { month: true, year: true },
-            });
-
-            if (!latestPeriod) {
-                throw new ApiError(400, `Data inventory tidak ditemukan untuk Raw Material: ${item.raw_material.name}`);
-            }
-
-            // 3. Get stock from both warehouses
-            const invRecords = await tx.rawMaterialInventory.findMany({
-                where: {
-                    raw_material_id: item.raw_material_id,
-                    warehouse_id: { in: [prdWh.id, kdgWh?.id].filter(Boolean) },
-                    month: latestPeriod.month,
-                    year: latestPeriod.year,
-                },
-            });
-
-            const stockPRD = invRecords
-                .filter((r: any) => r.warehouse_id === prdWh.id)
-                .reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
-            
-            const stockKDG = kdgWh 
-                ? invRecords
-                    .filter((r: any) => r.warehouse_id === kdgWh.id)
-                    .reduce((sum: number, r: any) => sum + Number(r.quantity), 0)
+            // 2. Get available stock (on-hand minus booked by other RELEASED orders)
+            // Pass orderId to exclude the current order's own items from the "booked" calculation
+            const availPRD = await this.getLatestRMStock(tx, item.raw_material_id, prdWh.id, orderId);
+            const availKDG = kdgWh 
+                ? await this.getLatestRMStock(tx, item.raw_material_id, kdgWh.id, orderId)
                 : 0;
 
-            const totalAvailable = stockPRD + stockKDG;
+            const totalAvailable = availPRD + availKDG;
 
-            // 4. Implement Decision Logic
+            // 3. Implement Decision Logic
             if (totalAvailable < needed) {
                 throw new ApiError(
                     400,
@@ -807,16 +835,16 @@ export class ManufacturingService {
                 );
             }
 
-            if (stockPRD < needed) {
+            if (availPRD < needed) {
                 throw new ApiError(
                     400,
                     `Stok di Gudang Produksi (GRM-PRD) tidak mencukupi untuk ${item.raw_material.name}. ` +
-                    `Tersedia di PRD: ${stockPRD}, Tersedia di KDG: ${stockKDG}. ` +
+                    `Tersedia di PRD: ${availPRD}, Tersedia di KDG: ${availKDG}. ` +
                     `Harap lakukan mutasi dari Gudang Kandangan (GRM-KDG) terlebih dahulu.`,
                 );
             }
 
-            // 5. Allocate to GRM-PRD
+            // 4. Allocate to GRM-PRD
             await tx.productionOrderItem.updateMany({
                 where: { id: item.id, production_order_id: orderId },
                 data: { warehouse_id: prdWh.id },

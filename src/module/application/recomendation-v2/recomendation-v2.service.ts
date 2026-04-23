@@ -325,14 +325,24 @@ export class RecomendationV2Service {
                     fm.lead_time AS lead_time,
                     mro.horizon AS work_order_horizon,
 
-                    -- Physical Stock
-                    COALESCE((
-                        SELECT SUM(rmi.quantity)
-                        FROM "raw_material_inventories" rmi
-                        WHERE rmi.raw_material_id = fm.id
-                          AND rmi.month = ${invMonth}
-                          AND rmi.year = ${invYear}
-                    ), 0) AS current_stock,
+                    -- Available Stock (On-Hand minus Booked by RELEASED production orders)
+                    GREATEST(0,
+                        COALESCE((
+                            SELECT SUM(rmi.quantity)
+                            FROM "raw_material_inventories" rmi
+                            WHERE rmi.raw_material_id = fm.id
+                              AND rmi.month = ${invMonth}
+                              AND rmi.year = ${invYear}
+                        ), 0)
+                        -
+                        COALESCE((
+                            SELECT SUM(poi.quantity_planned)
+                            FROM "production_order_items" poi
+                            JOIN "production_orders" po ON poi.production_order_id = po.id
+                            WHERE poi.raw_material_id = fm.id
+                              AND po.status = 'RELEASED'
+                        ), 0)
+                    ) AS current_stock,
 
                     -- Open PO (Total unreceived)
                     COALESCE((
@@ -841,10 +851,21 @@ export class RecomendationV2Service {
                     GROUP BY raw_material_id
                 ),
                 inv_agg AS (
-                    SELECT raw_material_id, SUM(quantity)::numeric AS total
-                    FROM "raw_material_inventories"
-                    WHERE month = ${invMonth} AND year = ${invYear}
-                    GROUP BY raw_material_id
+                    SELECT 
+                        rmi.raw_material_id, 
+                        GREATEST(0,
+                            SUM(rmi.quantity)::numeric
+                            - COALESCE((
+                                SELECT SUM(poi.quantity_planned)
+                                FROM "production_order_items" poi
+                                JOIN "production_orders" po ON poi.production_order_id = po.id
+                                WHERE poi.raw_material_id = rmi.raw_material_id
+                                  AND po.status = 'RELEASED'
+                            ), 0)
+                        ) AS total
+                    FROM "raw_material_inventories" rmi
+                    WHERE rmi.month = ${invMonth} AND rmi.year = ${invYear}
+                    GROUP BY rmi.raw_material_id
                 ),
                 fc_agg AS (
                     SELECT rec.raw_mat_id, SUM(f.final_forecast * rec.quantity *

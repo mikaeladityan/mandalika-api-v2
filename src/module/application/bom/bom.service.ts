@@ -89,13 +89,23 @@ export class BOMService {
                 rm.id as rm_id, rm.barcode as rm_barcode, rm.name as rm_name, 
                 urm.name as urm_name,
                 
-                -- Material Total Stock (Aggregated across warehouses)
-                COALESCE((
-                    SELECT SUM(rmi.quantity)
-                    FROM raw_material_inventories rmi
-                    WHERE rmi.raw_material_id = rm.id
-                    AND rmi.month = ${currentMonth} AND rmi.year = ${currentYear}
-                ), 0)::float8 as rm_current_stock,
+                -- Material Available Stock (On-Hand minus Booked by RELEASED production)
+                GREATEST(0,
+                    COALESCE((
+                        SELECT SUM(rmi.quantity)
+                        FROM raw_material_inventories rmi
+                        WHERE rmi.raw_material_id = rm.id
+                        AND rmi.month = ${currentMonth} AND rmi.year = ${currentYear}
+                    ), 0)
+                    -
+                    COALESCE((
+                        SELECT SUM(poi.quantity_planned)
+                        FROM production_order_items poi
+                        JOIN production_orders po ON poi.production_order_id = po.id
+                        WHERE poi.raw_material_id = rm.id
+                        AND po.status = 'RELEASED'
+                    ), 0)
+                )::float8 as rm_current_stock,
 
                 -- Product Total Stock (Aggregated across warehouses)
                 COALESCE((
@@ -305,7 +315,7 @@ export class BOMService {
         });
 
         if (rawMat) {
-            // Fetch Inventory status
+            // Fetch Inventory status (On-Hand)
             const inventory = await prisma.rawMaterialInventory.aggregate({
                 where: {
                     raw_material_id: rawMat.id,
@@ -315,7 +325,18 @@ export class BOMService {
                 _sum: { quantity: true },
             });
 
-            const currentStock = Number(inventory._sum.quantity || 0);
+            // Fetch Booked quantities (from RELEASED production orders)
+            const booked = await prisma.productionOrderItem.aggregate({
+                where: {
+                    raw_material_id: rawMat.id,
+                    production_order: { status: "RELEASED" as any },
+                },
+                _sum: { quantity_planned: true },
+            });
+
+            const onHand = Number(inventory._sum.quantity || 0);
+            const bookedQty = Number(booked._sum.quantity_planned || 0);
+            const currentStock = Math.max(0, onHand - bookedQty);
 
             // Forecast Range (Next n months, ensure at least 4 for Safety Stock)
             const FIXED_SS_MONTHS_DETAIL = 4;

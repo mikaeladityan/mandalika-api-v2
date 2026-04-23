@@ -57,7 +57,7 @@ export class RmTransferService {
 
         if (!latestPeriod) return 0;
 
-        // Sum up quantities for that month (consistent with InventoryHelper)
+        // Sum up on-hand quantities for that month (consistent with InventoryHelper)
         const records = await prisma.rawMaterialInventory.findMany({
             where: {
                 raw_material_id: rmId,
@@ -67,7 +67,23 @@ export class RmTransferService {
             },
         });
 
-        return records.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+        const onHand = records.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+
+        // Subtract booked quantities from RELEASED production orders
+        const bookedResult = await prisma.productionOrderItem.aggregate({
+            where: {
+                raw_material_id: rmId,
+                warehouse_id: warehouseId,
+                production_order: {
+                    status: "RELEASED" as any,
+                },
+            },
+            _sum: { quantity_planned: true },
+        });
+
+        const booked = Number(bookedResult._sum.quantity_planned || 0);
+
+        return Math.max(0, onHand - booked);
     }
 
     static async stockCheck(query: any) {
