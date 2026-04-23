@@ -353,13 +353,13 @@ export class RecipeService {
                 }),
         };
 
-        console.table(data.recipes.map(r => ({
-            name: r.name,
-            current_stock: r.current_stock,
-            quantity: r.quantity,
-            stocks: r.stocks?.map(s => s.warehouse_code).join(", "),
-            use_size_calc: r.use_size_calc,
-        })))
+        // console.table(data.recipes.map(r => ({
+        //     name: r.name,
+        //     current_stock: r.current_stock,
+        //     quantity: r.quantity,
+        //     stocks: r.stocks?.map(s => s.warehouse_code).join(", "),
+        //     use_size_calc: r.use_size_calc,
+        // })))
         return data;
     }
 
