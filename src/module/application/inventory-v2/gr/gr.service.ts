@@ -53,7 +53,9 @@ export class GoodsReceiptService {
 
             const items = gr.items.map((i) => ({
                 product_id: i.product_id,
-                quantity: Number(i.quantity_actual),
+                // We add the planned quantity here because the ReturnService will immediately 
+                // generate a Return for (planned - actual) and deduct it back out.
+                quantity: Number(i.quantity_planned),
             }));
 
             await InventoryHelper.addWarehouseStock(

@@ -354,8 +354,8 @@ export class TGService {
         }
 
         const payloadItemMap = new Map(payload.items?.map((i) => [i.id, i]) ?? []);
-        const fulfilledItems: StockItem[] = [];
-        const rejectedItemsList: Array<{ product_id: number; quantity_rejected: number; notes?: string | null }> = [];
+        const itemsToReceiveIntoDestStock: StockItem[] = []; // Combines fulfilled and rejected (to be returned)
+        const rejectedItemsList: Array<{ product_id: number; quantity_rejected: number; notes?: string | null; product: any }> = [];
         const fulfillUpdates: Promise<any>[] = [];
         let allItemsFullyFulfilled = true;
 
@@ -405,19 +405,32 @@ export class TGService {
                 }),
             );
 
-            if (fulfilledThisCycle > 0) {
-                fulfilledItems.push({ product_id: dbItem.product_id, quantity: fulfilledThisCycle, product: dbItem.product });
+            // Both fulfilled and rejected items physically arrived at the destination warehouse
+            const totalArrivedAtDest = fulfilledThisCycle + rejectedThisCycle;
+            if (totalArrivedAtDest > 0) {
+                itemsToReceiveIntoDestStock.push({ 
+                    product_id: dbItem.product_id, 
+                    quantity: totalArrivedAtDest, 
+                    product: dbItem.product 
+                });
             }
             if (rejectedThisCycle > 0) {
-                rejectedItemsList.push({ product_id: dbItem.product_id, quantity_rejected: rejectedThisCycle, notes: dbItem.notes });
+                rejectedItemsList.push({ 
+                    product_id: dbItem.product_id, 
+                    quantity_rejected: rejectedThisCycle, 
+                    notes: dbItem.notes,
+                    product: dbItem.product
+                });
             }
         }
 
         await Promise.all(fulfillUpdates);
 
-        if (fulfilledItems.length > 0 && transfer.to_warehouse_id) {
+        // Add BOTH fulfilled and rejected stock to the destination warehouse
+        // (The rejected stock will immediately be deducted by the Return shipment)
+        if (itemsToReceiveIntoDestStock.length > 0 && transfer.to_warehouse_id) {
             await InventoryHelper.addWarehouseStock(
-                tx, transfer.to_warehouse_id, fulfilledItems,
+                tx, transfer.to_warehouse_id, itemsToReceiveIntoDestStock,
                 transfer.id, MovementRefType.STOCK_TRANSFER, MovementType.TRANSFER_IN, userId,
             );
         }

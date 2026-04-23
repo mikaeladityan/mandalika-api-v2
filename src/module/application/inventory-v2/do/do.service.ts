@@ -322,6 +322,8 @@ export class DOService {
             notes?: string | null;
         }> = [];
 
+        const itemsToReceiveIntoDestStock: StockItem[] = [];
+
         for (const reqItem of payload.items) {
             const dbItem = transfer.items.find((i: any) => i.id === reqItem.id);
             if (!dbItem) throw new ApiError(400, `Item ID ${reqItem.id} tidak valid untuk DO ini.`);
@@ -348,6 +350,16 @@ export class DOService {
             });
 
             fulfilledMap.set(dbItem.product_id, fulfilled);
+            
+            const totalArrivedAtDest = fulfilled + rejected;
+            if (totalArrivedAtDest > 0) {
+                itemsToReceiveIntoDestStock.push({
+                    product_id: dbItem.product_id,
+                    quantity: totalArrivedAtDest,
+                    product: dbItem.product
+                });
+            }
+
             if (rejected > 0) {
                 rejectedItemsList.push({
                     product_id: dbItem.product_id,
@@ -357,15 +369,11 @@ export class DOService {
             }
         }
 
-        const fulfilledItems: StockItem[] = transfer.items
-            .map((i: any) => ({ product_id: i.product_id, quantity: fulfilledMap.get(i.product_id) ?? 0 }))
-            .filter((i: StockItem) => i.quantity > 0);
-
-        if (fulfilledItems.length > 0 && transfer.to_outlet_id) {
+        if (itemsToReceiveIntoDestStock.length > 0 && transfer.to_outlet_id) {
             await InventoryHelper.addOutletStock(
                 tx,
                 transfer.to_outlet_id,
-                fulfilledItems,
+                itemsToReceiveIntoDestStock,
                 transfer.id,
                 MovementRefType.STOCK_TRANSFER,
                 MovementType.TRANSFER_IN,
