@@ -275,10 +275,14 @@ export class RecomendationV2Service {
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     LEFT JOIN prod_dynamic_ss dss ON dss.product_id = p.id
                     LEFT JOIN (
-                         SELECT product_id, SUM(quantity) as total_qty
-                         FROM "product_inventories"
-                         WHERE month = ${fgInvMonth} AND year = ${fgInvYear}
-                         GROUP BY product_id
+                          SELECT product_id, SUM(quantity) as total_qty
+                          FROM (
+                              SELECT DISTINCT ON (product_id, warehouse_id) product_id, quantity
+                              FROM "product_inventories"
+                              WHERE (year * 12 + month) <= (${fgInvYear} * 12 + ${fgInvMonth})
+                              ORDER BY product_id, warehouse_id, year DESC, month DESC
+                          ) latest_pi
+                          GROUP BY product_id
                     ) pi_agg ON pi_agg.product_id = p.id
                     GROUP BY fm.id
                 ),
@@ -328,11 +332,13 @@ export class RecomendationV2Service {
                     -- Available Stock (On-Hand minus Booked by RELEASED production orders)
                     GREATEST(0,
                         COALESCE((
-                            SELECT SUM(rmi.quantity)
-                            FROM "raw_material_inventories" rmi
-                            WHERE rmi.raw_material_id = fm.id
-                              AND rmi.month = ${invMonth}
-                              AND rmi.year = ${invYear}
+                            SELECT SUM(quantity) FROM (
+                                SELECT DISTINCT ON (warehouse_id) quantity
+                                FROM "raw_material_inventories"
+                                WHERE raw_material_id = fm.id
+                                  AND (year * 12 + month) <= (${invYear} * 12 + ${invMonth})
+                                ORDER BY warehouse_id, year DESC, month DESC
+                            ) latest_rmi
                         ), 0)
                         -
                         COALESCE((

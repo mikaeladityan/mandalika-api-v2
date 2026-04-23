@@ -278,36 +278,25 @@ export class RecipeService {
 
         const rawMatIds = rows.filter((r) => r.raw_mat_id !== null).map((r) => r.raw_mat_id!);
         
-        // Find the latest period per raw material
-        const latestPeriods = await Promise.all(
-            rawMatIds.map(async (rmId) => {
-                const latest = await prisma.rawMaterialInventory.findFirst({
-                    where: { raw_material_id: rmId },
-                    orderBy: [{ year: "desc" }, { month: "desc" }],
-                    select: { month: true, year: true }
-                });
-                return { rmId, latest };
-            })
-        );
-
-        // Fetch inventory data per raw material for its specific latest period
-        const inventoryDataPromises = latestPeriods.map(async ({ rmId, latest }) => {
-            if (!latest) return [];
-            return prisma.rawMaterialInventory.findMany({
-                where: {
-                    raw_material_id: rmId,
-                    month: latest.month,
-                    year: latest.year,
-                },
-                include: {
-                    warehouse: {
-                        select: { name: true, code: true }
-                    }
-                }
-            });
-        });
-        const inventoryDataArrays = await Promise.all(inventoryDataPromises);
-        const inventoryData = inventoryDataArrays.flat();
+        // Fetch latest inventory data PER WAREHOUSE for each raw material
+        const inventoryData = await prisma.$queryRaw<Array<{
+            raw_material_id: number;
+            warehouse_id: number;
+            warehouse_name: string;
+            warehouse_code: string;
+            quantity: number;
+        }>>`
+            SELECT DISTINCT ON (rmi.raw_material_id, rmi.warehouse_id)
+                rmi.raw_material_id,
+                rmi.warehouse_id,
+                w.name AS warehouse_name,
+                w.code AS warehouse_code,
+                rmi.quantity
+            FROM raw_material_inventories rmi
+            JOIN warehouses w ON w.id = rmi.warehouse_id
+            WHERE rmi.raw_material_id IN (${Prisma.join(rawMatIds.length > 0 ? rawMatIds : [0])})
+            ORDER BY rmi.raw_material_id, rmi.warehouse_id, rmi.year DESC, rmi.month DESC
+        `;
 
         const first = rows[0]!;
         const data: ResponseDetailRecipeDTO = {
@@ -330,8 +319,8 @@ export class RecipeService {
                     for (const inv of materialInventories) {
                         if (!whMap.has(inv.warehouse_id)) {
                             whMap.set(inv.warehouse_id, {
-                                warehouse_name: inv.warehouse.name,
-                                warehouse_code: inv.warehouse.code || "",
+                                warehouse_name: inv.warehouse_name,
+                                warehouse_code: inv.warehouse_code || "",
                                 quantity: 0,
                             });
                         }

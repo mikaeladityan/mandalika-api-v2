@@ -89,13 +89,16 @@ export class BOMService {
                 rm.id as rm_id, rm.barcode as rm_barcode, rm.name as rm_name, 
                 urm.name as urm_name,
                 
-                -- Material Available Stock (On-Hand minus Booked by RELEASED production)
+                -- Material Available Stock (Latest record per warehouse, On-Hand minus Booked)
                 GREATEST(0,
                     COALESCE((
-                        SELECT SUM(rmi.quantity)
-                        FROM raw_material_inventories rmi
-                        WHERE rmi.raw_material_id = rm.id
-                        AND rmi.month = ${currentMonth} AND rmi.year = ${currentYear}
+                        SELECT SUM(quantity) FROM (
+                            SELECT DISTINCT ON (warehouse_id) quantity
+                            FROM raw_material_inventories
+                            WHERE raw_material_id = rm.id
+                            AND (year * 12 + month) <= (${currentYear} * 12 + ${currentMonth})
+                            ORDER BY warehouse_id, year DESC, month DESC
+                        ) latest_inv
                     ), 0)
                     -
                     COALESCE((
@@ -107,12 +110,15 @@ export class BOMService {
                     ), 0)
                 )::float8 as rm_current_stock,
 
-                -- Product Total Stock (Aggregated across warehouses)
+                -- Product Total Stock (Latest record per warehouse)
                 COALESCE((
-                    SELECT SUM(pi.quantity)
-                    FROM product_inventories pi
-                    WHERE pi.product_id = p.id
-                    AND pi.month = ${currentMonth} AND pi.year = ${currentYear}
+                    SELECT SUM(quantity) FROM (
+                        SELECT DISTINCT ON (warehouse_id) quantity
+                        FROM product_inventories
+                        WHERE product_id = p.id
+                        AND (year * 12 + month) <= (${currentYear} * 12 + ${currentMonth})
+                        ORDER BY warehouse_id, year DESC, month DESC
+                    ) latest_p_inv
                 ), 0)::float8 as p_current_stock
                 
             FROM recipes r

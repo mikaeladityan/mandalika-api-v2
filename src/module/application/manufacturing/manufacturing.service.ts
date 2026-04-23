@@ -142,9 +142,9 @@ export class ManufacturingService {
     }
 
     private static async getLatestRMStock(tx: any, rmId: number, warehouseId: number, excludeOrderId?: number): Promise<number> {
-        // 1. Get the latest available period for this RM across ALL warehouses
+        // 1. Get the latest available period for this RM in THIS specific warehouse
         const latestPeriod = await tx.rawMaterialInventory.findFirst({
-            where: { raw_material_id: rmId }, // Only filter by RM, not warehouse
+            where: { raw_material_id: rmId, warehouse_id: warehouseId },
             orderBy: [{ year: "desc" }, { month: "desc" }],
             select: { month: true, year: true },
         });
@@ -588,25 +588,15 @@ export class ManufacturingService {
             const kdgWh = rmWarehouses.find((w) => w.code?.toUpperCase().includes("KDG"));
 
             for (const item of result.items) {
-                // Find the latest period for this specific item across all warehouses
-                const itemLatestPeriod = await prisma.rawMaterialInventory.findFirst({
-                    where: { raw_material_id: item.raw_material_id },
-                    orderBy: [{ year: "desc" }, { month: "desc" }],
-                    select: { month: true, year: true },
-                });
-
-                let invRecords: any[] = [];
-                if (itemLatestPeriod) {
-                    // Query stock across all RM warehouses for this item's latest period
-                    invRecords = await prisma.rawMaterialInventory.findMany({
-                        where: {
-                            raw_material_id: item.raw_material_id,
-                            warehouse_id: { in: rmWhIds },
-                            month: itemLatestPeriod.month,
-                            year: itemLatestPeriod.year,
-                        },
-                    });
-                }
+                // Find the latest period stock for this specific item PER WAREHOUSE
+                const invRecords = await prisma.$queryRaw<Array<{ warehouse_id: number; quantity: number }>>`
+                    SELECT DISTINCT ON (warehouse_id)
+                        warehouse_id,
+                        quantity
+                    FROM raw_material_inventories
+                    WHERE raw_material_id = ${item.raw_material_id}
+                    ORDER BY warehouse_id, year DESC, month DESC
+                `;
 
                 // Calculate booked quantities from other RELEASED orders (exclude this order)
                 const bookedRecords = await prisma.productionOrderItem.groupBy({
