@@ -96,13 +96,6 @@ export class RecipeService {
 
         const { skip, take: limit } = GetPagination(page, take);
 
-        const latestPeriod = await prisma.rawMaterialInventory.findFirst({
-            orderBy: [{ year: "desc" }, { month: "desc" }],
-            select: { month: true, year: true },
-        });
-        const activeMonth = latestPeriod?.month ?? new Date().getMonth() + 1;
-        const activeYear = latestPeriod?.year ?? new Date().getFullYear();
-
         const conditions: Prisma.Sql[] = [
             Prisma.sql`rm.deleted_at IS NULL`,
             Prisma.sql`p.status = 'ACTIVE'::"STATUS"`,
@@ -166,10 +159,17 @@ export class RecipeService {
                 urm.name        AS urm_name,
                 COALESCE((
                     SELECT SUM(rmi.quantity)
-                    FROM   raw_material_inventories rmi
-                    WHERE  rmi.raw_material_id = rm.id
-                      AND  rmi.month = ${activeMonth}
-                      AND  rmi.year  = ${activeYear}
+                    FROM raw_material_inventories rmi
+                    JOIN (
+                        SELECT raw_material_id, year, month
+                        FROM raw_material_inventories
+                        WHERE raw_material_id = rm.id
+                        ORDER BY year DESC, month DESC
+                        LIMIT 1
+                    ) latest ON latest.raw_material_id = rmi.raw_material_id 
+                             AND latest.year = rmi.year 
+                             AND latest.month = rmi.month
+                    WHERE rmi.raw_material_id = rm.id
                 ), 0) AS current_stock,
                 COUNT(*) OVER(PARTITION BY r.product_id) as total_material
             FROM   recipes r
@@ -232,57 +232,82 @@ export class RecipeService {
 
         if (!trigger) throw new ApiError(404, "Resep (BOM) tidak ditemukan");
 
-        const rows = await prisma.$queryRaw<RawDetailRow[]>(Prisma.sql`
-            SELECT
-                p.id            AS product_id,
-                p.code,
-                p.name,
-                pt.name         AS type_name,
-                u.name          AS unit_name,
-                rm.id           AS raw_mat_id,
-                rm.barcode,
-                rm.name         AS rm_name,
-                rm.price        AS rm_price,
-                r.quantity      AS rm_quantity,
-                r.version,
-                r.is_active,
-                r.description,
-                urm.name        AS urm_name,
-                r.use_size_calc,
-                ps.size         AS product_size
-            FROM   recipes r
-            JOIN   products p ON p.id = r.product_id
-            LEFT JOIN product_size ps ON ps.id = p.size_id
-            LEFT JOIN product_types     pt  ON pt.id  = p.type_id
-            LEFT JOIN unit_of_materials u   ON u.id   = p.unit_id
-            JOIN   raw_materials     rm  ON rm.id  = r.raw_mat_id
-            LEFT JOIN unit_raw_materials urm ON urm.id = rm.unit_id
-            WHERE r.product_id = ${trigger.product_id} AND r.version = ${trigger.version}
-        `);
-
-        if (!rows.length) throw new ApiError(404, "Isi resep tidak ditemukan");
-
-        const latestPeriod = await prisma.rawMaterialInventory.findFirst({
-            orderBy: [{ year: "desc" }, { month: "desc" }],
-            select: { month: true, year: true },
-        });
-        const activeMonth = latestPeriod?.month ?? new Date().getMonth() + 1;
-        const activeYear = latestPeriod?.year ?? new Date().getFullYear();
-
-        const rawMatIds = rows.filter((r) => r.raw_mat_id !== null).map((r) => r.raw_mat_id!);
-        
-        const inventoryData = await prisma.rawMaterialInventory.findMany({
+        const recipeItems = await prisma.recipes.findMany({
             where: {
-                raw_material_id: { in: rawMatIds },
-                month: activeMonth,
-                year: activeYear,
+                product_id: trigger.product_id,
+                version: trigger.version,
             },
             include: {
-                warehouse: {
-                    select: { name: true, code: true }
+                products: {
+                    include: {
+                        size: true,
+                        product_type: true,
+                        unit: true,
+                    }
+                },
+                raw_materials: {
+                    include: {
+                        unit_raw_material: true,
+                    }
                 }
             }
         });
+
+        if (!recipeItems.length) throw new ApiError(404, "Isi resep tidak ditemukan");
+
+        // Map Prisma result to the old RawDetailRow structure so the rest of the logic still works,
+        // or just map it directly. Here we adapt it to the expected structure.
+        const rows = recipeItems.map(r => ({
+            product_id: r.products.id,
+            code: r.products.code,
+            name: r.products.name,
+            type_name: r.products.product_type?.name ?? null,
+            unit_name: r.products.unit?.name ?? null,
+            raw_mat_id: r.raw_materials?.id ?? null,
+            barcode: r.raw_materials?.barcode ?? null,
+            rm_name: r.raw_materials?.name ?? null,
+            rm_price: r.raw_materials?.price ?? null,
+            rm_quantity: r.quantity,
+            version: r.version,
+            is_active: r.is_active,
+            description: r.description,
+            urm_name: r.raw_materials?.unit_raw_material?.name ?? null,
+            use_size_calc: r.use_size_calc,
+            product_size: r.products.size?.size ?? null,
+        }));
+
+        const rawMatIds = rows.filter((r) => r.raw_mat_id !== null).map((r) => r.raw_mat_id!);
+        
+        // Find the latest period per raw material
+        const latestPeriods = await Promise.all(
+            rawMatIds.map(async (rmId) => {
+                const latest = await prisma.rawMaterialInventory.findFirst({
+                    where: { raw_material_id: rmId },
+                    orderBy: [{ year: "desc" }, { month: "desc" }],
+                    select: { month: true, year: true }
+                });
+                return { rmId, latest };
+            })
+        );
+
+        // Fetch inventory data per raw material for its specific latest period
+        const inventoryDataPromises = latestPeriods.map(async ({ rmId, latest }) => {
+            if (!latest) return [];
+            return prisma.rawMaterialInventory.findMany({
+                where: {
+                    raw_material_id: rmId,
+                    month: latest.month,
+                    year: latest.year,
+                },
+                include: {
+                    warehouse: {
+                        select: { name: true, code: true }
+                    }
+                }
+            });
+        });
+        const inventoryDataArrays = await Promise.all(inventoryDataPromises);
+        const inventoryData = inventoryDataArrays.flat();
 
         const first = rows[0]!;
         const data: ResponseDetailRecipeDTO = {
@@ -300,11 +325,19 @@ export class RecipeService {
                 .map((r) => {
                     const materialInventories = inventoryData.filter(inv => inv.raw_material_id === r.raw_mat_id);
                     const current_stock = materialInventories.reduce((acc, curr) => acc + Number(curr.quantity), 0);
-                    const stocks = materialInventories.map(inv => ({
-                        warehouse_name: inv.warehouse.name,
-                        warehouse_code: inv.warehouse.code || "",
-                        quantity: Number(inv.quantity)
-                    }));
+                    
+                    const whMap = new Map<number, any>();
+                    for (const inv of materialInventories) {
+                        if (!whMap.has(inv.warehouse_id)) {
+                            whMap.set(inv.warehouse_id, {
+                                warehouse_name: inv.warehouse.name,
+                                warehouse_code: inv.warehouse.code || "",
+                                quantity: 0,
+                            });
+                        }
+                        whMap.get(inv.warehouse_id).quantity += Number(inv.quantity);
+                    }
+                    const stocks = Array.from(whMap.values());
 
                     return {
                         raw_mat_id: r.raw_mat_id!,
@@ -320,6 +353,13 @@ export class RecipeService {
                 }),
         };
 
+        console.table(data.recipes.map(r => ({
+            name: r.name,
+            current_stock: r.current_stock,
+            quantity: r.quantity,
+            stocks: r.stocks?.map(s => s.warehouse_code).join(", "),
+            use_size_calc: r.use_size_calc,
+        })))
         return data;
     }
 

@@ -110,19 +110,21 @@ export class ManufacturingService {
             // Handle Automated RM Transfer (Penerimaan RM)
             await this.handleAutomaticRMTransfer(tx, order, userId);
 
-            // STRICT VALIDATION: Ensure all materials are "Ready" (Total Stock PRD+KDG >= Planned)
+            // STRICT VALIDATION: Ensure all materials are "Ready" (Total Stock across all RM warehouses >= Planned)
             // This is a safety check if the frontend validation is bypassed
-            const [prdWh, kdgWh] = await Promise.all([
-                tx.warehouse.findUnique({ where: { code: "GRM-PRD" } }),
-                tx.warehouse.findUnique({ where: { code: "GRM-KDG" } }),
-            ]);
+            const rmWarehouses = await tx.warehouse.findMany({
+                where: { type: "RAW_MATERIAL" as any, deleted_at: null },
+                select: { id: true, code: true },
+            });
 
-            if (prdWh) {
+            if (rmWarehouses.length > 0) {
                 for (const item of order.items) {
                     const needed = Number(item.quantity_planned);
-                    const stockPRD = await this.getLatestRMStock(tx, item.raw_material_id, prdWh.id);
-                    const stockKDG = kdgWh ? await this.getLatestRMStock(tx, item.raw_material_id, kdgWh.id) : 0;
-                    const totalAvailable = stockPRD + stockKDG;
+                    let totalAvailable = 0;
+
+                    for (const wh of rmWarehouses) {
+                        totalAvailable += await this.getLatestRMStock(tx, item.raw_material_id, wh.id);
+                    }
 
                     if (totalAvailable < needed) {
                         throw new ApiError(
@@ -140,9 +142,9 @@ export class ManufacturingService {
     }
 
     private static async getLatestRMStock(tx: any, rmId: number, warehouseId: number, excludeOrderId?: number): Promise<number> {
-        // 1. Get the latest available period for this RM and Warehouse
+        // 1. Get the latest available period for this RM across ALL warehouses
         const latestPeriod = await tx.rawMaterialInventory.findFirst({
-            where: { raw_material_id: rmId, warehouse_id: warehouseId },
+            where: { raw_material_id: rmId }, // Only filter by RM, not warehouse
             orderBy: [{ year: "desc" }, { month: "desc" }],
             select: { month: true, year: true },
         });
@@ -181,10 +183,14 @@ export class ManufacturingService {
     }
 
     private static async handleAutomaticRMTransfer(tx: any, order: any, userId: string) {
-        const [prdWh, kdgWh] = await Promise.all([
-            tx.warehouse.findUnique({ where: { code: "GRM-PRD" } }),
-            tx.warehouse.findUnique({ where: { code: "GRM-KDG" } }),
-        ]);
+        // Dynamically find PRD and KDG warehouses by code pattern
+        const rmWarehouses = await tx.warehouse.findMany({
+            where: { type: "RAW_MATERIAL" as any, deleted_at: null },
+            select: { id: true, code: true, name: true },
+        });
+
+        const prdWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("PRD"));
+        const kdgWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("KDG"));
 
         if (!prdWh || !kdgWh) return;
 
@@ -568,82 +574,100 @@ export class ManufacturingService {
 
         if (!result) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
 
-        // Fetch GRM-PRD and GRM-KDG stock information for each item
-        const [prdWh, kdgWh] = await Promise.all([
-            prisma.warehouse.findUnique({ where: { code: "GRM-PRD" }, select: { id: true } }),
-            prisma.warehouse.findUnique({ where: { code: "GRM-KDG" }, select: { id: true } }),
-        ]);
+        // Fetch stock information for each item across ALL raw material warehouses
+        const rmWarehouses = await prisma.warehouse.findMany({
+            where: { type: "RAW_MATERIAL" as any, deleted_at: null },
+            select: { id: true, name: true, code: true },
+        });
 
-        if (prdWh) {
+        if (rmWarehouses.length > 0) {
+            const rmWhIds = rmWarehouses.map((w) => w.id);
+
+            // Identify PRD and KDG warehouses by code pattern for backward compatibility
+            const prdWh = rmWarehouses.find((w) => w.code?.toUpperCase().includes("PRD"));
+            const kdgWh = rmWarehouses.find((w) => w.code?.toUpperCase().includes("KDG"));
+
             for (const item of result.items) {
-                const latestPeriod = await prisma.rawMaterialInventory.findFirst({
+                // Find the latest period for this specific item across all warehouses
+                const itemLatestPeriod = await prisma.rawMaterialInventory.findFirst({
                     where: { raw_material_id: item.raw_material_id },
                     orderBy: [{ year: "desc" }, { month: "desc" }],
                     select: { month: true, year: true },
                 });
 
-                if (latestPeriod) {
-                    const invRecords = await prisma.rawMaterialInventory.findMany({
+                let invRecords: any[] = [];
+                if (itemLatestPeriod) {
+                    // Query stock across all RM warehouses for this item's latest period
+                    invRecords = await prisma.rawMaterialInventory.findMany({
                         where: {
                             raw_material_id: item.raw_material_id,
-                            warehouse_id: { in: [prdWh.id, kdgWh?.id].filter(Boolean) as number[] },
-                            month: latestPeriod.month,
-                            year: latestPeriod.year,
+                            warehouse_id: { in: rmWhIds },
+                            month: itemLatestPeriod.month,
+                            year: itemLatestPeriod.year,
                         },
                     });
-
-                    const onHandPRD = invRecords
-                        .filter((r) => r.warehouse_id === prdWh.id)
-                        .reduce((sum, r) => sum + Number(r.quantity), 0);
-
-                    const onHandKDG = kdgWh
-                        ? invRecords
-                            .filter((r) => r.warehouse_id === kdgWh.id)
-                            .reduce((sum, r) => sum + Number(r.quantity), 0)
-                        : 0;
-
-                    // Calculate booked quantities from other RELEASED orders (exclude this order)
-                    const warehouseIds = [prdWh.id, kdgWh?.id].filter(Boolean) as number[];
-                    const bookedRecords = await prisma.productionOrderItem.groupBy({
-                        by: ["warehouse_id"],
-                        where: {
-                            raw_material_id: item.raw_material_id,
-                            warehouse_id: { in: warehouseIds },
-                            production_order: {
-                                status: ProductionStatus.RELEASED,
-                                id: { not: result.id },
-                            },
-                        },
-                        _sum: { quantity_planned: true },
-                    });
-
-                    const bookedPRD = Number(
-                        bookedRecords.find((b) => b.warehouse_id === prdWh.id)?._sum.quantity_planned || 0
-                    );
-                    const bookedKDG = kdgWh
-                        ? Number(bookedRecords.find((b) => b.warehouse_id === kdgWh.id)?._sum.quantity_planned || 0)
-                        : 0;
-
-                    const availPRD = Math.max(0, onHandPRD - bookedPRD);
-                    const availKDG = Math.max(0, onHandKDG - bookedKDG);
-
-                    (item as any).inventory_stock = {
-                        prd: onHandPRD,
-                        kdg: onHandKDG,
-                        total: onHandPRD + onHandKDG,
-                        prd_avail: availPRD,
-                        kdg_avail: availKDG,
-                        total_avail: availPRD + availKDG,
-                        booked_prd: bookedPRD,
-                        booked_kdg: bookedKDG,
-                    };
-                } else {
-                    (item as any).inventory_stock = {
-                        prd: 0, kdg: 0, total: 0,
-                        prd_avail: 0, kdg_avail: 0, total_avail: 0,
-                        booked_prd: 0, booked_kdg: 0,
-                    };
                 }
+
+                // Calculate booked quantities from other RELEASED orders (exclude this order)
+                const bookedRecords = await prisma.productionOrderItem.groupBy({
+                    by: ["warehouse_id"],
+                    where: {
+                        raw_material_id: item.raw_material_id,
+                        warehouse_id: { in: rmWhIds },
+                        production_order: {
+                            status: ProductionStatus.RELEASED,
+                            id: { not: result.id },
+                        },
+                    },
+                    _sum: { quantity_planned: true },
+                });
+
+                // Build per-warehouse stock map
+                const warehouseStock: Record<string, { on_hand: number; booked: number; avail: number }> = {};
+                let totalOnHand = 0;
+                let totalBooked = 0;
+
+                for (const wh of rmWarehouses) {
+                    const onHand = invRecords
+                        .filter((r) => r.warehouse_id === wh.id)
+                        .reduce((sum, r) => sum + Number(r.quantity), 0);
+                    const booked = Number(
+                        bookedRecords.find((b) => b.warehouse_id === wh.id)?._sum.quantity_planned || 0
+                    );
+                    const avail = Math.max(0, onHand - booked);
+
+                    warehouseStock[wh.code || wh.name] = { on_hand: onHand, booked, avail };
+                    totalOnHand += onHand;
+                    totalBooked += booked;
+                }
+
+                // Backward-compatible PRD/KDG fields
+                const prdKey = prdWh ? (prdWh.code || prdWh.name) : null;
+                const kdgKey = kdgWh ? (kdgWh.code || kdgWh.name) : null;
+                const prdStock = prdKey ? warehouseStock[prdKey] : null;
+                const kdgStock = kdgKey ? warehouseStock[kdgKey] : null;
+
+                (item as any).inventory_stock = {
+                    prd: prdStock?.on_hand ?? 0,
+                    kdg: kdgStock?.on_hand ?? 0,
+                    total: totalOnHand,
+                    prd_avail: prdStock?.avail ?? 0,
+                    kdg_avail: kdgStock?.avail ?? 0,
+                    total_avail: Math.max(0, totalOnHand - totalBooked),
+                    booked_prd: prdStock?.booked ?? 0,
+                    booked_kdg: kdgStock?.booked ?? 0,
+                    warehouses: warehouseStock,
+                };
+            }
+        } else {
+            // No warehouses or no inventory data — set all to 0
+            for (const item of result.items) {
+                (item as any).inventory_stock = {
+                    prd: 0, kdg: 0, total: 0,
+                    prd_avail: 0, kdg_avail: 0, total_avail: 0,
+                    booked_prd: 0, booked_kdg: 0,
+                    warehouses: {},
+                };
             }
         }
 
@@ -804,14 +828,17 @@ export class ManufacturingService {
     }
 
     private static async validateAndAllocateRM(tx: any, items: any[], orderId: number) {
-        // 1. Fetch relevant warehouses
-        const [prdWh, kdgWh] = await Promise.all([
-            tx.warehouse.findUnique({ where: { code: "GRM-PRD" } }),
-            tx.warehouse.findUnique({ where: { code: "GRM-KDG" } }),
-        ]);
+        // 1. Fetch relevant warehouses dynamically
+        const rmWarehouses = await tx.warehouse.findMany({
+            where: { type: "RAW_MATERIAL" as any, deleted_at: null },
+            select: { id: true, code: true, name: true },
+        });
+
+        const prdWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("PRD"));
+        const kdgWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("KDG"));
 
         if (!prdWh) {
-            throw new ApiError(400, "Gudang Pusat Produksi (GRM-PRD) tidak ditemukan dalam sistem.");
+            throw new ApiError(400, "Gudang Produksi (PRD) tidak ditemukan dalam sistem.");
         }
 
         for (const item of items) {
@@ -831,20 +858,21 @@ export class ManufacturingService {
                 throw new ApiError(
                     400,
                     `Stok tidak mencukupi untuk Raw Material: ${item.raw_material.name}. ` +
-                    `Total tersedia (PRD + KDG): ${totalAvailable}. Harap lakukan Open PO.`,
+                    `Total tersedia: ${totalAvailable}. Harap lakukan Open PO.`,
                 );
             }
 
             if (availPRD < needed) {
                 throw new ApiError(
                     400,
-                    `Stok di Gudang Produksi (GRM-PRD) tidak mencukupi untuk ${item.raw_material.name}. ` +
-                    `Tersedia di PRD: ${availPRD}, Tersedia di KDG: ${availKDG}. ` +
-                    `Harap lakukan mutasi dari Gudang Kandangan (GRM-KDG) terlebih dahulu.`,
+                    `Stok di Gudang Produksi tidak mencukupi untuk ${item.raw_material.name}. ` +
+                    `Tersedia di ${prdWh.name || prdWh.code}: ${availPRD}` +
+                    (kdgWh ? `, Tersedia di ${kdgWh.name || kdgWh.code}: ${availKDG}` : '') +
+                    `. Harap lakukan mutasi terlebih dahulu.`,
                 );
             }
 
-            // 4. Allocate to GRM-PRD
+            // 4. Allocate to PRD warehouse
             await tx.productionOrderItem.updateMany({
                 where: { id: item.id, production_order_id: orderId },
                 data: { warehouse_id: prdWh.id },
