@@ -53,7 +53,14 @@ export const UpdateGoodsReceiptStatusSchema = z.object({
     notes: z.string().optional(),
 });
 
+export const RequestUpdateGoodsReceiptSchema = z.object({
+    date: z.string().optional().refine((v) => !v || !isNaN(Date.parse(v)), { message: "Format tanggal tidak valid" }),
+    notes: z.string().optional(),
+    warehouse_id: z.coerce.number().optional(),
+});
+
 export type RequestGoodsReceiptDTO = z.infer<typeof RequestGoodsReceiptSchema>;
 export type ResponseGoodsReceiptDTO = z.infer<typeof ResponseGoodsReceiptSchema>;
 export type QueryGoodsReceiptDTO = z.infer<typeof QueryGoodsReceiptSchema>;
 export type UpdateGoodsReceiptStatusDTO = z.infer<typeof UpdateGoodsReceiptStatusSchema>;
+export type RequestUpdateGoodsReceiptDTO = z.infer<typeof RequestUpdateGoodsReceiptSchema>;

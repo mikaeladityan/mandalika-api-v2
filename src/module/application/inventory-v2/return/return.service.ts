@@ -8,7 +8,7 @@ import {
 } from "../../../../generated/prisma/enums.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
-import { RequestReturnDTO, UpdateReturnStatusDTO, QueryReturnDTO } from "./return.schema.js";
+import { RequestReturnDTO, UpdateReturnStatusDTO, QueryReturnDTO, RequestUpdateReturnDTO } from "./return.schema.js";
 import { InventoryHelper, StockItem } from "../inventory.helper.js";
 import { EXPORT_ROW_LIMIT, PRODUCT_INCLUDE, generateDocNumber } from "../inventory.constants.js";
 
@@ -20,6 +20,7 @@ const RETURN_INCLUDE = {
     to_outlet: true,
     source_transfer: true,
 } as const;
+
 
 export class ReturnService {
     /**
@@ -266,6 +267,25 @@ export class ReturnService {
         }
 
         return updateData;
+    }
+
+    static async update(id: number, payload: RequestUpdateReturnDTO, userId: string = "system") {
+        const stockReturn = await prisma.stockReturn.findUnique({ where: { id } });
+        if (!stockReturn) throw new ApiError(404, "Data Retur tidak ditemukan");
+        
+        if (stockReturn.status !== ReturnStatus.DRAFT) {
+            throw new ApiError(400, "Hanya Retur berstatus DRAFT yang dapat diperbarui");
+        }
+
+        return prisma.stockReturn.update({
+            where: { id },
+            data: {
+                ...(payload.created_at && { created_at: new Date(payload.created_at) }),
+                ...(payload.notes && { notes: payload.notes }),
+                ...(payload.to_warehouse_id && { to_warehouse_id: payload.to_warehouse_id }),
+            },
+            include: RETURN_INCLUDE,
+        });
     }
 
     static async export(query: QueryReturnDTO) {

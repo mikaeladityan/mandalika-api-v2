@@ -22,6 +22,12 @@ export const UpdateReturnStatusSchema = z.object({
     notes: z.string().optional(),
 });
 
+export const RequestUpdateReturnSchema = z.object({
+    created_at: z.string().optional().refine((v) => !v || !isNaN(Date.parse(v)), { message: "Format tanggal tidak valid" }),
+    notes: z.string().optional(),
+    to_warehouse_id: z.coerce.number().optional(),
+});
+
 export const QueryReturnSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),
     take: z.coerce.number().int().positive().max(100).default(10).optional(),
@@ -34,4 +40,5 @@ export const QueryReturnSchema = z.object({
 
 export type RequestReturnDTO = z.infer<typeof RequestReturnSchema>;
 export type UpdateReturnStatusDTO = z.infer<typeof UpdateReturnStatusSchema>;
+export type RequestUpdateReturnDTO = z.infer<typeof RequestUpdateReturnSchema>;
 export type QueryReturnDTO = z.infer<typeof QueryReturnSchema>;

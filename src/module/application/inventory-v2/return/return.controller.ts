@@ -6,6 +6,8 @@ import {
     QueryReturnSchema,
     RequestReturnDTO,
     UpdateReturnStatusDTO,
+    RequestUpdateReturnSchema,
+    RequestUpdateReturnDTO,
 } from "./return.schema.js";
 
 export class ReturnController {
@@ -73,6 +75,30 @@ export class ReturnController {
                 const log: any = {
                     activity: "UPDATE",
                     description: `Retur ${result.return_number} status diperbarui menjadi ${result.status}`,
+                    email: userId,
+                };
+                await CreateLogger(log);
+            }
+
+            return ApiResponse.sendSuccess(c, result);
+        } catch (error: any) {
+            return ApiResponse.sendError(c, error.statusCode || 500, error.message);
+        }
+    }
+
+    static async update(c: Context) {
+        try {
+            const id = Number(c.req.param("id"));
+            const body = c.get("body") as RequestUpdateReturnDTO;
+            const accountSession = c.get("session");
+            const userId = accountSession?.email || "system";
+
+            const result = await ReturnService.update(id, body, userId);
+
+            if (result) {
+                const log: any = {
+                    activity: "UPDATE",
+                    description: `Retur ${result.return_number} diperbarui datanya`,
                     email: userId,
                 };
                 await CreateLogger(log);

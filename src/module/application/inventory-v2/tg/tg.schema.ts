@@ -33,6 +33,13 @@ export const UpdateTransferGudangStatusSchema = z.object({
     photos: z.array(z.string()).optional(),
 });
 
+export const RequestUpdateTransferGudangSchema = z.object({
+    date: z.string().optional().refine((v) => !v || !isNaN(Date.parse(v)), { message: "Format tanggal tidak valid" }),
+    notes: z.string().optional(),
+    from_warehouse_id: z.coerce.number().optional(),
+    to_warehouse_id: z.coerce.number().optional(),
+});
+
 export const ResponseTransferGudangSchema = RequestTransferGudangSchema.extend({
     id: z.number(),
     transfer_number: z.string(),
@@ -71,5 +78,6 @@ export const QueryTransferGudangSchema = z.object({
 
 export type RequestTransferGudangDTO = z.infer<typeof RequestTransferGudangSchema>;
 export type UpdateTransferGudangStatusDTO = z.infer<typeof UpdateTransferGudangStatusSchema>;
+export type RequestUpdateTransferGudangDTO = z.infer<typeof RequestUpdateTransferGudangSchema>;
 export type ResponseTransferGudangDTO = z.infer<typeof ResponseTransferGudangSchema>;
 export type QueryTransferGudangDTO = z.infer<typeof QueryTransferGudangSchema>;

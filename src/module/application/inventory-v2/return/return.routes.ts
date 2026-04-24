@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { ReturnController } from "./return.controller.js";
 import { validateBody } from "../../../../middleware/validation.js";
-import { RequestReturnSchema, UpdateReturnStatusSchema } from "./return.schema.js";
+import { RequestReturnSchema, UpdateReturnStatusSchema, RequestUpdateReturnSchema } from "./return.schema.js";
 
 const ReturnRoutes = new Hono();
 
@@ -14,5 +14,6 @@ ReturnRoutes.patch(
     validateBody(UpdateReturnStatusSchema),
     ReturnController.updateStatus,
 );
+ReturnRoutes.patch("/:id", validateBody(RequestUpdateReturnSchema), ReturnController.update);
 
 export default ReturnRoutes;

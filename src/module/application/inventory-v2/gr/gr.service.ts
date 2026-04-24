@@ -1,6 +1,6 @@
 import { Prisma } from "../../../../generated/prisma/client.js";
 import prisma from "../../../../config/prisma.js";
-import { RequestGoodsReceiptDTO, QueryGoodsReceiptDTO } from "./gr.schema.js";
+import { RequestGoodsReceiptDTO, QueryGoodsReceiptDTO, RequestUpdateGoodsReceiptDTO } from "./gr.schema.js";
 import { GoodsReceiptStatus, MovementType, MovementRefType } from "../../../../generated/prisma/enums.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
@@ -177,6 +177,34 @@ export class GoodsReceiptService {
         ]);
 
         return { total, pending, completed, cancelled };
+    }
+
+    static async update(id: number, payload: RequestUpdateGoodsReceiptDTO, userId: string = "system") {
+        return await prisma.$transaction(async (tx) => {
+            const gr = await tx.goodsReceipt.findUnique({
+                where: { id },
+            });
+
+            if (!gr) throw new ApiError(404, "Data Goods Receipt tidak ditemukan");
+            
+            // Only allow update if status is PENDING
+            if (gr.status !== GoodsReceiptStatus.PENDING) {
+                throw new ApiError(400, "Tidak dapat mengubah data yang sudah selesai atau dibatalkan.");
+            }
+
+            const updated = await tx.goodsReceipt.update({
+                where: { id },
+                data: {
+                    ...(payload.date && { date: new Date(payload.date) }),
+                    ...(payload.notes && { notes: payload.notes }),
+                    ...(payload.warehouse_id && { warehouse_id: payload.warehouse_id }),
+                    updated_at: new Date(),
+                },
+                include: { items: { include: { product: true } }, warehouse: true },
+            });
+
+            return updated;
+        });
     }
 
 }

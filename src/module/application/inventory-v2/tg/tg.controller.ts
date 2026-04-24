@@ -4,8 +4,10 @@ import {
     QueryTransferGudangSchema,
     RequestTransferGudangSchema,
     UpdateTransferGudangStatusSchema,
+    RequestUpdateTransferGudangSchema,
     RequestTransferGudangDTO,
     UpdateTransferGudangStatusDTO,
+    RequestUpdateTransferGudangDTO,
 } from "./tg.schema.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
 import { CreateLogger } from "../../log/log.service.js";
@@ -94,5 +96,28 @@ export class TGController {
         c.header("Content-Disposition", `attachment; filename="TG_Export_${Date.now()}.csv"`);
 
         return c.text(csv as any);
+    }
+
+    static async update(c: Context) {
+        const id = Number(c.req.param("id"));
+        if (!id) throw new ApiError(400, "Kesalahan pada proses permintaan data");
+        
+        const body = await c.req.json();
+        const validated = RequestUpdateTransferGudangSchema.parse(body);
+        const accountSession = c.get("session");
+        const userId = accountSession?.email || "system";
+
+        const result = await TGService.update(id, validated, userId);
+
+        if (result) {
+            const log: CreateLoggingActivityDTO = {
+                activity: "UPDATE",
+                description: `Update Data ${Table} ${result.transfer_number}`,
+                email: userId,
+            };
+            await CreateLogger(log);
+        }
+
+        return ApiResponse.sendSuccess(c, result);
     }
 }

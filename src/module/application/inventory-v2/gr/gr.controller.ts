@@ -1,6 +1,6 @@
 import { Context } from "hono";
 import { GoodsReceiptService } from "./gr.service.js";
-import { QueryGoodsReceiptSchema, RequestGoodsReceiptDTO } from "./gr.schema.js";
+import { QueryGoodsReceiptSchema, RequestGoodsReceiptDTO, RequestUpdateGoodsReceiptSchema, RequestUpdateGoodsReceiptDTO } from "./gr.schema.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
 import { CreateLogger } from "../../log/log.service.js";
 import { CreateLoggingActivityDTO } from "../../log/log.schema.js";
@@ -97,6 +97,29 @@ export class GRController {
 
     static async stats(c: Context) {
         const result = await GoodsReceiptService.getStats();
+        return ApiResponse.sendSuccess(c, result);
+    }
+
+    static async update(c: Context) {
+        const id = Number(c.req.param("id"));
+        if (!id) throw new ApiError(400, "Kesalahan pada proses permintaan data");
+        
+        const body = await c.req.json();
+        const validated = RequestUpdateGoodsReceiptSchema.parse(body);
+        const accountSession = c.get("session");
+        const userId = accountSession?.email || "system";
+
+        const result = await GoodsReceiptService.update(id, validated, userId);
+
+        if (result) {
+            const log: CreateLoggingActivityDTO = {
+                activity: "UPDATE",
+                description: `Update Data ${Table} ${result.gr_number}`,
+                email: userId,
+            };
+            await CreateLogger(log);
+        }
+
         return ApiResponse.sendSuccess(c, result);
     }
 

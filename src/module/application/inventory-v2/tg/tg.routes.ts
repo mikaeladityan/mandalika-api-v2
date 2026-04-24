@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { TGController } from "./tg.controller.js";
 import { validateBody } from "../../../../middleware/validation.js";
-import { RequestTransferGudangSchema, UpdateTransferGudangStatusSchema } from "./tg.schema.js";
+import { RequestTransferGudangSchema, UpdateTransferGudangStatusSchema, RequestUpdateTransferGudangSchema } from "./tg.schema.js";
 
 export const TGRoutes = new Hono();
 
@@ -11,6 +11,7 @@ TGRoutes.get("/stock", TGController.getStock);
 TGRoutes.get("/:id", TGController.detail);
 
 TGRoutes.post("/", validateBody(RequestTransferGudangSchema), TGController.create);
+TGRoutes.patch("/:id", validateBody(RequestUpdateTransferGudangSchema), TGController.update);
 TGRoutes.patch("/:id/status", validateBody(UpdateTransferGudangStatusSchema), TGController.updateStatus);
 
 export default TGRoutes;

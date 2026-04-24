@@ -3,7 +3,9 @@ import { DOService } from "./do.service.js";
 import { 
     QueryDeliveryOrderSchema, 
     RequestDeliveryOrderDTO, 
-    UpdateDeliveryOrderStatusDTO 
+    UpdateDeliveryOrderStatusDTO,
+    RequestUpdateDeliveryOrderSchema,
+    RequestUpdateDeliveryOrderDTO,
 } from "./do.schema.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
 import { CreateLogger } from "../../log/log.service.js";
@@ -92,4 +94,26 @@ export class DOController {
         return c.text(csv as any);
     }
 
+    static async update(c: Context) {
+        const id = Number(c.req.param("id"));
+        if (!id) throw new ApiError(400, "Kesalahan pada proses permintaan data");
+        
+        const body = await c.req.json();
+        const validated = RequestUpdateDeliveryOrderSchema.parse(body);
+        const accountSession = c.get("session");
+        const userId = accountSession?.email || "system";
+
+        const result = await DOService.update(id, validated, userId);
+
+        if (result) {
+            const log: CreateLoggingActivityDTO = {
+                activity: "UPDATE",
+                description: `Update Data ${Table} ${result.transfer_number}`,
+                email: userId,
+            };
+            await CreateLogger(log);
+        }
+
+        return ApiResponse.sendSuccess(c, result);
+    }
 }

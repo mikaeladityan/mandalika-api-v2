@@ -4,6 +4,7 @@ import {
     RequestDeliveryOrderDTO,
     QueryDeliveryOrderDTO,
     UpdateDeliveryOrderStatusDTO,
+    RequestUpdateDeliveryOrderDTO,
 } from "./do.schema.js";
 import {
     TransferStatus,
@@ -441,6 +442,35 @@ export class DOService {
         }));
 
         return InventoryHelper.toCSV(mappedData, headers);
+    }
+
+    static async update(id: number, payload: RequestUpdateDeliveryOrderDTO, userId: string = "system") {
+        return await prisma.$transaction(async (tx) => {
+            const transfer = await tx.stockTransfer.findUnique({
+                where: { id },
+            });
+
+            if (!transfer) throw new ApiError(404, "Data Delivery Order tidak ditemukan");
+            
+            // Only allow update if status is PENDING or APPROVED
+            if (transfer.status !== TransferStatus.PENDING && transfer.status !== TransferStatus.APPROVED) {
+                throw new ApiError(400, "Tidak dapat mengubah data yang sudah dalam proses pengiriman atau selesai.");
+            }
+
+            const updated = await tx.stockTransfer.update({
+                where: { id },
+                data: {
+                    ...(payload.date && { date: new Date(payload.date) }),
+                    ...(payload.notes && { notes: payload.notes }),
+                    ...(payload.from_warehouse_id && { from_warehouse_id: payload.from_warehouse_id }),
+                    ...(payload.to_outlet_id && { to_outlet_id: payload.to_outlet_id }),
+                    updated_at: new Date(),
+                },
+                include: DO_INCLUDE,
+            });
+
+            return updated;
+        });
     }
 
 }

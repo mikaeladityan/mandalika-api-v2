@@ -32,6 +32,13 @@ export const UpdateDeliveryOrderStatusSchema = z.object({
         .optional(),
 });
 
+export const RequestUpdateDeliveryOrderSchema = z.object({
+    date: z.string().optional().refine((v) => !v || !isNaN(Date.parse(v)), { message: "Format tanggal tidak valid" }),
+    notes: z.string().optional(),
+    from_warehouse_id: z.coerce.number().optional(),
+    to_outlet_id: z.coerce.number().optional(),
+});
+
 export const ResponseDeliveryOrderSchema = RequestDeliveryOrderSchema.extend({
     id: z.number(),
     transfer_number: z.string(),
@@ -70,5 +77,6 @@ export const QueryDeliveryOrderSchema = z.object({
 
 export type RequestDeliveryOrderDTO = z.infer<typeof RequestDeliveryOrderSchema>;
 export type UpdateDeliveryOrderStatusDTO = z.infer<typeof UpdateDeliveryOrderStatusSchema>;
+export type RequestUpdateDeliveryOrderDTO = z.infer<typeof RequestUpdateDeliveryOrderSchema>;
 export type ResponseDeliveryOrderDTO = z.infer<typeof ResponseDeliveryOrderSchema>;
 export type QueryDeliveryOrderDTO = z.infer<typeof QueryDeliveryOrderSchema>;
