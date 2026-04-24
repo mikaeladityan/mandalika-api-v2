@@ -28,6 +28,7 @@ export class InventoryHelper {
         ref_type: MovementRefType,
         movement_type: MovementType,
         userId: string,
+        notes?: string,
         entity_type: MovementEntityType = MovementEntityType.PRODUCT,
     ): Promise<void> {
         const now = new Date();
@@ -107,6 +108,7 @@ export class InventoryHelper {
                     reference_id: ref_id,
                     reference_type: ref_type,
                     created_by: userId,
+                    ...(notes ? { notes } : {}),
                 },
             });
         }

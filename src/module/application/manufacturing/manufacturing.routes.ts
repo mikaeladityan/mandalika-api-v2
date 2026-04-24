@@ -4,6 +4,7 @@ import inventoryRmMovment from "./inventory/rm-movement/rm-movement.routes.js";
 import inventoryRmReceipt from "./inventory/rm-receipt/rm-receipt.routes.js";
 import inventoryRmTransfer from "./inventory/rm-transfer/rm-transfer.routes.js";
 import inventoryRmUsage from "./inventory/rm-usage/rm-usage.routes.js";
+import inventoryRmSkuTransfer from "./inventory/rm-sku-transfer/rm-sku-transfer.routes.js";
 import { validateBody } from "../../../middleware/validation.js";
 import {
     RequestCreateProductionSchema,
@@ -29,5 +30,6 @@ app.route("/inventory/rm-movement", inventoryRmMovment);
 app.route("/inventory/rm-receipt", inventoryRmReceipt);
 app.route("/inventory/rm-transfer", inventoryRmTransfer);
 app.route("/inventory/rm-usage", inventoryRmUsage);
+app.route("/inventory/rm-sku-transfer", inventoryRmSkuTransfer);
 
 export default app;
