@@ -787,13 +787,17 @@ model ProductionOrderWaste {
   warehouse_id        Int?
   quantity            Decimal          @db.Decimal(18, 2)
   notes               String?
+  returned_at         DateTime?
+  returned_by         String?          @db.VarChar(500)
   created_at          DateTime         @default(now())
   production_order    ProductionOrder? @relation(fields: [production_order_id], references: [id], onDelete: Cascade)
-  raw_material        RawMaterial?    @relation("ProductionWasteRM", fields: [raw_material_id], references: [id])
-  product             Product?        @relation("ProductionWasteFG", fields: [product_id], references: [id])
-  warehouse           Warehouse?      @relation("ProductionWasteWarehouse", fields: [warehouse_id], references: [id])
+  raw_material        RawMaterial?     @relation("ProductionWasteRM", fields: [raw_material_id], references: [id])
+  product             Product?         @relation("ProductionWasteFG", fields: [product_id], references: [id])
+  warehouse           Warehouse?       @relation("ProductionWasteWarehouse", fields: [warehouse_id], references: [id])
 
   @@index([production_order_id])
+  @@index([production_order_id, waste_type])
+  @@index([production_order_id, waste_type, returned_at])
   @@map("production_order_wastes")
 }
 

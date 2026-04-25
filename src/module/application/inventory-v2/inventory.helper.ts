@@ -6,6 +6,7 @@ import {
     MovementType,
 } from "../../../generated/prisma/enums.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
+import prisma from "../../../config/prisma.js";
 
 export interface StockItem {
     product_id?: number;
@@ -303,6 +304,42 @@ export class InventoryHelper {
                 },
             });
         }
+    }
+
+    /**
+     * Calculates available RM stock: on-hand minus booked (RELEASED orders).
+     * Shared utility to avoid duplication across service modules.
+     */
+    static async getAvailableRMStock(rawMaterialId: number, warehouseId: number): Promise<number> {
+        const latestPeriod = await prisma.rawMaterialInventory.findFirst({
+            where: { raw_material_id: rawMaterialId, warehouse_id: warehouseId },
+            orderBy: [{ year: "desc" }, { month: "desc" }],
+            select: { month: true, year: true },
+        });
+
+        if (!latestPeriod) return 0;
+
+        const records = await prisma.rawMaterialInventory.findMany({
+            where: {
+                raw_material_id: rawMaterialId,
+                warehouse_id: warehouseId,
+                month: latestPeriod.month,
+                year: latestPeriod.year,
+            },
+        });
+
+        const onHand = records.reduce((sum, r) => sum + Number(r.quantity), 0);
+
+        const booked = await prisma.productionOrderItem.aggregate({
+            where: {
+                raw_material_id: rawMaterialId,
+                warehouse_id: warehouseId,
+                production_order: { status: "RELEASED" as any },
+            },
+            _sum: { quantity_planned: true },
+        });
+
+        return Math.max(0, onHand - Number(booked._sum.quantity_planned || 0));
     }
 
     static toCSV(data: any[], headers: Record<string, string>): string {

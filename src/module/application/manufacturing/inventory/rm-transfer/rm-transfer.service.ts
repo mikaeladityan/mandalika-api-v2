@@ -48,42 +48,7 @@ export class RmTransferService {
     }
 
     static async getStock(rmId: number, warehouseId: number): Promise<number> {
-        // Get the latest period for this RM and Warehouse
-        const latestPeriod = await prisma.rawMaterialInventory.findFirst({
-            where: { raw_material_id: rmId, warehouse_id: warehouseId },
-            orderBy: [{ year: "desc" }, { month: "desc" }],
-            select: { month: true, year: true },
-        });
-
-        if (!latestPeriod) return 0;
-
-        // Sum up on-hand quantities for that month (consistent with InventoryHelper)
-        const records = await prisma.rawMaterialInventory.findMany({
-            where: {
-                raw_material_id: rmId,
-                warehouse_id: warehouseId,
-                month: latestPeriod.month,
-                year: latestPeriod.year,
-            },
-        });
-
-        const onHand = records.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
-
-        // Subtract booked quantities from RELEASED production orders
-        const bookedResult = await prisma.productionOrderItem.aggregate({
-            where: {
-                raw_material_id: rmId,
-                warehouse_id: warehouseId,
-                production_order: {
-                    status: "RELEASED" as any,
-                },
-            },
-            _sum: { quantity_planned: true },
-        });
-
-        const booked = Number(bookedResult._sum.quantity_planned || 0);
-
-        return Math.max(0, onHand - booked);
+        return InventoryHelper.getAvailableRMStock(rmId, warehouseId);
     }
 
     static async stockCheck(query: any) {
