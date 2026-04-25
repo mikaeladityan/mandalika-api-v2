@@ -1,15 +1,15 @@
 import { Prisma } from "../../../../../generated/prisma/client.js";
 import prisma from "../../../../../config/prisma.js";
-import { QueryRmReceiptDTO, UpdateRmReceiptItemDTO, UpdateRmStatusDTO } from "./rm-receipt.schema.js";
+import { QueryRmReceiptDTO, UpdateRmStatusDTO } from "./rm-receipt.schema.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../../lib/errors/api.error.js";
-import { 
-    TransferStatus, 
-    TransferLocationType, 
-    MovementType, 
-    MovementRefType, 
+import {
+    TransferStatus,
+    MovementType,
+    MovementRefType,
     MovementEntityType,
-    TransferPhotoStage 
+    TransferPhotoStage,
+    WasteType,
 } from "../../../../../generated/prisma/enums.js";
 import { InventoryHelper, StockItem } from "../../../inventory-v2/inventory.helper.js";
 
@@ -45,12 +45,15 @@ export class RmReceiptService {
         const { skip, take: limit } = GetPagination(page, take);
 
         const where: Prisma.StockTransferWhereInput = {
-            production_order_id: { not: null },
-            // Filter to only RM transfers (items MUST HAVE raw_material_id)
+            // Penerimaan RM: ALL transfers that have been shipped (SHIPMENT+)
+            // regardless of source (manual, schedule auto-gen, PO, etc.)
+            status: status
+                ? status
+                : { in: [TransferStatus.SHIPMENT, TransferStatus.RECEIVED, TransferStatus.PARTIAL, TransferStatus.FULFILLMENT, TransferStatus.COMPLETED] },
+            // Filter to only RM transfers
             items: {
                 some: { raw_material_id: { not: null } }
             },
-            ...(status && { status }),
             ...(fromDate || toDate ? {
                 date: {
                     ...(fromDate && { gte: new Date(fromDate) }),
@@ -90,35 +93,6 @@ export class RmReceiptService {
         return result;
     }
 
-    static async updateItems(id: number, payload: UpdateRmReceiptItemDTO, userId: string) {
-        return await prisma.$transaction(async (tx) => {
-            const transfer = await tx.stockTransfer.findUnique({
-                where: { id },
-                include: { items: true }
-            });
-
-            if (!transfer) throw new ApiError(404, "Transfer tidak ditemukan");
-            if (transfer.status !== TransferStatus.PENDING) {
-                throw new ApiError(400, "Hanya draf transfer (PENDING) yang dapat diubah kuantitasnya");
-            }
-
-            for (const itemUpdate of payload.items) {
-                const dbItem = transfer.items.find(i => i.id === itemUpdate.id);
-                if (!dbItem) throw new ApiError(400, `Item ID ${itemUpdate.id} tidak ditemukan dalam transfer ini`);
-
-                await tx.stockTransferItem.update({
-                    where: { id: itemUpdate.id },
-                    data: { quantity_requested: itemUpdate.quantity_requested }
-                });
-            }
-
-            return await tx.stockTransfer.findUnique({
-                where: { id },
-                include: RM_RECEIPT_INCLUDE
-            });
-        });
-    }
-
     static async updateStatus(id: number, payload: UpdateRmStatusDTO, userId: string = "system") {
         return await prisma.$transaction(async (tx) => {
             const transfer = await tx.stockTransfer.findUnique({
@@ -137,30 +111,21 @@ export class RmReceiptService {
             });
 
             if (!transfer) throw new ApiError(404, "Data Penerimaan RM tidak ditemukan");
-            
-            if (!transfer.production_order_id) {
-                throw new ApiError(400, "TRM ini tidak valid (tidak terhubung ke Pesanan Manufaktur).");
-            }
 
             if (transfer.status === TransferStatus.COMPLETED || transfer.status === TransferStatus.CANCELLED) {
-                throw new ApiError(400, `Tidak dapat memperbarui transfer dengan status ${transfer.status}`);
+                throw new ApiError(400, `Tidak dapat memperbarui penerimaan dengan status ${transfer.status}`);
+            }
+
+            // Penerimaan RM only handles inbound verification: SHIPMENT → RECEIVED → FULFILLMENT (+ CANCELLED)
+            const allowedTargets: string[] = [TransferStatus.RECEIVED, TransferStatus.FULFILLMENT, TransferStatus.CANCELLED];
+            if (!allowedTargets.includes(payload.status)) {
+                throw new ApiError(400, `Status ${payload.status} harus dikelola melalui Transfer RM, bukan Penerimaan RM.`);
             }
 
             let updateData: Prisma.StockTransferUpdateInput = { status: payload.status };
 
-            if (payload.status === TransferStatus.APPROVED) {
-                if (transfer.status !== TransferStatus.PENDING) {
-                    throw new ApiError(400, "Hanya TRM berstatus PENDING yang dapat disetujui (APPROVED).");
-                }
-                updateData = { ...updateData, approved_at: new Date(), approved_by: userId };
-            }
-
             if (payload.status === TransferStatus.CANCELLED) {
                 updateData = await this._handleCancellation(tx, transfer, updateData, userId);
-            }
-
-            if (payload.status === TransferStatus.SHIPMENT) {
-                updateData = await this._handleShipment(tx, transfer, payload, updateData, userId);
             }
 
             if (payload.status === TransferStatus.RECEIVED) {
@@ -213,64 +178,6 @@ export class RmReceiptService {
         }
 
         return { ...updateData, cancelled_at: new Date(), cancelled_by: userId };
-    }
-
-    private static async _handleShipment(
-        tx: TxClient,
-        transfer: any,
-        payload: UpdateRmStatusDTO,
-        updateData: Prisma.StockTransferUpdateInput,
-        userId: string,
-    ): Promise<Prisma.StockTransferUpdateInput> {
-        if (transfer.status !== TransferStatus.APPROVED) {
-            throw new ApiError(400, "TRM harus disetujui (APPROVED) sebelum dikirim (SHIPMENT).");
-        }
-
-        if (payload.items) {
-            await Promise.all(
-                payload.items.map((i) =>
-                    tx.stockTransferItem.update({
-                        where: { id: i.id },
-                        data: { quantity_packed: i.quantity_packed },
-                    }),
-                ),
-            );
-        }
-
-        if (transfer.from_warehouse_id) {
-            const items: StockItem[] = transfer.items.map((i: any) => {
-                const updatedItem = payload.items?.find(pi => pi.id === i.id);
-                return {
-                    raw_material_id: i.raw_material_id,
-                    quantity: Number(updatedItem?.quantity_packed ?? i.quantity_requested),
-                    raw_material: i.raw_material,
-                };
-            });
-            
-            await InventoryHelper.deductWarehouseStock(
-                tx, 
-                transfer.from_warehouse_id, 
-                items,
-                transfer.id, 
-                MovementRefType.STOCK_TRANSFER, 
-                MovementType.TRANSFER_OUT, 
-                userId,
-                MovementEntityType.RAW_MATERIAL
-            );
-        }
-
-        if (payload.photos && payload.photos.length > 0) {
-            await tx.stockTransferPhoto.createMany({
-                data: payload.photos.map((url: string) => ({
-                    transfer_id: transfer.id,
-                    url,
-                    stage: TransferPhotoStage.SHIPMENT,
-                    uploaded_by: userId,
-                })),
-            });
-        }
-
-        return { ...updateData, shipped_at: new Date(), shipment_notes: payload.notes };
     }
 
     private static async _handleReceived(
@@ -363,16 +270,34 @@ export class RmReceiptService {
             }
         }
 
+        // Record Waste RM for rejected items (applies to all transfers — manual or production-linked)
+        for (const reqItem of payload.items) {
+            const dbItem = transfer.items.find((i: any) => i.id === reqItem.id);
+            const rejectedQty = Number(reqItem.quantity_rejected ?? 0);
+            if (rejectedQty > 0 && dbItem) {
+                await tx.productionOrderWaste.create({
+                    data: {
+                        production_order_id: transfer.production_order_id ?? null,
+                        waste_type: WasteType.RAW_MATERIAL,
+                        raw_material_id: dbItem.raw_material_id,
+                        warehouse_id: transfer.to_warehouse_id,
+                        quantity: rejectedQty,
+                        notes: `Reject dari Transfer ${transfer.transfer_number}`,
+                    },
+                });
+            }
+        }
+
         if (fulfilledItems.length > 0 && transfer.to_warehouse_id) {
             await InventoryHelper.addWarehouseStock(
-                tx, 
-                transfer.to_warehouse_id, 
+                tx,
+                transfer.to_warehouse_id,
                 fulfilledItems,
-                transfer.id, 
-                MovementRefType.STOCK_TRANSFER, 
-                MovementType.TRANSFER_IN, 
+                transfer.id,
+                MovementRefType.STOCK_TRANSFER,
+                MovementType.TRANSFER_IN,
                 userId,
-                "Terima Bahan Baku Manufaktur",
+                "Terima Bahan Baku",
                 MovementEntityType.RAW_MATERIAL
             );
         }

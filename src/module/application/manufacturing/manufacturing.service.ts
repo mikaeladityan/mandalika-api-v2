@@ -7,6 +7,7 @@ import {
     RequestQcActionDTO,
     QueryProductionDTO,
     RequestUpdateProductionDTO,
+    RequestOverrideItemDTO,
 } from "./manufacturing.schema.js";
 import {
     ProductionStatus,
@@ -109,33 +110,6 @@ export class ManufacturingService {
 
             // Handle Automated RM Transfer (Penerimaan RM)
             await this.handleAutomaticRMTransfer(tx, order, userId);
-
-            // STRICT VALIDATION: Ensure all materials are "Ready" (Total Stock across all RM warehouses >= Planned)
-            // This is a safety check if the frontend validation is bypassed
-            const rmWarehouses = await tx.warehouse.findMany({
-                where: { type: "RAW_MATERIAL" as any, deleted_at: null },
-                select: { id: true, code: true },
-            });
-
-            if (rmWarehouses.length > 0) {
-                for (const item of order.items) {
-                    const needed = Number(item.quantity_planned);
-                    let totalAvailable = 0;
-
-                    for (const wh of rmWarehouses) {
-                        totalAvailable += await this.getLatestRMStock(tx, item.raw_material_id, wh.id);
-                    }
-
-                    if (totalAvailable < needed) {
-                        throw new ApiError(
-                            400,
-                            `Stok tidak cukup untuk ${item.raw_material.name}. ` +
-                            `Dibutuhkan: ${needed.toLocaleString()}, Tersedia: ${totalAvailable.toLocaleString()}. ` +
-                            `Mohon pastikan stok Mencukupi sebelum membuat jadwal.`
-                        );
-                    }
-                }
-            }
 
             return order;
         });
@@ -250,9 +224,12 @@ export class ManufacturingService {
         return await prisma.$transaction(async (tx) => {
             const order = await tx.productionOrder.findUnique({
                 where: { id },
-                include: { 
+                include: {
                     items: {
-                        include: { raw_material: { select: { id: true, name: true } } }
+                        include: {
+                            raw_material: { select: { id: true, name: true } },
+                            substitute_raw_material: { select: { id: true, name: true } },
+                        }
                     }
                 },
             });
@@ -309,9 +286,12 @@ export class ManufacturingService {
         return await prisma.$transaction(async (tx) => {
             const order = await tx.productionOrder.findUnique({
                 where: { id },
-                include: { 
+                include: {
                     items: {
-                        include: { raw_material: { select: { id: true, name: true } } }
+                        include: {
+                            raw_material: { select: { id: true, name: true } },
+                            substitute_raw_material: { select: { id: true, name: true } },
+                        }
                     }
                 },
             });
@@ -333,29 +313,33 @@ export class ManufacturingService {
                 const actual = itemPayload.quantity_actual;
                 const wasteQty = planned - actual;
 
+                // Use substitute RM if override was applied, otherwise original
+                const effectiveRmId = (dbItem as any).substitute_raw_material_id ?? dbItem.raw_material_id;
+                const effectiveRmName = (dbItem as any).substitute_raw_material?.name ?? (dbItem as any).raw_material?.name ?? "";
+
                 if (wasteQty > 0 && dbItem.warehouse_id) {
                     await tx.productionOrderWaste.create({
                         data: {
                             production_order_id: id,
                             waste_type: WasteType.RAW_MATERIAL,
-                            raw_material_id: dbItem.raw_material_id,
+                            raw_material_id: effectiveRmId,
                             quantity: wasteQty,
                             notes: `RM saving: planned ${planned}, actual ${actual}`,
                         },
                     });
 
-                    await this.addBackRMStock(tx, dbItem.warehouse_id, dbItem.raw_material_id, wasteQty, id, userId);
+                    await this.addBackRMStock(tx, dbItem.warehouse_id, effectiveRmId, wasteQty, id, userId);
                 }
 
                 if (wasteQty < 0 && dbItem.warehouse_id) {
                     const overUsage = Math.abs(wasteQty);
                     await InventoryHelper.deductWarehouseStock(
-                        tx, 
-                        dbItem.warehouse_id, 
-                        [{ raw_material_id: dbItem.raw_material_id, quantity: overUsage, raw_material: { name: dbItem.raw_material.name } }], 
-                        id, 
-                        MovementRefType.PRODUCTION, 
-                        MovementType.OUT, 
+                        tx,
+                        dbItem.warehouse_id,
+                        [{ raw_material_id: effectiveRmId, quantity: overUsage, raw_material: { name: effectiveRmName } }],
+                        id,
+                        MovementRefType.PRODUCTION,
+                        MovementType.OUT,
                         userId,
                         MovementEntityType.RAW_MATERIAL
                     );
@@ -365,7 +349,7 @@ export class ManufacturingService {
                         data: {
                             production_order_id: id,
                             waste_type: WasteType.RAW_MATERIAL,
-                            raw_material_id: dbItem.raw_material_id,
+                            raw_material_id: effectiveRmId,
                             quantity: overUsage,
                             notes: "Pemakaian Berlebih (Overconsumption)",
                         },
@@ -553,8 +537,13 @@ export class ManufacturingService {
                 },
                 items: {
                     include: {
-                        raw_material: { 
-                            include: { 
+                        raw_material: {
+                            include: {
+                                unit_raw_material: { select: { id: true, name: true } }
+                            }
+                        },
+                        substitute_raw_material: {
+                            include: {
                                 unit_raw_material: { select: { id: true, name: true } }
                             }
                         },
@@ -834,11 +823,15 @@ export class ManufacturingService {
         for (const item of items) {
             const needed = Number(item.quantity_planned);
 
+            // Use substitute RM if override was applied, otherwise original
+            const effectiveRmId = item.substitute_raw_material_id ?? item.raw_material_id;
+            const effectiveRmName = item.substitute_raw_material?.name ?? item.raw_material?.name ?? String(effectiveRmId);
+
             // 2. Get available stock (on-hand minus booked by other RELEASED orders)
             // Pass orderId to exclude the current order's own items from the "booked" calculation
-            const availPRD = await this.getLatestRMStock(tx, item.raw_material_id, prdWh.id, orderId);
-            const availKDG = kdgWh 
-                ? await this.getLatestRMStock(tx, item.raw_material_id, kdgWh.id, orderId)
+            const availPRD = await this.getLatestRMStock(tx, effectiveRmId, prdWh.id, orderId);
+            const availKDG = kdgWh
+                ? await this.getLatestRMStock(tx, effectiveRmId, kdgWh.id, orderId)
                 : 0;
 
             const totalAvailable = availPRD + availKDG;
@@ -847,7 +840,7 @@ export class ManufacturingService {
             if (totalAvailable < needed) {
                 throw new ApiError(
                     400,
-                    `Stok tidak mencukupi untuk Raw Material: ${item.raw_material.name}. ` +
+                    `Stok tidak mencukupi untuk Raw Material: ${effectiveRmName}. ` +
                     `Total tersedia: ${totalAvailable}. Harap lakukan Open PO.`,
                 );
             }
@@ -855,7 +848,7 @@ export class ManufacturingService {
             if (availPRD < needed) {
                 throw new ApiError(
                     400,
-                    `Stok di Gudang Produksi tidak mencukupi untuk ${item.raw_material.name}. ` +
+                    `Stok di Gudang Produksi tidak mencukupi untuk ${effectiveRmName}. ` +
                     `Tersedia di ${prdWh.name || prdWh.code}: ${availPRD}` +
                     (kdgWh ? `, Tersedia di ${kdgWh.name || kdgWh.code}: ${availKDG}` : '') +
                     `. Harap lakukan mutasi terlebih dahulu.`,
@@ -872,9 +865,9 @@ export class ManufacturingService {
 
     private static async deductRMStock(tx: any, items: any[], orderId: number, userId: string) {
         const stockItems = items.map(item => ({
-            raw_material_id: item.raw_material_id,
+            raw_material_id: item.substitute_raw_material_id ?? item.raw_material_id,
             quantity: Number(item.quantity_planned),
-            raw_material: { name: item.raw_material?.name }
+            raw_material: { name: item.substitute_raw_material?.name ?? item.raw_material?.name },
         }));
 
         // Use the same warehouse for all items in a production order typically (GRM-PRD)
@@ -914,6 +907,279 @@ export class ManufacturingService {
             "RM saving/return",
             MovementEntityType.RAW_MATERIAL
         );
+    }
+
+    static async overrideItem(orderId: number, itemId: number, payload: RequestOverrideItemDTO, userId: string = "system") {
+        return await prisma.$transaction(async (tx) => {
+            const order = await tx.productionOrder.findUnique({
+                where: { id: orderId },
+                select: { id: true, status: true, mfg_number: true },
+            });
+            if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
+
+            if (order.status !== ProductionStatus.PLANNING && order.status !== ProductionStatus.RELEASED) {
+                throw new ApiError(400, `Override hanya diizinkan pada status PLANNING atau RELEASED. Status saat ini: ${order.status}`);
+            }
+
+            const item = await tx.productionOrderItem.findFirst({
+                where: { id: itemId, production_order_id: orderId },
+            });
+            if (!item) throw new ApiError(404, "Item tidak ditemukan dalam pesanan ini");
+
+            // Prevent overriding with the same RM
+            if (payload.substitute_raw_material_id === item.raw_material_id) {
+                throw new ApiError(400, "Bahan baku pengganti tidak boleh sama dengan bahan baku asli");
+            }
+
+            const substituteRM = await tx.rawMaterial.findUnique({
+                where: { id: payload.substitute_raw_material_id },
+                select: { id: true, name: true },
+            });
+            if (!substituteRM) throw new ApiError(404, "Bahan baku pengganti tidak ditemukan");
+
+            const updated = await tx.productionOrderItem.update({
+                where: { id: itemId },
+                data: {
+                    substitute_raw_material_id: payload.substitute_raw_material_id,
+                    override_reason: payload.override_reason,
+                },
+                include: {
+                    raw_material: { select: { id: true, name: true } },
+                    substitute_raw_material: { select: { id: true, name: true } },
+                },
+            });
+
+            // --- Auto-transfer check for substitute RM (same logic as handleAutomaticRMTransfer) ---
+            const rmWarehouses = await tx.warehouse.findMany({
+                where: { type: "RAW_MATERIAL" as any, deleted_at: null },
+                select: { id: true, code: true, name: true },
+            });
+
+            const prdWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("PRD"));
+            const kdgWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("KDG"));
+
+            if (prdWh && kdgWh) {
+                const needed = Number(item.quantity_planned);
+                const [stockPRD, stockKDG] = await Promise.all([
+                    this.getLatestRMStock(tx, payload.substitute_raw_material_id, prdWh.id),
+                    this.getLatestRMStock(tx, payload.substitute_raw_material_id, kdgWh.id),
+                ]);
+
+                if (stockPRD < needed) {
+                    const shortfall = needed - stockPRD;
+                    const transferQty = Math.min(shortfall, stockKDG);
+
+                    if (transferQty > 0) {
+                        // Try to append to existing PENDING transfer for this order first
+                        const existingTransfer = await tx.stockTransfer.findFirst({
+                            where: {
+                                production_order_id: orderId,
+                                status: TransferStatus.PENDING,
+                                from_warehouse_id: kdgWh.id,
+                                to_warehouse_id: prdWh.id,
+                            },
+                            select: { id: true },
+                        });
+
+                        if (existingTransfer) {
+                            // Upsert: update existing item for this RM if present, else create
+                            const existingItem = await tx.stockTransferItem.findFirst({
+                                where: {
+                                    transfer_id: existingTransfer.id,
+                                    raw_material_id: payload.substitute_raw_material_id,
+                                },
+                            });
+
+                            if (existingItem) {
+                                await tx.stockTransferItem.update({
+                                    where: { id: existingItem.id },
+                                    data: { quantity_requested: transferQty },
+                                });
+                            } else {
+                                await tx.stockTransferItem.create({
+                                    data: {
+                                        transfer_id: existingTransfer.id,
+                                        raw_material_id: payload.substitute_raw_material_id,
+                                        quantity_requested: transferQty,
+                                        notes: `Override RM untuk Order ${order.mfg_number}`,
+                                    },
+                                });
+                            }
+                        } else {
+                            // Create new transfer for substitute RM
+                            await tx.stockTransfer.create({
+                                data: {
+                                    transfer_number: generateTrmNumber(),
+                                    from_type: TransferLocationType.WAREHOUSE,
+                                    from_warehouse_id: kdgWh.id,
+                                    to_type: TransferLocationType.WAREHOUSE,
+                                    to_warehouse_id: prdWh.id,
+                                    status: TransferStatus.PENDING,
+                                    notes: `Penerimaan RM Otomatis (Override) - Pesanan: ${order.mfg_number}`,
+                                    created_by: userId,
+                                    barcode: `BC-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                                    date: new Date(),
+                                    production_order_id: orderId,
+                                    items: {
+                                        create: [{
+                                            raw_material_id: payload.substitute_raw_material_id,
+                                            quantity_requested: transferQty,
+                                            notes: `Override RM untuk Order ${order.mfg_number}`,
+                                        }],
+                                    },
+                                },
+                            });
+                        }
+                    }
+                }
+            }
+
+            return updated;
+        });
+    }
+
+    static async clearItemOverride(orderId: number, itemId: number, userId: string = "system") {
+        return await prisma.$transaction(async (tx) => {
+            const order = await tx.productionOrder.findUnique({
+                where: { id: orderId },
+                select: { id: true, status: true, mfg_number: true },
+            });
+            if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
+
+            if (order.status !== ProductionStatus.PLANNING && order.status !== ProductionStatus.RELEASED) {
+                throw new ApiError(400, `Hapus override hanya diizinkan pada status PLANNING atau RELEASED. Status saat ini: ${order.status}`);
+            }
+
+            const item = await tx.productionOrderItem.findFirst({
+                where: { id: itemId, production_order_id: orderId },
+            });
+            if (!item) throw new ApiError(404, "Item tidak ditemukan dalam pesanan ini");
+            if (!item.substitute_raw_material_id) throw new ApiError(400, "Item ini tidak memiliki override aktif");
+
+            const substituteRmId = item.substitute_raw_material_id;
+
+            // Clear override on item
+            const updated = await tx.productionOrderItem.update({
+                where: { id: itemId },
+                data: {
+                    substitute_raw_material_id: null,
+                    override_reason: null,
+                },
+                include: {
+                    raw_material: { select: { id: true, name: true } },
+                    substitute_raw_material: { select: { id: true, name: true } },
+                },
+            });
+
+            // Clean up PENDING transfer items for substitute RM linked to this order
+            const pendingTransfers = await tx.stockTransfer.findMany({
+                where: {
+                    production_order_id: orderId,
+                    status: TransferStatus.PENDING,
+                },
+                include: {
+                    items: { where: { raw_material_id: substituteRmId } },
+                },
+            });
+
+            for (const transfer of pendingTransfers) {
+                if (transfer.items.length === 0) continue;
+
+                // Delete the substitute RM items from transfer
+                await tx.stockTransferItem.deleteMany({
+                    where: {
+                        transfer_id: transfer.id,
+                        raw_material_id: substituteRmId,
+                    },
+                });
+
+                // If transfer is now empty, delete it too
+                const remaining = await tx.stockTransferItem.count({
+                    where: { transfer_id: transfer.id },
+                });
+                if (remaining === 0) {
+                    await tx.stockTransfer.delete({ where: { id: transfer.id } });
+                }
+            }
+
+            // Re-check original RM: if PRD stock is insufficient and no PENDING transfer covers it, create one
+            const rmWarehouses = await tx.warehouse.findMany({
+                where: { type: "RAW_MATERIAL" as any, deleted_at: null },
+                select: { id: true, code: true, name: true },
+            });
+
+            const prdWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("PRD"));
+            const kdgWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("KDG"));
+
+            if (prdWh && kdgWh) {
+                const needed = Number(item.quantity_planned);
+                const [stockPRD, stockKDG] = await Promise.all([
+                    this.getLatestRMStock(tx, item.raw_material_id, prdWh.id),
+                    this.getLatestRMStock(tx, item.raw_material_id, kdgWh.id),
+                ]);
+
+                if (stockPRD < needed && stockKDG > 0) {
+                    const shortfall = needed - stockPRD;
+                    const transferQty = Math.min(shortfall, stockKDG);
+
+                    // Check if there's already a PENDING transfer covering original RM for this order
+                    const existingTransfer = await tx.stockTransfer.findFirst({
+                        where: {
+                            production_order_id: orderId,
+                            status: TransferStatus.PENDING,
+                            from_warehouse_id: kdgWh.id,
+                            to_warehouse_id: prdWh.id,
+                        },
+                        select: { id: true },
+                    });
+
+                    if (existingTransfer) {
+                        const existingItem = await tx.stockTransferItem.findFirst({
+                            where: {
+                                transfer_id: existingTransfer.id,
+                                raw_material_id: item.raw_material_id,
+                            },
+                        });
+
+                        if (!existingItem) {
+                            await tx.stockTransferItem.create({
+                                data: {
+                                    transfer_id: existingTransfer.id,
+                                    raw_material_id: item.raw_material_id,
+                                    quantity_requested: transferQty,
+                                    notes: `Restore override — Order ${order.mfg_number}`,
+                                },
+                            });
+                        }
+                    } else {
+                        await tx.stockTransfer.create({
+                            data: {
+                                transfer_number: generateTrmNumber(),
+                                from_type: TransferLocationType.WAREHOUSE,
+                                from_warehouse_id: kdgWh.id,
+                                to_type: TransferLocationType.WAREHOUSE,
+                                to_warehouse_id: prdWh.id,
+                                status: TransferStatus.PENDING,
+                                notes: `Penerimaan RM Otomatis (Restore Override) - Pesanan: ${order.mfg_number}`,
+                                created_by: userId,
+                                barcode: `BC-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                                date: new Date(),
+                                production_order_id: orderId,
+                                items: {
+                                    create: [{
+                                        raw_material_id: item.raw_material_id,
+                                        quantity_requested: transferQty,
+                                        notes: `Restore override — Order ${order.mfg_number}`,
+                                    }],
+                                },
+                            },
+                        });
+                    }
+                }
+            }
+
+            return updated;
+        });
     }
 
     private static async attachAuditUsers(orders: any | any[]) {

@@ -13,6 +13,7 @@ import {
     RequestSubmitResultSchema,
     RequestQcActionSchema,
     RequestUpdateProductionSchema,
+    RequestOverrideItemSchema,
 } from "./manufacturing.schema.js";
 
 const app = new Hono();
@@ -25,6 +26,8 @@ app.patch("/:id/status", validateBody(RequestChangeStatusSchema), ManufacturingC
 app.patch("/:id", validateBody(RequestUpdateProductionSchema), ManufacturingController.update);
 app.post("/:id/result", validateBody(RequestSubmitResultSchema), ManufacturingController.submitResult);
 app.post("/:id/qc", validateBody(RequestQcActionSchema), ManufacturingController.qcAction);
+app.patch("/:id/items/:itemId/override", validateBody(RequestOverrideItemSchema), ManufacturingController.overrideItem);
+app.delete("/:id/items/:itemId/override", ManufacturingController.clearItemOverride);
 app.delete("/:id", ManufacturingController.delete);
 app.delete("/clean/cancelled", ManufacturingController.cleanCancelled);
 app.route("/inventory/rm-movement", inventoryRmMovment);

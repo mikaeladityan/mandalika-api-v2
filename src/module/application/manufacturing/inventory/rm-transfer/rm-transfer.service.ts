@@ -7,19 +7,19 @@ import {
 } from "./rm-transfer.schema.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../../lib/errors/api.error.js";
-import { 
-    TransferStatus, 
-    TransferLocationType, 
-    MovementType, 
-    MovementRefType, 
+import {
+    TransferStatus,
+    TransferLocationType,
+    MovementType,
+    MovementRefType,
     MovementEntityType,
     TransferPhotoStage,
-    WasteType
 } from "../../../../../generated/prisma/enums.js";
 import { InventoryHelper, StockItem } from "../../../inventory-v2/inventory.helper.js";
 import { generateDocNumber, generateDocBarcode } from "../../../inventory-v2/inventory.constants.js";
 
 const RM_TRANSFER_INCLUDE = {
+    production_order: { select: { id: true, mfg_number: true } },
     from_warehouse: true,
     to_warehouse: true,
     items: {
@@ -120,9 +120,8 @@ export class RmTransferService {
         const { skip, take: limit } = GetPagination(page, take);
 
         const where: Prisma.StockTransferWhereInput = {
-            // Manual transfers have NO production_order_id
-            production_order_id: null,
-            // Filter to only RM transfers
+            // All RM transfers: manual, auto-generated from Schedule, from PO, etc.
+            // Filter to only RM transfers (at least one item with raw_material_id)
             items: {
                 some: { raw_material_id: { not: null } }
             },
@@ -177,9 +176,16 @@ export class RmTransferService {
             });
 
             if (!transfer) throw new ApiError(404, "Data Transfer RM tidak ditemukan");
-            
-            if (transfer.status === TransferStatus.COMPLETED || transfer.status === TransferStatus.CANCELLED) {
-                throw new ApiError(400, `Tidak dapat memperbarui transfer dengan status ${transfer.status}`);
+
+            const terminalStatuses: string[] = [TransferStatus.COMPLETED, TransferStatus.CANCELLED, TransferStatus.RECEIVED, TransferStatus.FULFILLMENT];
+            if (terminalStatuses.includes(transfer.status)) {
+                throw new ApiError(400, `Transfer dengan status ${transfer.status} tidak dapat diubah di modul Transfer RM. Gunakan Penerimaan RM untuk verifikasi lebih lanjut.`);
+            }
+
+            // Transfer RM only handles outbound side: PENDING → APPROVED → SHIPMENT (+ CANCELLED)
+            const allowedTargets: string[] = [TransferStatus.APPROVED, TransferStatus.SHIPMENT, TransferStatus.CANCELLED];
+            if (!allowedTargets.includes(payload.status)) {
+                throw new ApiError(400, `Status ${payload.status} tidak dapat diubah melalui Transfer RM. Gunakan Penerimaan RM.`);
             }
 
             let updateData: Prisma.StockTransferUpdateInput = { status: payload.status };
@@ -197,14 +203,6 @@ export class RmTransferService {
 
             if (payload.status === TransferStatus.SHIPMENT) {
                 updateData = await this._handleShipment(tx, transfer, payload, updateData, userId);
-            }
-
-            if (payload.status === TransferStatus.RECEIVED) {
-                updateData = await this._handleReceived(tx, transfer, payload, updateData, userId);
-            }
-
-            if (payload.status === TransferStatus.FULFILLMENT) {
-                updateData = await this._handleFulfillment(tx, transfer, payload, updateData, userId);
             }
 
             return await tx.stockTransfer.update({
@@ -321,167 +319,6 @@ export class RmTransferService {
         return { ...updateData, shipped_at: new Date(), shipment_notes: payload.notes };
     }
 
-    private static async _handleReceived(
-        tx: TxClient,
-        transfer: any,
-        payload: UpdateRmTransferStatusDTO,
-        updateData: Prisma.StockTransferUpdateInput,
-        userId: string,
-    ): Promise<Prisma.StockTransferUpdateInput> {
-        if (transfer.status !== TransferStatus.SHIPMENT) {
-            throw new ApiError(400, "Hanya Transfer berstatus SHIPMENT yang dapat diterima (RECEIVED).");
-        }
-
-        if (payload.items) {
-            await Promise.all(
-                payload.items.map((i) =>
-                    tx.stockTransferItem.update({
-                        where: { id: i.id },
-                        data: { quantity_received: i.quantity_received },
-                    }),
-                ),
-            );
-        }
-
-        if (payload.photos && payload.photos.length > 0) {
-            await tx.stockTransferPhoto.createMany({
-                data: payload.photos.map((url: string) => ({
-                    transfer_id: transfer.id,
-                    url,
-                    stage: TransferPhotoStage.RECEIVED,
-                    uploaded_by: userId,
-                })),
-            });
-        }
-
-        return { ...updateData, received_at: new Date(), received_notes: payload.notes };
-    }
-
-    private static async _handleFulfillment(
-        tx: TxClient,
-        transfer: any,
-        payload: UpdateRmTransferStatusDTO,
-        updateData: Prisma.StockTransferUpdateInput,
-        userId: string,
-    ): Promise<Prisma.StockTransferUpdateInput> {
-        if (transfer.status !== TransferStatus.RECEIVED && transfer.status !== TransferStatus.PARTIAL) {
-            throw new ApiError(400, "Data harus berstatus RECEIVED atau PARTIAL sebelum tahap FULFILLMENT.");
-        }
-
-        const itemsPackedThisCycle = transfer.items.filter((i: any) => Number(i.quantity_packed ?? 0) > 0);
-        const verifiedIds = new Set(payload.items?.map((i) => i.id) ?? []);
-        const missingVerification = itemsPackedThisCycle.filter((i: any) => !verifiedIds.has(i.id));
-
-        if (missingVerification.length > 0) {
-            throw new ApiError(
-                400,
-                `Item berikut belum diverifikasi: ${missingVerification.map((i: any) => i.id).join(", ")}`,
-            );
-        }
-
-        const payloadItemMap = new Map(payload.items?.map((i) => [i.id, i]) ?? []);
-        const fulfilledItems: StockItem[] = [];
-        const fulfillUpdates: Promise<any>[] = [];
-        let allItemsFullyFulfilled = true;
-
-        for (const dbItem of transfer.items) {
-            const packedThisCycle = Number(dbItem.quantity_packed ?? 0);
-
-            if (packedThisCycle === 0) {
-                if (Number(dbItem.quantity_fulfilled ?? 0) < Number(dbItem.quantity_requested) - 0.0001) {
-                    allItemsFullyFulfilled = false;
-                }
-                continue;
-            }
-
-            const reqItem = payloadItemMap.get(dbItem.id);
-            if (!reqItem) throw new ApiError(400, `Item ID ${dbItem.id} (packed this cycle) harus diverifikasi.`);
-
-            const fulfilledThisCycle = Number(reqItem.quantity_fulfilled ?? 0);
-            const missingThisCycle = Number(reqItem.quantity_missing ?? 0);
-            const rejectedThisCycle = Number(reqItem.quantity_rejected ?? 0);
-
-            if (fulfilledThisCycle < 0 || missingThisCycle < 0 || rejectedThisCycle < 0) {
-                throw new ApiError(400, "Kuantitas tidak boleh bernilai negatif.");
-            }
-
-            if (Math.abs(fulfilledThisCycle + missingThisCycle + rejectedThisCycle - packedThisCycle) > 0.0001) {
-                // We allow receiving LESS than packed, the difference is considered "still floating/to be verified later" or "was never actually received"
-                // But generally users verify against what WAS packed. 
-                // If they verify 30 out of 50, we assume 20 are still "at warehouse/floating" or they want to partial verify.
-            }
-
-            const totalFulfilled = Number(dbItem.quantity_fulfilled ?? 0) + fulfilledThisCycle;
-            const totalMissing = Number(dbItem.quantity_missing ?? 0) + missingThisCycle;
-            const totalRejected = Number(dbItem.quantity_rejected ?? 0) + rejectedThisCycle;
-            const remainingPacked = Math.max(0, packedThisCycle - (fulfilledThisCycle + missingThisCycle + rejectedThisCycle));
-
-            if (totalFulfilled + totalMissing + totalRejected < Number(dbItem.quantity_requested) - 0.0001) {
-                allItemsFullyFulfilled = false;
-            }
-
-            fulfillUpdates.push(
-                tx.stockTransferItem.update({
-                    where: { id: dbItem.id },
-                    data: {
-                        quantity_fulfilled: totalFulfilled,
-                        quantity_missing: (Number(dbItem.quantity_missing ?? 0) + missingThisCycle),
-                        quantity_rejected: (Number(dbItem.quantity_rejected ?? 0) + rejectedThisCycle),
-                        quantity_packed: remainingPacked, // Partial verify: keep the rest packed/floating or return to stock
-                    },
-                }),
-            );
-
-            if (fulfilledThisCycle > 0) {
-                fulfilledItems.push({ raw_material_id: dbItem.raw_material_id, quantity: fulfilledThisCycle, raw_material: dbItem.raw_material });
-            }
-        }
-
-        await Promise.all(fulfillUpdates);
-
-        // Record Waste RM for rejected items
-        for (const dbItem of transfer.items) {
-            const reqItem = payloadItemMap.get(dbItem.id);
-            const rejectedThisCycle = Number(reqItem?.quantity_rejected ?? 0);
-
-            if (rejectedThisCycle > 0) {
-                await tx.productionOrderWaste.create({
-                    data: {
-                        production_order_id: transfer.production_order_id || null, // Optional for manual transfers
-                        waste_type: WasteType.RAW_MATERIAL,
-                        raw_material_id: dbItem.raw_material_id,
-                        warehouse_id: transfer.to_warehouse_id,
-                        quantity: rejectedThisCycle,
-                        notes: `Reject dari Transfer ${transfer.transfer_number}`,
-                    }
-                });
-            }
-        }
-
-        if (fulfilledItems.length > 0 && transfer.to_warehouse_id) {
-            await InventoryHelper.addWarehouseStock(
-                tx,
-                transfer.to_warehouse_id as number,
-                fulfilledItems,
-                transfer.id,
-                MovementRefType.STOCK_TRANSFER,
-                MovementType.TRANSFER_IN,
-                userId,
-                "Terima Transfer RM Manual",
-                MovementEntityType.RAW_MATERIAL
-            );
-        }
-
-        const finalStatus = allItemsFullyFulfilled ? TransferStatus.COMPLETED : TransferStatus.PARTIAL;
-
-        return {
-            ...updateData,
-            status: finalStatus,
-            fulfilled_at: new Date(),
-            fulfillment_notes: payload.notes,
-        };
-    }
-    
     static async cleanCancelled() {
         return await prisma.$transaction(async (tx) => {
             // Delete related items first

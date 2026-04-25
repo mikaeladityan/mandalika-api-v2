@@ -222,8 +222,9 @@ model RawMaterial {
   supplier                Supplier?                 @relation(fields: [supplier_id], references: [id])
   unit_raw_material       UnitRawMaterial           @relation(fields: [unit_id], references: [id], onDelete: Cascade)
   recipes                 Recipes[]
-  production_order_items  ProductionOrderItem[]
-  production_rm_wastes    ProductionOrderWaste[]    @relation("ProductionWasteRM")
+  production_order_items            ProductionOrderItem[]  @relation("ProductionItemRM")
+  production_order_substitute_items ProductionOrderItem[]  @relation("ProductionItemSubstituteRM")
+  production_rm_wastes              ProductionOrderWaste[] @relation("ProductionWasteRM")
   transfer_items          StockTransferItem[]
   rfq_items               RFQItem[]
 
@@ -760,21 +761,25 @@ model ProductionOrder {
 }
 
 model ProductionOrderItem {
-  id                  Int             @id @default(autoincrement())
-  production_order_id Int
-  raw_material_id     Int
-  warehouse_id        Int?
-  quantity_planned    Decimal         @db.Decimal(18, 2)
-  quantity_actual     Decimal?        @db.Decimal(18, 2)
-  created_at          DateTime        @default(now())
-  updated_at          DateTime        @updatedAt
-  production_order    ProductionOrder @relation(fields: [production_order_id], references: [id], onDelete: Cascade)
-  raw_material        RawMaterial     @relation(fields: [raw_material_id], references: [id])
-  warehouse           Warehouse?      @relation("ProductionItemWarehouse", fields: [warehouse_id], references: [id])
+  id                         Int             @id @default(autoincrement())
+  production_order_id        Int
+  raw_material_id            Int
+  warehouse_id               Int?
+  quantity_planned           Decimal         @db.Decimal(18, 2)
+  quantity_actual            Decimal?        @db.Decimal(18, 2)
+  substitute_raw_material_id Int?
+  override_reason            String?         @db.VarChar(500)
+  created_at                 DateTime        @default(now())
+  updated_at                 DateTime        @updatedAt
+  production_order           ProductionOrder @relation(fields: [production_order_id], references: [id], onDelete: Cascade)
+  raw_material               RawMaterial     @relation("ProductionItemRM", fields: [raw_material_id], references: [id])
+  substitute_raw_material    RawMaterial?    @relation("ProductionItemSubstituteRM", fields: [substitute_raw_material_id], references: [id])
+  warehouse                  Warehouse?      @relation("ProductionItemWarehouse", fields: [warehouse_id], references: [id])
 
   @@index([production_order_id])
   @@index([raw_material_id])
   @@index([warehouse_id])
+  @@index([substitute_raw_material_id])
   @@map("production_order_items")
 }
 

@@ -8,6 +8,7 @@ import {
     RequestChangeStatusDTO,
     QueryWasteSchema,
     RequestUpdateProductionDTO,
+    RequestOverrideItemDTO,
 } from "./manufacturing.schema.js";
 
 export class ManufacturingController {
@@ -102,6 +103,25 @@ export class ManufacturingController {
 
     static async cleanCancelled(c: Context) {
         const result = await ManufacturingService.cleanCancelled();
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async overrideItem(c: Context) {
+        const orderId = Number(c.req.param("id"));
+        const itemId = Number(c.req.param("itemId"));
+        const body = c.get("body") as RequestOverrideItemDTO;
+        const user = c.get("user");
+        const userId = user?.id || "system";
+        const result = await ManufacturingService.overrideItem(orderId, itemId, body, userId);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async clearItemOverride(c: Context) {
+        const orderId = Number(c.req.param("id"));
+        const itemId = Number(c.req.param("itemId"));
+        const user = c.get("user");
+        const userId = user?.id || "system";
+        const result = await ManufacturingService.clearItemOverride(orderId, itemId, userId);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 }

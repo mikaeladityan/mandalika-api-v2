@@ -91,3 +91,10 @@ export const QueryWasteSchema = z.object({
 });
 
 export type QueryWasteDTO = z.infer<typeof QueryWasteSchema>;
+
+export const RequestOverrideItemSchema = z.object({
+    substitute_raw_material_id: z.number().int().positive(),
+    override_reason: z.string().min(1, "Alasan wajib diisi").max(500),
+});
+
+export type RequestOverrideItemDTO = z.infer<typeof RequestOverrideItemSchema>;

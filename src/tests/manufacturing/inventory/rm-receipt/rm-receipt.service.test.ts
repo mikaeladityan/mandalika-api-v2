@@ -4,7 +4,6 @@ import { RmReceiptService } from "../../../../module/application/manufacturing/i
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { TransferStatus } from "../../../../generated/prisma/enums.js";
 
-// Mocking the prisma service
 vi.mock("../../../../config/prisma.js", () => ({
     default: {
         stockTransfer: {
@@ -19,7 +18,17 @@ vi.mock("../../../../config/prisma.js", () => ({
         stockTransferPhoto: {
             createMany: vi.fn(),
         },
+        productionOrderWaste: {
+            create: vi.fn(),
+        },
         $transaction: vi.fn((cb) => cb(prisma)),
+    },
+}));
+
+vi.mock("../../../../module/application/inventory-v2/inventory.helper.js", () => ({
+    InventoryHelper: {
+        deductWarehouseStock: vi.fn().mockResolvedValue({}),
+        addWarehouseStock: vi.fn().mockResolvedValue({}),
     },
 }));
 
@@ -29,8 +38,8 @@ describe("RmReceiptService", () => {
     });
 
     describe("list", () => {
-        it("should return list of rm receipts", async () => {
-            const mockData = [{ id: 1, transfer_number: "TRM-001" }];
+        it("should return list of rm receipts filtered by SHIPMENT+ status", async () => {
+            const mockData = [{ id: 1, transfer_number: "TRM-001", status: TransferStatus.SHIPMENT }];
             (prisma.stockTransfer.findMany as any).mockResolvedValue(mockData);
             (prisma.stockTransfer.count as any).mockResolvedValue(1);
 
@@ -63,120 +72,106 @@ describe("RmReceiptService", () => {
         });
     });
 
-    describe("updateItems", () => {
-        it("should update quantity requested if status is PENDING", async () => {
+    describe("updateStatus", () => {
+        it("should reject APPROVED status — not allowed in Penerimaan RM", async () => {
             const mockTransfer = {
                 id: 1,
                 status: TransferStatus.PENDING,
-                items: [{ id: 10, quantity_requested: 100 }]
+                items: [],
             };
             (prisma.stockTransfer.findUnique as any).mockResolvedValue(mockTransfer);
+
+            await expect(
+                RmReceiptService.updateStatus(1, { status: TransferStatus.APPROVED }, "user-1")
+            ).rejects.toThrow(ApiError);
+        });
+
+        it("should reject SHIPMENT status — belongs to Transfer RM", async () => {
+            const mockTransfer = {
+                id: 1,
+                status: TransferStatus.APPROVED,
+                items: [],
+            };
+            (prisma.stockTransfer.findUnique as any).mockResolvedValue(mockTransfer);
+
+            await expect(
+                RmReceiptService.updateStatus(1, { status: TransferStatus.SHIPMENT }, "user-1")
+            ).rejects.toThrow(ApiError);
+        });
+
+        it("should mark RECEIVED from SHIPMENT", async () => {
+            const mockTransfer = {
+                id: 1,
+                status: TransferStatus.SHIPMENT,
+                production_order_id: null,
+                items: [{ id: 10, raw_material_id: 5, quantity_packed: 100 }],
+            };
+            (prisma.stockTransfer.findUnique as any).mockResolvedValue(mockTransfer);
+            (prisma.stockTransfer.update as any).mockResolvedValue({ ...mockTransfer, status: TransferStatus.RECEIVED });
             (prisma.stockTransferItem.update as any).mockResolvedValue({});
 
             const payload = {
-                items: [{ id: 10, quantity_requested: 150 }]
-            };
-
-            await RmReceiptService.updateItems(1, payload, "user-1");
-
-            expect(prisma.stockTransferItem.update).toHaveBeenCalledWith(expect.objectContaining({
-                where: { id: 10 },
-                data: { quantity_requested: 150 }
-            }));
-        });
-
-        it("should throw 400 if status is NOT PENDING", async () => {
-            const mockTransfer = {
-                id: 1,
-                status: TransferStatus.COMPLETED,
-                items: []
-            };
-            (prisma.stockTransfer.findUnique as any).mockResolvedValue(mockTransfer);
-
-            const payload = { items: [] };
-
-            await expect(RmReceiptService.updateItems(1, payload, "user-1")).rejects.toThrow(ApiError);
-            await expect(RmReceiptService.updateItems(1, payload, "user-1")).rejects.toThrow("Hanya draf transfer (PENDING) yang dapat diubah kuantitasnya");
-        });
-    });
-
-    describe("updateStatus", () => {
-        beforeEach(() => {
-            vi.mock("../../../../module/application/inventory-v2/inventory.helper.js", () => ({
-                InventoryHelper: {
-                    deductWarehouseStock: vi.fn().mockResolvedValue({}),
-                    addWarehouseStock: vi.fn().mockResolvedValue({}),
-                }
-            }));
-        });
-
-        it("should approve a pending transfer", async () => {
-            const mockTransfer = {
-                id: 1,
-                status: TransferStatus.PENDING,
-                production_order_id: 100,
-                items: []
-            };
-            (prisma.stockTransfer.findUnique as any).mockResolvedValue(mockTransfer);
-            (prisma.stockTransfer.update as any).mockResolvedValue({ ...mockTransfer, status: TransferStatus.APPROVED });
-
-            const result = await RmReceiptService.updateStatus(1, { status: TransferStatus.APPROVED }, "user-1");
-
-            expect(result.status).toBe(TransferStatus.APPROVED);
-            expect(prisma.stockTransfer.update).toHaveBeenCalledWith(expect.objectContaining({
-                where: { id: 1 },
-                data: expect.objectContaining({ status: TransferStatus.APPROVED })
-            }));
-        });
-
-        it("should handle shipment (deduct stock)", async () => {
-             const mockTransfer = {
-                id: 1,
-                status: TransferStatus.APPROVED,
-                production_order_id: 100,
-                from_warehouse_id: 1,
-                items: [{ id: 10, raw_material_id: 5, quantity_requested: 100 }]
-            };
-            (prisma.stockTransfer.findUnique as any).mockResolvedValue(mockTransfer);
-            (prisma.stockTransfer.update as any).mockResolvedValue({ ...mockTransfer, status: TransferStatus.SHIPMENT });
-
-            const payload = { 
-                status: TransferStatus.SHIPMENT, 
-                items: [{ id: 10, quantity_packed: 100 }] 
+                status: TransferStatus.RECEIVED,
+                items: [{ id: 10, quantity_received: 100 }],
             };
             const result = await RmReceiptService.updateStatus(1, payload, "user-1");
 
-            expect(result.status).toBe(TransferStatus.SHIPMENT);
-            expect(prisma.stockTransfer.update).toHaveBeenCalled();
+            expect(result.status).toBe(TransferStatus.RECEIVED);
         });
 
-        it("should handle fulfillment and determine final status (COMPLETED/PARTIAL)", async () => {
+        it("should handle FULFILLMENT and return COMPLETED when no discrepancy", async () => {
             const mockTransfer = {
                 id: 1,
                 status: TransferStatus.RECEIVED,
-                production_order_id: 100,
+                production_order_id: null,
                 to_warehouse_id: 2,
-                items: [{ id: 10, raw_material_id: 5, quantity_packed: 100 }]
+                items: [{ id: 10, raw_material_id: 5, quantity_packed: 100, raw_material: { name: "RM A" } }],
             };
             (prisma.stockTransfer.findUnique as any).mockResolvedValue(mockTransfer);
-            
-            // Full fulfillment
-            const payloadFull = {
-                status: TransferStatus.FULFILLMENT,
-                items: [{ id: 10, quantity_fulfilled: 100, quantity_missing: 0, quantity_rejected: 0 }]
-            };
             (prisma.stockTransfer.update as any).mockResolvedValue({ ...mockTransfer, status: TransferStatus.COMPLETED });
-            const resultFull = await RmReceiptService.updateStatus(1, payloadFull, "user-1");
-            expect(resultFull.status).toBe(TransferStatus.COMPLETED);
+            (prisma.stockTransferItem.update as any).mockResolvedValue({});
 
-            // Partial fulfillment
-            const payloadPartial = {
+            const payload = {
                 status: TransferStatus.FULFILLMENT,
-                items: [{ id: 10, quantity_fulfilled: 90, quantity_missing: 5, quantity_rejected: 5 }]
+                items: [{ id: 10, quantity_fulfilled: 100, quantity_missing: 0, quantity_rejected: 0 }],
             };
+            const result = await RmReceiptService.updateStatus(1, payload, "user-1");
+
+            expect(result.status).toBe(TransferStatus.COMPLETED);
+        });
+
+        it("should return PARTIAL when there are discrepancies in FULFILLMENT", async () => {
+            const mockTransfer = {
+                id: 1,
+                status: TransferStatus.RECEIVED,
+                production_order_id: null,
+                to_warehouse_id: 2,
+                items: [{ id: 10, raw_material_id: 5, quantity_packed: 100, raw_material: { name: "RM A" } }],
+            };
+            (prisma.stockTransfer.findUnique as any).mockResolvedValue(mockTransfer);
             (prisma.stockTransfer.update as any).mockResolvedValue({ ...mockTransfer, status: TransferStatus.PARTIAL });
-            const resultPartial = await RmReceiptService.updateStatus(1, payloadPartial, "user-1");
-            expect(resultPartial.status).toBe(TransferStatus.PARTIAL);
+            (prisma.stockTransferItem.update as any).mockResolvedValue({});
+
+            const payload = {
+                status: TransferStatus.FULFILLMENT,
+                items: [{ id: 10, quantity_fulfilled: 90, quantity_missing: 5, quantity_rejected: 5 }],
+            };
+            const result = await RmReceiptService.updateStatus(1, payload, "user-1");
+
+            expect(result.status).toBe(TransferStatus.PARTIAL);
+        });
+
+        it("should throw 400 for COMPLETED/CANCELLED transfer", async () => {
+            const mockTransfer = {
+                id: 1,
+                status: TransferStatus.COMPLETED,
+                items: [],
+            };
+            (prisma.stockTransfer.findUnique as any).mockResolvedValue(mockTransfer);
+
+            await expect(
+                RmReceiptService.updateStatus(1, { status: TransferStatus.RECEIVED }, "user-1")
+            ).rejects.toThrow(ApiError);
         });
     });
 });

@@ -1,9 +1,8 @@
 import { Context } from "hono";
 import { ApiResponse } from "../../../../../lib/api.response.js";
-import { 
-    QueryRmReceiptDTO, 
-    UpdateRmReceiptItemSchema, 
-    UpdateRmStatusSchema 
+import {
+    QueryRmReceiptDTO,
+    UpdateRmStatusSchema,
 } from "./rm-receipt.schema.js";
 import { RmReceiptService } from "./rm-receipt.service.js";
 
@@ -17,15 +16,6 @@ export class RmReceiptController {
     static async detail(c: Context) {
         const id = c.req.param("id");
         const result = await RmReceiptService.detail(Number(id));
-        return ApiResponse.sendSuccess(c, result);
-    }
-
-    static async updateItems(c: Context) {
-        const id = c.req.param("id");
-        const body = await c.req.json();
-        const payload = UpdateRmReceiptItemSchema.parse(body);
-        const user = c.get("user");
-        const result = await RmReceiptService.updateItems(Number(id), payload, user?.email || "system");
         return ApiResponse.sendSuccess(c, result);
     }
 
