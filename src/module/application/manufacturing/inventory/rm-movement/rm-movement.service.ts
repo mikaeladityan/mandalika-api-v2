@@ -57,8 +57,9 @@ export class RmMovmentService {
         const rawMatIds = Array.from(new Set(movements.map(m => m.entity_id)));
         const warehouseIds = Array.from(new Set(movements.map(m => m.location_id)));
         const orderIds = Array.from(new Set(movements.filter(m => m.reference_type === MovementRefType.PRODUCTION).map(m => m.reference_id as number)));
+        const transferIds = Array.from(new Set(movements.filter(m => m.reference_type === MovementRefType.STOCK_TRANSFER).map(m => m.reference_id as number)));
 
-        const [rawMaterials, warehouses, orders] = await Promise.all([
+        const [rawMaterials, warehouses, orders, transfers] = await Promise.all([
             prisma.rawMaterial.findMany({
                 where: { id: { in: rawMatIds } },
                 include: { unit_raw_material: true }
@@ -68,28 +69,33 @@ export class RmMovmentService {
             }),
             prisma.productionOrder.findMany({
                 where: { id: { in: orderIds } }
+            }),
+            prisma.stockTransfer.findMany({
+                where: { id: { in: transferIds } }
             })
         ]);
 
         const rawMatMap = new Map(rawMaterials.map(rm => [rm.id, rm]));
         const warehouseMap = new Map(warehouses.map(w => [w.id, w]));
         const orderMap = new Map(orders.map(o => [o.id, o]));
+        const transferMap = new Map(transfers.map(t => [t.id, t]));
 
         const data = movements.map(m => {
             const rm = rawMatMap.get(m.entity_id);
             const wh = warehouseMap.get(m.location_id);
             const order = m.reference_type === MovementRefType.PRODUCTION ? orderMap.get(m.reference_id as number) : null;
+            const transfer = m.reference_type === MovementRefType.STOCK_TRANSFER ? transferMap.get(m.reference_id as number) : null;
 
             return {
                 id: m.id,
                 created_at: m.created_at,
-                mfg_number: order?.mfg_number || null,
+                mfg_number: order?.mfg_number || transfer?.transfer_number || null,
                 rm_name: rm?.name || "Unknown",
                 rm_sku: rm?.barcode || rm?.id.toString() || "Unknown",
                 unit: rm?.unit_raw_material.name || "-",
                 warehouse_name: wh?.name || "Unknown",
-                qty_in: m.movement_type === MovementType.IN ? Number(m.quantity) : 0,
-                qty_out: m.movement_type === MovementType.OUT ? Number(m.quantity) : 0,
+                qty_in: ([MovementType.IN, MovementType.TRANSFER_IN, MovementType.RETURN_IN, MovementType.INITIAL] as any[]).includes(m.movement_type) ? Number(m.quantity) : 0,
+                qty_out: ([MovementType.OUT, MovementType.TRANSFER_OUT, MovementType.RETURN_OUT, MovementType.POS_SALE] as any[]).includes(m.movement_type) ? Number(m.quantity) : 0,
                 qty_before: Number(m.qty_before),
                 qty_after: Number(m.qty_after),
                 notes: m.notes,

@@ -198,6 +198,9 @@ export class RmTransferService {
             }
 
             if (payload.status === TransferStatus.CANCELLED) {
+                if (transfer.status === TransferStatus.SHIPMENT) {
+                    throw new ApiError(400, "Transfer yang sudah dikirim (SHIPMENT) tidak dapat dibatalkan.");
+                }
                 updateData = await this._handleCancellation(tx, transfer, updateData, userId);
             }
 
@@ -209,6 +212,36 @@ export class RmTransferService {
                 where: { id },
                 data: updateData,
                 include: RM_TRANSFER_INCLUDE,
+            });
+        });
+    }
+    
+    static async updateItemQuantity(transferId: number, itemId: number, quantity: number, userId: string = "system") {
+        return await prisma.$transaction(async (tx) => {
+            const transfer = await tx.stockTransfer.findUnique({
+                where: { id: transferId },
+                include: { items: true }
+            });
+
+            if (!transfer) throw new ApiError(404, "Data Transfer RM tidak ditemukan");
+            if (transfer.status !== TransferStatus.PENDING) {
+                throw new ApiError(400, "Hanya Transfer berstatus PENDING yang dapat diubah kuantitasnya.");
+            }
+
+            const item = transfer.items.find(i => i.id === itemId);
+            if (!item) throw new ApiError(404, "Item transfer tidak ditemukan");
+
+            // Validate stock at origin warehouse
+            if (transfer.from_warehouse_id) {
+                const available = await InventoryHelper.getAvailableRMStock(item.raw_material_id as number, transfer.from_warehouse_id);
+                if (available < quantity) {
+                    throw new ApiError(400, `Stok tidak mencukupi di gudang asal. Tersedia: ${available.toLocaleString()}`);
+                }
+            }
+
+            return await tx.stockTransferItem.update({
+                where: { id: itemId },
+                data: { quantity_requested: quantity },
             });
         });
     }
@@ -301,6 +334,7 @@ export class RmTransferService {
                 MovementRefType.STOCK_TRANSFER,
                 MovementType.TRANSFER_OUT,
                 userId,
+                undefined, // notes
                 MovementEntityType.RAW_MATERIAL
             );
         }

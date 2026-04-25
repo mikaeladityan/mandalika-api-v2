@@ -36,6 +36,15 @@ export class RmTransferController {
         return ApiResponse.sendSuccess(c, result, 200);
     }
 
+    static async updateItemQuantity(c: Context) {
+        const transferId = Number(c.req.param("id"));
+        const itemId = Number(c.req.param("itemId"));
+        const { quantity } = await c.req.json();
+        const userId = c.get("user")?.id || "system";
+        const result = await RmTransferService.updateItemQuantity(transferId, itemId, quantity, userId);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
     static async cleanCancelled(c: Context) {
         const result = await RmTransferService.cleanCancelled();
         return ApiResponse.sendSuccess(c, result, 200);

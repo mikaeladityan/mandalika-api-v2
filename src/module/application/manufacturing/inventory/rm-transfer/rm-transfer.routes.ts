@@ -14,6 +14,7 @@ rmTransfer.get("/stock-check", RmTransferController.stockCheck);
 rmTransfer.get("/:id", RmTransferController.detail);
 rmTransfer.post("/", validateBody(CreateRmTransferSchema), RmTransferController.create);
 rmTransfer.patch("/:id/status", validateBody(UpdateRmTransferStatusSchema), RmTransferController.updateStatus);
+rmTransfer.patch("/:id/items/:itemId", RmTransferController.updateItemQuantity);
 rmTransfer.delete("/clean/cancelled", RmTransferController.cleanCancelled);
 
 export default rmTransfer;
