@@ -192,8 +192,9 @@ export class ManufacturingService {
         tx: Prisma.TransactionClient,
         orderId: number,
         mfgNumber: string,
-        item: { raw_material_id: number; quantity_planned: any; substitute_raw_material_id?: number | null },
-        userId: string
+        item: { id: number; raw_material_id: number; quantity_planned: any; substitute_raw_material_id?: number | null },
+        userId: string,
+        preFetchedStock?: any
     ) {
         const rmWarehouses = await tx.warehouse.findMany({
             where: { type: "RAW_MATERIAL" as any, deleted_at: null },
@@ -208,9 +209,17 @@ export class ManufacturingService {
         const effectiveRmId = item.substitute_raw_material_id ?? item.raw_material_id;
         const needed = Number(item.quantity_planned);
 
-        const stock = await this.getMaterialsStock(tx, [effectiveRmId], [prdWh.id, kdgWh.id], orderId);
-        const stockPRD = stock[effectiveRmId]?.[prdWh.id]?.avail ?? 0;
-        const stockKDG = stock[effectiveRmId]?.[kdgWh.id]?.avail ?? 0;
+        let stockPRD = 0;
+        let stockKDG = 0;
+
+        if (preFetchedStock) {
+            stockPRD = preFetchedStock[effectiveRmId]?.[prdWh.id]?.avail ?? 0;
+            stockKDG = preFetchedStock[effectiveRmId]?.[kdgWh.id]?.avail ?? 0;
+        } else {
+            const stock = await this.getMaterialsStock(tx, [effectiveRmId], [prdWh.id, kdgWh.id], orderId);
+            stockPRD = stock[effectiveRmId]?.[prdWh.id]?.avail ?? 0;
+            stockKDG = stock[effectiveRmId]?.[kdgWh.id]?.avail ?? 0;
+        }
 
         if (stockPRD < needed) {
             const shortfall = needed - stockPRD;
@@ -286,7 +295,10 @@ export class ManufacturingService {
         return await prisma.$transaction(async (tx) => {
             const order = await tx.productionOrder.findUnique({
                 where: { id },
-                include: { items: true },
+                include: {
+                    items: { include: { raw_material: true, substitute_raw_material: true } },
+                    product: { include: { size: true } },
+                },
             });
             if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
 
@@ -308,7 +320,7 @@ export class ManufacturingService {
             };
 
             if (nextStatus === ProductionStatus.RELEASED) {
-                await this.validateAndAllocateRM(tx, order.items, id);
+                await this.validateAndAllocateRM(tx, order.items, id, order.mfg_number, userId);
                 updateData.released_at = new Date();
             } else if (nextStatus === ProductionStatus.PROCESSING) {
                 await this.deductRMStock(tx, order.items, id, userId);
@@ -329,36 +341,46 @@ export class ManufacturingService {
         return await prisma.$transaction(async (tx) => {
             const order = await tx.productionOrder.findUnique({
                 where: { id },
-                include: { items: { include: { raw_material: true, substitute_raw_material: true } } },
+                include: {
+                    items: { include: { raw_material: true, substitute_raw_material: true } },
+                    product: true,
+                },
             });
             if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
             if (order.status !== ProductionStatus.PROCESSING) {
                 throw new ApiError(400, `Hanya pesanan berstatus PROCESSING yang dapat dikirim hasilnya.`);
             }
 
+            const actualFG = Number(payload.quantity_actual);
+            const plannedFG = Number(order.quantity_planned);
+            const ratio = actualFG / plannedFG;
+
             const shortfalls: string[] = [];
-            const itemsWithShortfall = payload.items.filter(i => {
+            const itemsToValidate = payload.items.filter(i => {
                 const dbItem = order.items.find(d => d.id === i.id);
                 return dbItem && Number(dbItem.quantity_planned) < i.quantity_actual;
             });
 
-            if (itemsWithShortfall.length > 0) {
-                const materialIds = itemsWithShortfall.map(i => {
+            if (itemsToValidate.length > 0) {
+                const materialIds = itemsToValidate.map(i => {
                     const dbItem = order.items.find(d => d.id === i.id)!;
                     return dbItem.substitute_raw_material_id ?? dbItem.raw_material_id;
                 });
-                const whIds = [...new Set(order.items.map(i => i.warehouse_id).filter(id => !!id))] as number[];
+                const whIds = order.items.map(i => i.warehouse_id).filter(id => !!id) as number[];
                 const stockMap = await this.getMaterialsStock(tx, materialIds, whIds);
 
-                for (const itemPayload of itemsWithShortfall) {
+                for (const itemPayload of itemsToValidate) {
                     const dbItem = order.items.find(i => i.id === itemPayload.id)!;
                     const rmId = dbItem.substitute_raw_material_id ?? dbItem.raw_material_id;
+                    const warehouseId = dbItem.warehouse_id;
                     const overUsage = itemPayload.quantity_actual - Number(dbItem.quantity_planned);
-                    const avail = stockMap[rmId]?.[dbItem.warehouse_id!]?.avail ?? 0;
 
-                    if (avail < overUsage) {
-                        const name = dbItem.substitute_raw_material?.name ?? dbItem.raw_material?.name;
-                        shortfalls.push(`${name}: butuh ${overUsage}, tersedia ${avail}`);
+                    if (warehouseId) {
+                        const avail = stockMap[rmId]?.[warehouseId]?.avail ?? 0;
+                        if (avail < overUsage) {
+                            const rmName = dbItem.substitute_raw_material?.name ?? dbItem.raw_material?.name ?? "Material";
+                            shortfalls.push(`${rmName}: butuh tambahan ${overUsage}, tersedia ${avail}`);
+                        }
                     }
                 }
             }
@@ -375,14 +397,15 @@ export class ManufacturingService {
                 const actual = itemPayload.quantity_actual;
                 const diff = planned - actual;
                 const rmId = dbItem.substitute_raw_material_id ?? dbItem.raw_material_id;
+                const warehouseId = dbItem.warehouse_id;
 
                 await tx.productionOrderItem.update({
-                    where: { id: itemPayload.id },
+                    where: { id: dbItem.id },
                     data: { quantity_actual: actual },
                 });
 
-                if (diff > 0 && dbItem.warehouse_id) {
-                    await this.addBackRMStock(tx, dbItem.warehouse_id, rmId, diff, id, userId);
+                if (diff > 0 && warehouseId) {
+                    await this.addBackRMStock(tx, warehouseId, rmId, diff, id, userId);
                     await tx.productionOrderWaste.create({
                         data: {
                             production_order_id: id,
@@ -392,11 +415,11 @@ export class ManufacturingService {
                             notes: `RM saving: planned ${planned}, actual ${actual}`,
                         },
                     });
-                } else if (diff < 0 && dbItem.warehouse_id) {
+                } else if (diff < 0 && warehouseId) {
                     const overUsage = Math.abs(diff);
                     const rmName = dbItem.substitute_raw_material?.name ?? dbItem.raw_material?.name ?? "";
                     await InventoryHelper.deductWarehouseStock(
-                        tx, dbItem.warehouse_id,
+                        tx, warehouseId,
                         [{ raw_material_id: rmId, quantity: overUsage, raw_material: { name: rmName } }],
                         id, MovementRefType.PRODUCTION, MovementType.OUT, userId, undefined, MovementEntityType.RAW_MATERIAL
                     );
@@ -412,13 +435,13 @@ export class ManufacturingService {
                 }
             }
 
-            const yieldLoss = Number(order.quantity_planned) - Number(payload.quantity_actual);
+            const yieldLoss = plannedFG - actualFG;
             if (yieldLoss > 0) {
                 await tx.productionOrderWaste.create({
                     data: {
                         production_order_id: id,
                         product_id: order.product_id,
-                        waste_type: WasteType.RAW_MATERIAL, // Or use a specific Yield Loss type if available
+                        waste_type: WasteType.RAW_MATERIAL,
                         quantity: yieldLoss,
                         notes: "Selisih Hasil Produksi (Yield Loss)",
                     },
@@ -428,7 +451,7 @@ export class ManufacturingService {
             const updated = await tx.productionOrder.update({
                 where: { id },
                 data: {
-                    quantity_actual: payload.quantity_actual,
+                    quantity_actual: actualFG,
                     status: ProductionStatus.QC_REVIEW,
                     completed_at: new Date(),
                     notes: payload.notes ?? order.notes,
@@ -454,11 +477,14 @@ export class ManufacturingService {
             if (order.goods_receipt) throw new ApiError(400, "Barang sudah diterima (GR sudah ada).");
 
             const actualQty = Number(order.quantity_actual ?? order.quantity_planned);
-            if (payload.quantity_accepted + payload.quantity_rejected > actualQty) {
+            const accepted = payload.quantity_accepted || 0;
+            const rejected = payload.quantity_rejected || 0;
+
+            if (accepted + rejected > actualQty) {
                 throw new ApiError(400, "Total QC melebihi jumlah aktual.");
             }
 
-            if (payload.quantity_accepted > 0) {
+            if (accepted > 0) {
                 const gr = await tx.goodsReceipt.create({
                     data: {
                         gr_number: generateDocNumber("GR"),
@@ -469,30 +495,37 @@ export class ManufacturingService {
                         posted_at: new Date(),
                         production_order_id: id,
                         items: {
-                            create: {
-                                product_id: order.product_id,
-                                quantity_planned: actualQty,
-                                quantity_actual: payload.quantity_accepted,
-                            },
+                            create: [
+                                {
+                                    product_id: order.product_id,
+                                    quantity_planned: actualQty,
+                                    quantity_actual: accepted,
+                                }
+                            ],
                         },
                     },
                 });
 
                 await InventoryHelper.addWarehouseStock(
-                    tx, payload.fg_warehouse_id,
-                    [{ product_id: order.product_id, quantity: payload.quantity_accepted }],
-                    gr.id, MovementRefType.GOODS_RECEIPT, MovementType.IN, userId, `Produksi: ${order.mfg_number}`
+                    tx,
+                    payload.fg_warehouse_id,
+                    [{ product_id: order.product_id, quantity: accepted }],
+                    gr.id,
+                    MovementRefType.GOODS_RECEIPT,
+                    MovementType.IN,
+                    userId,
+                    `Produksi: ${order.mfg_number}`,
                 );
             }
 
-            if (payload.quantity_rejected > 0) {
+            if (rejected > 0) {
                 await tx.productionOrderWaste.create({
                     data: {
                         production_order_id: id,
                         waste_type: WasteType.FINISH_GOODS,
                         product_id: order.product_id,
                         warehouse_id: payload.fg_warehouse_id,
-                        quantity: payload.quantity_rejected,
+                        quantity: rejected,
                         notes: payload.qc_notes || "Ditolak saat QC",
                     },
                 });
@@ -502,8 +535,8 @@ export class ManufacturingService {
                 where: { id },
                 data: {
                     status: ProductionStatus.FINISHED,
-                    quantity_accepted: payload.quantity_accepted,
-                    quantity_rejected: payload.quantity_rejected,
+                    quantity_accepted: accepted,
+                    quantity_rejected: rejected,
                     fg_warehouse_id: payload.fg_warehouse_id,
                     qc_notes: payload.qc_notes,
                     finished_at: new Date(),
@@ -782,7 +815,13 @@ export class ManufacturingService {
         });
     }
 
-    private static async validateAndAllocateRM(tx: Prisma.TransactionClient, items: any[], orderId: number) {
+    private static async validateAndAllocateRM(
+        tx: Prisma.TransactionClient, 
+        items: any[], 
+        orderId: number, 
+        mfgNumber: string,
+        userId: string
+    ) {
         const rmWarehouses = await tx.warehouse.findMany({
             where: { type: "RAW_MATERIAL" as any, deleted_at: null },
             select: { id: true, code: true, name: true },
@@ -811,9 +850,8 @@ export class ManufacturingService {
                 throw new ApiError(400, `Stok tidak mencukupi untuk ${rmName}. Total tersedia: ${totalAvailable}.`);
             }
 
-            if (availPRD < needed) {
-                throw new ApiError(400, `Stok di Gudang Produksi tidak mencukupi untuk ${rmName}. Tersedia di PRD: ${availPRD}${kdgWh ? `, Tersedia di KDG: ${availKDG}` : ''}. Harap lakukan mutasi.`);
-            }
+            // Sync transfer if PRD stock is low
+            await this.syncStockTransfer(tx, orderId, mfgNumber, item, userId, stockMap);
 
             await tx.productionOrderItem.updateMany({
                 where: { id: item.id, production_order_id: orderId },

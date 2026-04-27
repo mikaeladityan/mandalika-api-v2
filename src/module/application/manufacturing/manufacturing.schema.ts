@@ -44,17 +44,12 @@ export const RequestSubmitResultSchema = z.object({
 
 export type RequestSubmitResultDTO = z.infer<typeof RequestSubmitResultSchema>;
 
-export const RequestQcActionSchema = z
-    .object({
-        quantity_accepted: z.coerce.number({ error: "Jumlah diterima wajib diisi" }).min(0, "Jumlah diterima minimal 0"),
-        quantity_rejected: z.coerce.number({ error: "Jumlah ditolak wajib diisi" }).min(0, "Jumlah ditolak minimal 0"),
-        fg_warehouse_id: z.coerce.number({ error: "Gudang FG wajib dipilih" }).int().positive("Gudang FG wajib dipilih"),
-        qc_notes: z.string().optional(),
-    })
-    .refine(
-        (d) => d.quantity_accepted + d.quantity_rejected > 0,
-        "Total yang diterima + ditolak harus lebih besar dari 0",
-    );
+export const RequestQcActionSchema = z.object({
+    quantity_accepted: z.coerce.number().min(0),
+    quantity_rejected: z.coerce.number().min(0),
+    fg_warehouse_id: z.coerce.number({ error: "Gudang FG wajib dipilih" }).int().positive("Gudang FG wajib dipilih"),
+    qc_notes: z.string().optional(),
+});
 
 export type RequestQcActionDTO = z.infer<typeof RequestQcActionSchema>;
 
