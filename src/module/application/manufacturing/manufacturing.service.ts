@@ -601,7 +601,12 @@ export class ManufacturingService {
                 );
             }
 
-            return { success: true };
+            const finalOrder = await tx.productionOrder.findUnique({
+                where: { id },
+                include: { items: true, product: true, wastes: true, outputs: { include: { product: true } }, goods_receipt: true },
+            });
+
+            return this.attachAuditUsers(finalOrder!);
         });
     }
 
