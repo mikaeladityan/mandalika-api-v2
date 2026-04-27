@@ -323,7 +323,7 @@ export class ManufacturingService {
                 await this.validateAndAllocateRM(tx, order.items, id, order.mfg_number, userId);
                 updateData.released_at = new Date();
             } else if (nextStatus === ProductionStatus.PROCESSING) {
-                await this.deductRMStock(tx, order.items, id, userId);
+                await this.deductRMStock(tx, order.items, id, order.mfg_number, userId);
                 updateData.processing_at = new Date();
             }
 
@@ -353,86 +353,101 @@ export class ManufacturingService {
 
             const actualFG = Number(payload.quantity_actual);
             const plannedFG = Number(order.quantity_planned);
-            const ratio = actualFG / plannedFG;
 
-            const shortfalls: string[] = [];
-            const itemsToValidate = payload.items.filter(i => {
-                const dbItem = order.items.find(d => d.id === i.id);
-                return dbItem && Number(dbItem.quantity_planned) < i.quantity_actual;
-            });
-
-            if (itemsToValidate.length > 0) {
-                const materialIds = itemsToValidate.map(i => {
-                    const dbItem = order.items.find(d => d.id === i.id)!;
-                    return dbItem.substitute_raw_material_id ?? dbItem.raw_material_id;
-                });
-                const whIds = order.items.map(i => i.warehouse_id).filter(id => !!id) as number[];
-                const stockMap = await this.getMaterialsStock(tx, materialIds, whIds);
-
-                for (const itemPayload of itemsToValidate) {
-                    const dbItem = order.items.find(i => i.id === itemPayload.id)!;
+            // 1. Process items (summed usage from all outputs)
+            for (const itemPayload of payload.items) {
+                let dbItem = order.items.find(i => i.id === itemPayload.id);
+                
+                // Handle existing items
+                if (dbItem) {
+                    const planned = Number(dbItem.quantity_planned);
+                    const actual = itemPayload.quantity_actual;
+                    const diff = planned - actual;
                     const rmId = dbItem.substitute_raw_material_id ?? dbItem.raw_material_id;
                     const warehouseId = dbItem.warehouse_id;
-                    const overUsage = itemPayload.quantity_actual - Number(dbItem.quantity_planned);
 
-                    if (warehouseId) {
-                        const avail = stockMap[rmId]?.[warehouseId]?.avail ?? 0;
-                        if (avail < overUsage) {
-                            const rmName = dbItem.substitute_raw_material?.name ?? dbItem.raw_material?.name ?? "Material";
-                            shortfalls.push(`${rmName}: butuh tambahan ${overUsage}, tersedia ${avail}`);
-                        }
+                    await tx.productionOrderItem.update({
+                        where: { id: dbItem.id },
+                        data: { quantity_actual: actual },
+                    });
+
+                    if (diff > 0 && warehouseId) {
+                        await this.addBackRMStock(tx, warehouseId, rmId, diff, id, userId);
+                        await tx.productionOrderWaste.create({
+                            data: {
+                                production_order_id: id,
+                                waste_type: WasteType.RAW_MATERIAL,
+                                raw_material_id: rmId,
+                                quantity: diff,
+                                notes: `RM saving: planned ${planned}, actual ${actual}`,
+                            },
+                        });
+                    } else if (diff < 0 && warehouseId) {
+                        const overUsage = Math.abs(diff);
+                        const rmName = dbItem.substitute_raw_material?.name ?? dbItem.raw_material?.name ?? "";
+                        await InventoryHelper.deductWarehouseStock(
+                            tx, warehouseId,
+                            [{ raw_material_id: rmId, quantity: overUsage, raw_material: { name: rmName } }],
+                            id, MovementRefType.PRODUCTION, MovementType.OUT, userId, 
+                            `Pemakaian Tambahan (Base Overusage + Split FG) - MFG: ${order.mfg_number}`, 
+                            MovementEntityType.RAW_MATERIAL
+                        );
+                        await tx.productionOrderWaste.create({
+                            data: {
+                                production_order_id: id,
+                                waste_type: WasteType.RAW_MATERIAL,
+                                raw_material_id: rmId,
+                                quantity: overUsage,
+                                notes: "Pemakaian Berlebih (Overconsumption)",
+                            },
+                        });
                     }
-                }
-            }
+                } else if (itemPayload.raw_material_id && itemPayload.warehouse_id) {
+                    // Handle new items (Extra materials for splits)
+                    const actual = itemPayload.quantity_actual;
+                    if (actual <= 0) continue;
 
-            if (shortfalls.length > 0) {
-                throw new ApiError(400, `Stok tidak mencukupi untuk pemakaian berlebih:\n${shortfalls.join("\n")}`);
-            }
-
-            for (const itemPayload of payload.items) {
-                const dbItem = order.items.find(i => i.id === itemPayload.id);
-                if (!dbItem) continue;
-
-                const planned = Number(dbItem.quantity_planned);
-                const actual = itemPayload.quantity_actual;
-                const diff = planned - actual;
-                const rmId = dbItem.substitute_raw_material_id ?? dbItem.raw_material_id;
-                const warehouseId = dbItem.warehouse_id;
-
-                await tx.productionOrderItem.update({
-                    where: { id: dbItem.id },
-                    data: { quantity_actual: actual },
-                });
-
-                if (diff > 0 && warehouseId) {
-                    await this.addBackRMStock(tx, warehouseId, rmId, diff, id, userId);
-                    await tx.productionOrderWaste.create({
+                    await tx.productionOrderItem.create({
                         data: {
                             production_order_id: id,
-                            waste_type: WasteType.RAW_MATERIAL,
-                            raw_material_id: rmId,
-                            quantity: diff,
-                            notes: `RM saving: planned ${planned}, actual ${actual}`,
+                            raw_material_id: itemPayload.raw_material_id,
+                            warehouse_id: itemPayload.warehouse_id,
+                            quantity_planned: 0,
+                            quantity_actual: actual,
                         },
                     });
-                } else if (diff < 0 && warehouseId) {
-                    const overUsage = Math.abs(diff);
-                    const rmName = dbItem.substitute_raw_material?.name ?? dbItem.raw_material?.name ?? "";
+
                     await InventoryHelper.deductWarehouseStock(
-                        tx, warehouseId,
-                        [{ raw_material_id: rmId, quantity: overUsage, raw_material: { name: rmName } }],
-                        id, MovementRefType.PRODUCTION, MovementType.OUT, userId, undefined, MovementEntityType.RAW_MATERIAL
+                        tx, itemPayload.warehouse_id,
+                        [{ raw_material_id: itemPayload.raw_material_id, quantity: actual }],
+                        id, MovementRefType.PRODUCTION, MovementType.OUT, userId, 
+                        `Pemakaian Bahan Split FG (New Material) - MFG: ${order.mfg_number}`, 
+                        MovementEntityType.RAW_MATERIAL
                     );
+                    
                     await tx.productionOrderWaste.create({
                         data: {
                             production_order_id: id,
                             waste_type: WasteType.RAW_MATERIAL,
-                            raw_material_id: rmId,
-                            quantity: overUsage,
-                            notes: "Pemakaian Berlebih (Overconsumption)",
+                            raw_material_id: itemPayload.raw_material_id,
+                            quantity: actual,
+                            notes: `Pemakaian Bahan Split FG (New Material) - MFG: ${order.mfg_number}`,
                         },
                     });
                 }
+            }
+
+            // 2. Save Multiple Outputs
+            if (payload.outputs && payload.outputs.length > 0) {
+                await tx.productionOrderOutput.deleteMany({ where: { production_order_id: id } });
+                await tx.productionOrderOutput.createMany({
+                    data: payload.outputs.map(o => ({
+                        production_order_id: id,
+                        product_id: o.product_id,
+                        quantity_actual: o.quantity_actual,
+                        notes: o.notes,
+                    })),
+                });
             }
 
             const yieldLoss = plannedFG - actualFG;
@@ -441,7 +456,7 @@ export class ManufacturingService {
                     data: {
                         production_order_id: id,
                         product_id: order.product_id,
-                        waste_type: WasteType.RAW_MATERIAL,
+                        waste_type: WasteType.FINISH_GOODS,
                         quantity: yieldLoss,
                         notes: "Selisih Hasil Produksi (Yield Loss)",
                     },
@@ -457,7 +472,7 @@ export class ManufacturingService {
                     notes: payload.notes ?? order.notes,
                     updated_by: userId,
                 },
-                include: { items: true, product: true, wastes: true },
+                include: { items: true, product: true, wastes: true, outputs: { include: { product: true } } },
             });
 
             return this.attachAuditUsers(updated);
@@ -468,23 +483,91 @@ export class ManufacturingService {
         return await prisma.$transaction(async (tx) => {
             const order = await tx.productionOrder.findUnique({
                 where: { id },
-                include: { items: true, goods_receipt: true },
+                include: {
+                    product: { include: { unit: true } },
+                    outputs: { include: { product: { include: { unit: true } } } },
+                },
             });
             if (!order) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
-            if (order.status !== ProductionStatus.QC_REVIEW && order.status !== ProductionStatus.COMPLETED) {
-                throw new ApiError(400, "Pesanan harus dalam status QC REVIEW untuk diproses.");
-            }
-            if (order.goods_receipt) throw new ApiError(400, "Barang sudah diterima (GR sudah ada).");
-
-            const actualQty = Number(order.quantity_actual ?? order.quantity_planned);
-            const accepted = payload.quantity_accepted || 0;
-            const rejected = payload.quantity_rejected || 0;
-
-            if (accepted + rejected > actualQty) {
-                throw new ApiError(400, "Total QC melebihi jumlah aktual.");
+            if (order.status !== ProductionStatus.QC_REVIEW) {
+                throw new ApiError(400, "Hanya pesanan berstatus QC_REVIEW yang dapat diproses QC.");
             }
 
-            if (accepted > 0) {
+            // 1. Collect all accepted items for Goods Receipt
+            const acceptedItems: { product_id: number; quantity: number }[] = [];
+            
+            if (payload.quantity_accepted > 0) {
+                acceptedItems.push({
+                    product_id: order.product_id,
+                    quantity: Number(payload.quantity_accepted),
+                });
+            }
+
+            // 2. Process Primary Product Update
+            await tx.productionOrder.update({
+                where: { id },
+                data: {
+                    quantity_accepted: payload.quantity_accepted,
+                    quantity_rejected: payload.quantity_rejected,
+                    status: ProductionStatus.FINISHED,
+                    finished_at: new Date(),
+                    fg_warehouse_id: payload.fg_warehouse_id,
+                    qc_notes: payload.qc_notes,
+                    updated_by: userId,
+                },
+            });
+
+            if (payload.quantity_rejected > 0) {
+                await tx.productionOrderWaste.create({
+                    data: {
+                        production_order_id: id,
+                        waste_type: WasteType.FINISH_GOODS,
+                        product_id: order.product_id,
+                        warehouse_id: payload.fg_warehouse_id,
+                        quantity: payload.quantity_rejected,
+                        notes: payload.qc_notes || "Reject QC (Primary Product)",
+                    },
+                });
+            }
+
+            // 3. Process Split Outputs QC & Collect Items
+            if (payload.outputs && payload.outputs.length > 0) {
+                for (const outPayload of payload.outputs) {
+                    const dbOutput = order.outputs.find(o => o.id === outPayload.id);
+                    if (!dbOutput) continue;
+
+                    await tx.productionOrderOutput.update({
+                        where: { id: outPayload.id },
+                        data: {
+                            quantity_accepted: outPayload.quantity_accepted,
+                            quantity_rejected: outPayload.quantity_rejected,
+                        },
+                    });
+
+                    if (outPayload.quantity_accepted > 0) {
+                        acceptedItems.push({
+                            product_id: dbOutput.product_id,
+                            quantity: Number(outPayload.quantity_accepted),
+                        });
+                    }
+
+                    if (outPayload.quantity_rejected > 0) {
+                        await tx.productionOrderWaste.create({
+                            data: {
+                                production_order_id: id,
+                                waste_type: WasteType.FINISH_GOODS,
+                                product_id: dbOutput.product_id,
+                                warehouse_id: payload.fg_warehouse_id,
+                                quantity: outPayload.quantity_rejected,
+                                notes: "Reject QC (Split Product)",
+                            },
+                        });
+                    }
+                }
+            }
+
+            // 4. Create Single Goods Receipt for All Accepted Items
+            if (acceptedItems.length > 0) {
                 const gr = await tx.goodsReceipt.create({
                     data: {
                         gr_number: generateDocNumber("GR"),
@@ -494,58 +577,31 @@ export class ManufacturingService {
                         created_by: userId,
                         posted_at: new Date(),
                         production_order_id: id,
-                        items: {
-                            create: [
-                                {
-                                    product_id: order.product_id,
-                                    quantity_planned: actualQty,
-                                    quantity_actual: accepted,
-                                }
-                            ],
-                        },
+                        notes: `Hasil Produksi MFG: ${order.mfg_number} (Termasuk Produk Tambahan/Split)`,
                     },
                 });
 
+                // Add all items to GR
+                for (const item of acceptedItems) {
+                    await tx.goodsReceiptItem.create({
+                        data: {
+                            gr_id: gr.id,
+                            product_id: item.product_id,
+                            quantity_planned: item.quantity,
+                            quantity_actual: item.quantity,
+                        },
+                    });
+                }
+
+                // Update stock for all items
                 await InventoryHelper.addWarehouseStock(
-                    tx,
-                    payload.fg_warehouse_id,
-                    [{ product_id: order.product_id, quantity: accepted }],
-                    gr.id,
-                    MovementRefType.GOODS_RECEIPT,
-                    MovementType.IN,
-                    userId,
-                    `Produksi: ${order.mfg_number}`,
+                    tx, payload.fg_warehouse_id,
+                    acceptedItems,
+                    gr.id, MovementRefType.GOODS_RECEIPT, MovementType.IN, userId, undefined, MovementEntityType.PRODUCT
                 );
             }
 
-            if (rejected > 0) {
-                await tx.productionOrderWaste.create({
-                    data: {
-                        production_order_id: id,
-                        waste_type: WasteType.FINISH_GOODS,
-                        product_id: order.product_id,
-                        warehouse_id: payload.fg_warehouse_id,
-                        quantity: rejected,
-                        notes: payload.qc_notes || "Ditolak saat QC",
-                    },
-                });
-            }
-
-            const updated = await tx.productionOrder.update({
-                where: { id },
-                data: {
-                    status: ProductionStatus.FINISHED,
-                    quantity_accepted: accepted,
-                    quantity_rejected: rejected,
-                    fg_warehouse_id: payload.fg_warehouse_id,
-                    qc_notes: payload.qc_notes,
-                    finished_at: new Date(),
-                    updated_by: userId,
-                },
-                include: { items: true, product: true, wastes: true, goods_receipt: true },
-            });
-
-            return this.attachAuditUsers(updated);
+            return { success: true };
         });
     }
 
@@ -613,6 +669,16 @@ export class ManufacturingService {
                 },
                 goods_receipt: true,
                 fg_warehouse: { select: { id: true, name: true } },
+                outputs: {
+                    include: {
+                        product: {
+                            include: {
+                                size: true,
+                                unit: { select: { id: true, name: true } }
+                            }
+                        }
+                    }
+                }
             },
         });
 
@@ -860,7 +926,7 @@ export class ManufacturingService {
         }
     }
 
-    private static async deductRMStock(tx: any, items: any[], orderId: number, userId: string) {
+    private static async deductRMStock(tx: any, items: any[], orderId: number, mfgNumber: string, userId: string) {
         const stockItems = items.map(item => ({
             raw_material_id: item.substitute_raw_material_id ?? item.raw_material_id,
             quantity: Number(item.quantity_planned),
@@ -881,7 +947,7 @@ export class ManufacturingService {
             MovementRefType.PRODUCTION,
             MovementType.OUT,
             userId,
-            undefined, // notes
+            `Pemakaian Bahan Baku (Planned) - MFG: ${mfgNumber}`,
             MovementEntityType.RAW_MATERIAL
         );
     }
@@ -902,7 +968,7 @@ export class ManufacturingService {
             MovementRefType.PRODUCTION,
             MovementType.IN,
             userId,
-            "RM saving/return",
+            "Pengembalian Sisa Bahan (RM Saving)",
             MovementEntityType.RAW_MATERIAL
         );
     }

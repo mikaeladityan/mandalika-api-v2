@@ -141,6 +141,7 @@ model Product {
   returns                 StockReturnItem[]
   production_orders       ProductionOrder[]
   production_fg_wastes    ProductionOrderWaste[] @relation("ProductionWasteFG")
+  production_order_outputs ProductionOrderOutput[]
 
   @@index([code])
   @@index([type_id])
@@ -749,6 +750,7 @@ model ProductionOrder {
   product           Product                @relation(fields: [product_id], references: [id])
   fg_warehouse      Warehouse?             @relation("ProductionFGWarehouse", fields: [fg_warehouse_id], references: [id])
   items             ProductionOrderItem[]
+  outputs           ProductionOrderOutput[]
   wastes            ProductionOrderWaste[]
   goods_receipt     GoodsReceipt?
   stock_transfer    StockTransfer?
@@ -819,6 +821,22 @@ model GoodsReceiptItem {
   @@index([gr_id])
   @@index([product_id])
   @@map("goods_receipt_items")
+}
+
+model ProductionOrderOutput {
+  id                  Int              @id @default(autoincrement())
+  production_order_id Int
+  product_id          Int
+  quantity_actual     Decimal          @db.Decimal(18, 2)
+  quantity_accepted   Decimal?         @db.Decimal(18, 2)
+  quantity_rejected   Decimal?         @db.Decimal(18, 2)
+  notes               String?
+  created_at          DateTime         @default(now())
+  updated_at          DateTime         @updatedAt
+  production_order    ProductionOrder  @relation(fields: [production_order_id], references: [id], onDelete: Cascade)
+  product             Product          @relation(fields: [product_id], references: [id])
+
+  @@map("production_order_outputs")
 }
 
 model RequestForQuotation {

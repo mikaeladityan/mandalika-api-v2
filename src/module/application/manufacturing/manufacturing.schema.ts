@@ -36,10 +36,19 @@ export const RequestSubmitResultSchema = z.object({
     notes: z.string().optional(),
     items: z.array(
         z.object({
-            id: z.number().int().positive(),
+            id: z.number().int().positive().optional(),
+            raw_material_id: z.number().int().positive().optional(),
+            warehouse_id: z.number().int().positive().optional(),
             quantity_actual: z.number({ error: "Jumlah aktual bahan baku wajib diisi" }).min(0, "Jumlah aktual minimal 0"),
         }),
     ),
+    outputs: z.array(
+        z.object({
+            product_id: z.number().int().positive(),
+            quantity_actual: z.number().min(0),
+            notes: z.string().optional(),
+        })
+    ).optional(),
 });
 
 export type RequestSubmitResultDTO = z.infer<typeof RequestSubmitResultSchema>;
@@ -49,6 +58,13 @@ export const RequestQcActionSchema = z.object({
     quantity_rejected: z.coerce.number().min(0),
     fg_warehouse_id: z.coerce.number({ error: "Gudang FG wajib dipilih" }).int().positive("Gudang FG wajib dipilih"),
     qc_notes: z.string().optional(),
+    outputs: z.array(
+        z.object({
+            id: z.number().int().positive(),
+            quantity_accepted: z.coerce.number().min(0),
+            quantity_rejected: z.coerce.number().min(0),
+        })
+    ).optional(),
 });
 
 export type RequestQcActionDTO = z.infer<typeof RequestQcActionSchema>;

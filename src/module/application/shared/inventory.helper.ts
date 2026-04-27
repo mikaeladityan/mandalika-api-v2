@@ -42,12 +42,26 @@ export class InventoryHelper {
 
             const idField = entity_type === MovementEntityType.PRODUCT ? 'product_id' : 'raw_material_id';
 
-            const periodRecords = await inventoryTable.findMany({
-                where: { [idField]: entityId, warehouse_id, month, year },
-                orderBy: { date: 'asc' }
+            // 1. Calculate qtyBefore by looking at all previous records (Carry forward logic)
+            // Instead of just this month/year, we should look for the latest balance
+            const latestRecords = await inventoryTable.findMany({
+                where: { [idField]: entityId, warehouse_id },
+                orderBy: [{ year: 'desc' }, { month: 'desc' }],
+                take: 1
             });
 
-            const qtyBefore = periodRecords.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+            let qtyBefore = 0;
+            let targetRecord = null;
+
+            if (latestRecords.length > 0) {
+                const latest = latestRecords[0];
+                qtyBefore = Number(latest.quantity);
+                
+                // If the latest record is from the current month/year, we update it
+                if (latest.month === month && latest.year === year) {
+                    targetRecord = latest;
+                }
+            }
 
             if (qtyBefore < item.quantity) {
                 const label = entity_type === MovementEntityType.PRODUCT
@@ -58,13 +72,10 @@ export class InventoryHelper {
 
             const qtyAfter = qtyBefore - item.quantity;
 
-            if (periodRecords.length > 0) {
-                const [primary, ...others] = periodRecords;
-                await inventoryTable.update({ where: { id: primary.id }, data: { quantity: qtyAfter, date: 1 } });
-                if (others.length > 0) {
-                    await inventoryTable.deleteMany({ where: { id: { in: others.map((o: any) => o.id) } } });
-                }
+            if (targetRecord) {
+                await inventoryTable.update({ where: { id: targetRecord.id }, data: { quantity: qtyAfter } });
             } else {
+                // Create a new record for the current month, carrying forward the balance
                 await inventoryTable.create({
                     data: { [idField]: entityId, warehouse_id, quantity: qtyAfter, date: 1, month, year }
                 });
@@ -107,21 +118,32 @@ export class InventoryHelper {
 
             const idField = entity_type === MovementEntityType.PRODUCT ? 'product_id' : 'raw_material_id';
 
-            const periodRecords = await inventoryTable.findMany({
-                where: { [idField]: entityId, warehouse_id, month, year },
-                orderBy: { date: 'asc' }
+            // 1. Calculate qtyBefore by looking at all previous records (Carry forward logic)
+            const latestRecords = await inventoryTable.findMany({
+                where: { [idField]: entityId, warehouse_id },
+                orderBy: [{ year: 'desc' }, { month: 'desc' }],
+                take: 1
             });
 
-            const qtyBefore = periodRecords.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+            let qtyBefore = 0;
+            let targetRecord = null;
+
+            if (latestRecords.length > 0) {
+                const latest = latestRecords[0];
+                qtyBefore = Number(latest.quantity);
+                
+                // If the latest record is from the current month/year, we update it
+                if (latest.month === month && latest.year === year) {
+                    targetRecord = latest;
+                }
+            }
+
             const qtyAfter = qtyBefore + item.quantity;
 
-            if (periodRecords.length > 0) {
-                const [primary, ...others] = periodRecords;
-                await inventoryTable.update({ where: { id: primary.id }, data: { quantity: qtyAfter, date: 1 } });
-                if (others.length > 0) {
-                    await inventoryTable.deleteMany({ where: { id: { in: others.map((o: any) => o.id) } } });
-                }
+            if (targetRecord) {
+                await inventoryTable.update({ where: { id: targetRecord.id }, data: { quantity: qtyAfter } });
             } else {
+                // Create a new record for the current month, carrying forward the balance
                 await inventoryTable.create({
                     data: { [idField]: entityId, warehouse_id, quantity: qtyAfter, date: 1, month, year }
                 });
