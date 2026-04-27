@@ -16,13 +16,13 @@ import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";
 import { ReturnService } from "../return/return.service.js";
-import { InventoryHelper, StockItem } from "../inventory.helper.js";
+import { InventoryHelper, StockItem } from "../../shared/inventory.helper.js";
 import {
     EXPORT_ROW_LIMIT,
     PRODUCT_INCLUDE,
     generateDocNumber,
     generateDocBarcode,
-} from "../inventory.constants.js";
+} from "../../shared/inventory.constants.js";
 
 const DO_INCLUDE = {
     items: { include: { product: PRODUCT_INCLUDE } },

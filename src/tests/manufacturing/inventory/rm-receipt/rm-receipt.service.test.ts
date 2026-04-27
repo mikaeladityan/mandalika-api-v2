@@ -25,7 +25,7 @@ vi.mock("../../../../config/prisma.js", () => ({
     },
 }));
 
-vi.mock("../../../../module/application/inventory-v2/inventory.helper.js", () => ({
+vi.mock("../../../../module/application/shared/inventory.helper.js", () => ({
     InventoryHelper: {
         deductWarehouseStock: vi.fn().mockResolvedValue({}),
         addWarehouseStock: vi.fn().mockResolvedValue({}),

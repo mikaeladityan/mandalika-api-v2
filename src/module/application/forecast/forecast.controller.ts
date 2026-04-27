@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { ApiResponse } from "../../../lib/api.response.js";
-import { CreateLogger } from "../log/log.service.js";
-import type { CreateLoggingActivityDTO } from "../log/log.schema.js";
+import { CreateLogger } from "../shared/activity-logger.js";
+import type { CreateLoggingActivityDTO } from "../shared/activity-logger.js";
 import { ForecastService } from "./forecast.service.js";
 import {
     DeleteForecastByPeriodSchema,

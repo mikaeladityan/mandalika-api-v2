@@ -1,6 +1,20 @@
 import z from "zod";
-import { ResponseProductSchema } from "../product/product.schema.js";
-import { ResponseRawMaterialSchema } from "../rawmat/rawmat.schema.js";
+
+const InlineProductSchema = z.object({
+    id: z.number(),
+    code: z.string(),
+    name: z.string(),
+    product_type: z.object({ id: z.number(), name: z.string(), slug: z.string() }).nullable(),
+    size: z.object({ id: z.number(), size: z.number() }).nullable().optional(),
+    unit: z.object({ id: z.number(), name: z.string() }).nullable(),
+});
+
+const InlineRawMaterialSchema = z.object({
+    name: z.string(),
+    unit_raw_material: z.object({ id: z.number(), name: z.string() }),
+    price: z.number(),
+    current_stock: z.number().optional(),
+});
 
 export const RequestRecipeSchema = z.object({
     product_id: z.number({ message: "Produk tidak boleh kosong" }),
@@ -23,20 +37,8 @@ export const ResponseRecipeSchema = z.object({
     is_active: z.boolean(),
     description: z.string().nullable(),
     quantity: z.number(),
-    product: ResponseProductSchema.pick({
-        id: true,
-        code: true,
-        name: true,
-        product_type: true,
-        size: true,
-        unit: true,
-    }).optional(),
-    raw_material: ResponseRawMaterialSchema.pick({
-        name: true,
-        unit_raw_material: true,
-        price: true,
-        current_stock: true,
-    }).optional(),
+    product: InlineProductSchema.optional(),
+    raw_material: InlineRawMaterialSchema.optional(),
     total_material: z.number().optional(),
 });
 export const QueryRecipeSchema = z.object({

@@ -22,8 +22,8 @@ import {
 } from "../../../generated/prisma/enums.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
-import { InventoryHelper } from "../inventory-v2/inventory.helper.js";
-import { generateDocNumber } from "../inventory-v2/inventory.constants.js";
+import { InventoryHelper } from "../shared/inventory.helper.js";
+import { generateDocNumber } from "../shared/inventory.constants.js";
 
 function generateMfgNumber(): string {
     const now = new Date();
@@ -32,15 +32,6 @@ function generateMfgNumber(): string {
         .toString()
         .padStart(4, "0");
     return `MFG-${ym}-${seq}`;
-}
-
-function generateGrNumber(): string {
-    const now = new Date();
-    const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const seq = Math.floor(Math.random() * 10000)
-        .toString()
-        .padStart(4, "0");
-    return `GR-${ym}-${seq}`;
 }
 
 function generateTrmNumber(): string {
@@ -116,9 +107,20 @@ export class ManufacturingService {
     }
 
     private static async getLatestRMStock(tx: any, rmId: number, warehouseId: number, excludeOrderId?: number): Promise<number> {
-        // 1. Get the latest available period for this RM in THIS specific warehouse
+        const now = new Date();
+        const currentMonth = now.getMonth() + 1;
+        const currentYear = now.getFullYear();
+
+        // 1. Get the latest available period for this RM in THIS specific warehouse (avoiding future periods)
         const latestPeriod = await tx.rawMaterialInventory.findFirst({
-            where: { raw_material_id: rmId, warehouse_id: warehouseId },
+            where: { 
+                raw_material_id: rmId, 
+                warehouse_id: warehouseId,
+                OR: [
+                    { year: { lt: currentYear } },
+                    { year: currentYear, month: { lte: currentMonth } }
+                ]
+            },
             orderBy: [{ year: "desc" }, { month: "desc" }],
             select: { month: true, year: true },
         });
@@ -300,6 +302,53 @@ export class ManufacturingService {
                 throw new ApiError(400, `submitResult memerlukan status PROCESSING, status saat ini: ${order.status}`);
             }
 
+            // Pre-validate: cek stok untuk semua item yang overconsumption sebelum ada mutasi
+            const now = new Date();
+            const currentMonth = now.getMonth() + 1;
+            const currentYear = now.getFullYear();
+            const shortfalls: string[] = [];
+
+            for (const itemPayload of payload.items) {
+                const dbItem = order.items.find((i) => i.id === itemPayload.id);
+                if (!dbItem || !dbItem.warehouse_id) continue;
+
+                const planned = Number(dbItem.quantity_planned);
+                const actual = itemPayload.quantity_actual;
+                const wasteQty = planned - actual;
+
+                if (wasteQty < 0) {
+                    const overUsage = Math.abs(wasteQty);
+                    const effectiveRmId = (dbItem as any).substitute_raw_material_id ?? dbItem.raw_material_id;
+                    const effectiveRmName =
+                        (dbItem as any).substitute_raw_material?.name ??
+                        (dbItem as any).raw_material?.name ??
+                        `Material ID:${effectiveRmId}`;
+
+                    const periodRecords = await tx.rawMaterialInventory.findMany({
+                        where: {
+                            raw_material_id: effectiveRmId,
+                            warehouse_id: dbItem.warehouse_id,
+                            month: currentMonth,
+                            year: currentYear,
+                        },
+                    });
+                    const available = periodRecords.reduce((sum: number, r: any) => sum + Number(r.quantity), 0);
+
+                    if (available < overUsage) {
+                        shortfalls.push(
+                            `${effectiveRmName}: butuh tambah ${overUsage}, tersedia ${available} (kurang ${overUsage - available})`,
+                        );
+                    }
+                }
+            }
+
+            if (shortfalls.length > 0) {
+                throw new ApiError(
+                    400,
+                    `Stok bahan baku tidak mencukupi untuk pemakaian berlebih:\n${shortfalls.join("\n")}`,
+                );
+            }
+
             for (const itemPayload of payload.items) {
                 const dbItem = order.items.find((i) => i.id === itemPayload.id);
                 if (!dbItem) throw new ApiError(400, `Item ID ${itemPayload.id} tidak ditemukan dalam pesanan ini`);
@@ -341,6 +390,7 @@ export class ManufacturingService {
                         MovementRefType.PRODUCTION,
                         MovementType.OUT,
                         userId,
+                        undefined, // notes
                         MovementEntityType.RAW_MATERIAL
                     );
 
@@ -576,14 +626,24 @@ export class ManufacturingService {
             const prdWh = rmWarehouses.find((w) => w.code?.toUpperCase().includes("PRD"));
             const kdgWh = rmWarehouses.find((w) => w.code?.toUpperCase().includes("KDG"));
 
+            const now = new Date();
+            const currentMonth = now.getMonth() + 1;
+            const currentYear = now.getFullYear();
+
             for (const item of result.items) {
-                // Find the latest period stock for this specific item PER WAREHOUSE
+                const rmId = (item as any).substitute_raw_material_id ?? item.raw_material_id;
+
+                // Find the latest period stock for this specific item PER WAREHOUSE (avoiding future)
                 const invRecords = await prisma.$queryRaw<Array<{ warehouse_id: number; quantity: number }>>`
                     SELECT DISTINCT ON (warehouse_id)
                         warehouse_id,
                         quantity
                     FROM raw_material_inventories
-                    WHERE raw_material_id = ${item.raw_material_id}
+                    WHERE raw_material_id = ${rmId}
+                      AND (
+                        year < ${currentYear} 
+                        OR (year = ${currentYear} AND month <= ${currentMonth})
+                      )
                     ORDER BY warehouse_id, year DESC, month DESC
                 `;
 
@@ -591,7 +651,10 @@ export class ManufacturingService {
                 const bookedRecords = await prisma.productionOrderItem.groupBy({
                     by: ["warehouse_id"],
                     where: {
-                        raw_material_id: item.raw_material_id,
+                        OR: [
+                            { raw_material_id: rmId },
+                            { substitute_raw_material_id: rmId }
+                        ],
                         warehouse_id: { in: rmWhIds },
                         production_order: {
                             status: ProductionStatus.RELEASED,
@@ -884,6 +947,7 @@ export class ManufacturingService {
             MovementRefType.PRODUCTION,
             MovementType.OUT,
             userId,
+            undefined, // notes
             MovementEntityType.RAW_MATERIAL
         );
     }
@@ -1180,6 +1244,111 @@ export class ManufacturingService {
 
             return updated;
         });
+    }
+
+    static async bomPreview(productId: number) {
+        const product = await prisma.product.findUnique({
+            where: { id: productId },
+            include: {
+                size: true,
+                recipes: {
+                    where: { is_active: true },
+                    include: {
+                        raw_materials: {
+                            include: { unit_raw_material: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!product) throw new ApiError(404, "Produk tidak ditemukan");
+        if (!product.recipes.length) throw new ApiError(404, "Produk tidak memiliki resep aktif");
+
+        const rmWarehouses = await prisma.warehouse.findMany({
+            where: { type: "RAW_MATERIAL" as any, deleted_at: null },
+            select: { id: true, code: true, name: true },
+        });
+
+        const uniqueRmIds = [...new Set(product.recipes.map((r) => r.raw_mat_id))];
+
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+
+        let stockData: Array<{ raw_material_id: number; warehouse_id: number; on_hand: number }> = [];
+        if (uniqueRmIds.length > 0) {
+            stockData = await prisma.$queryRaw<Array<{ raw_material_id: number; warehouse_id: number; on_hand: number }>>`
+                WITH latest_periods AS (
+                    SELECT DISTINCT ON (raw_material_id, warehouse_id)
+                        raw_material_id, warehouse_id, year, month
+                    FROM raw_material_inventories
+                    WHERE raw_material_id IN (${Prisma.join(uniqueRmIds)})
+                      AND (year < ${currentYear} OR (year = ${currentYear} AND month <= ${currentMonth}))
+                    ORDER BY raw_material_id, warehouse_id, year DESC, month DESC
+                )
+                SELECT lp.raw_material_id, lp.warehouse_id,
+                       COALESCE(SUM(rmi.quantity), 0)::float AS on_hand
+                FROM latest_periods lp
+                JOIN raw_material_inventories rmi
+                    ON rmi.raw_material_id = lp.raw_material_id
+                    AND rmi.warehouse_id = lp.warehouse_id
+                    AND rmi.year = lp.year
+                    AND rmi.month = lp.month
+                GROUP BY lp.raw_material_id, lp.warehouse_id
+            `;
+        }
+
+        const bookedData = await prisma.productionOrderItem.groupBy({
+            by: ["raw_material_id", "warehouse_id"],
+            where: {
+                raw_material_id: { in: uniqueRmIds.length > 0 ? uniqueRmIds : [-1] },
+                production_order: { status: ProductionStatus.RELEASED },
+            },
+            _sum: { quantity_planned: true },
+        });
+
+        const firstRecipe = product.recipes[0]!;
+
+        const recipes = product.recipes.map((r) => {
+            const warehouses: Record<string, { on_hand: number; booked: number; avail: number }> = {};
+
+            for (const wh of rmWarehouses) {
+                const stock = stockData.find(
+                    (s) => s.raw_material_id === r.raw_mat_id && s.warehouse_id === wh.id
+                );
+                const booked = bookedData.find(
+                    (b) => b.raw_material_id === r.raw_mat_id && b.warehouse_id === wh.id
+                );
+
+                const on_hand = Number(stock?.on_hand ?? 0);
+                const booked_qty = Number(booked?._sum.quantity_planned ?? 0);
+                const avail = Math.max(0, on_hand - booked_qty);
+
+                warehouses[wh.code || wh.name] = { on_hand, booked: booked_qty, avail };
+            }
+
+            return {
+                raw_mat_id: r.raw_mat_id,
+                barcode: r.raw_materials?.barcode ?? null,
+                name: r.raw_materials?.name ?? "",
+                quantity: Number(r.quantity),
+                unit: r.raw_materials?.unit_raw_material?.name ?? "",
+                use_size_calc: !!r.use_size_calc,
+                warehouses,
+            };
+        });
+
+        return {
+            product_id: product.id,
+            code: product.code,
+            name: product.name,
+            product_size: Number(product.size?.size ?? 1),
+            version: firstRecipe.version,
+            is_active: firstRecipe.is_active,
+            description: firstRecipe.description ?? null,
+            recipes,
+        };
     }
 
     private static async attachAuditUsers(orders: any | any[]) {

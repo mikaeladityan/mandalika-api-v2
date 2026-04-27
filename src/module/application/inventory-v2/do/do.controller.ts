@@ -8,8 +8,8 @@ import {
     RequestUpdateDeliveryOrderDTO,
 } from "./do.schema.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
-import { CreateLogger } from "../../log/log.service.js";
-import { CreateLoggingActivityDTO } from "../../log/log.schema.js";
+import { CreateLogger } from "../../shared/activity-logger.js";
+import { CreateLoggingActivityDTO } from "../../shared/activity-logger.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 
 const Table = "Delivery Order";

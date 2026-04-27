@@ -1,8 +1,8 @@
 import type { Context } from "hono";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
-import { CreateLogger } from "../../log/log.service.js";
-import type { CreateLoggingActivityDTO } from "../../log/log.schema.js";
+import { CreateLogger } from "../../shared/activity-logger.js";
+import type { CreateLoggingActivityDTO } from "../../shared/activity-logger.js";
 import { ForecastPercentageService } from "./percentages.service.js";
 import { QueryForecastPercentageDTO } from "./percentages.schema.js";
 

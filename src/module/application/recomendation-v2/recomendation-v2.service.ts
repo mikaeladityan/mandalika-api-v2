@@ -10,7 +10,7 @@ import {
     RequestSaveNeedOverrideDTO,
 } from "./recomendation-v2.schema.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
-import { ISSUANCE_THRESHOLD_PERIOD } from "../issuance/issuance.service.js";
+import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 import ExcelJS from "exceljs";
 
 export class RecomendationV2Service {
@@ -275,14 +275,19 @@ export class RecomendationV2Service {
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     LEFT JOIN prod_dynamic_ss dss ON dss.product_id = p.id
                     LEFT JOIN (
-                          SELECT product_id, SUM(quantity) as total_qty
+                          SELECT latest_periods.product_id, SUM(pi.quantity) as total_qty
                           FROM (
-                              SELECT DISTINCT ON (product_id, warehouse_id) product_id, quantity
+                              SELECT DISTINCT ON (product_id, warehouse_id) product_id, warehouse_id, year, month
                               FROM "product_inventories"
                               WHERE (year * 12 + month) <= (${fgInvYear} * 12 + ${fgInvMonth})
                               ORDER BY product_id, warehouse_id, year DESC, month DESC
-                          ) latest_pi
-                          GROUP BY product_id
+                          ) latest_periods
+                          JOIN "product_inventories" pi
+                            ON pi.product_id = latest_periods.product_id
+                            AND pi.warehouse_id = latest_periods.warehouse_id
+                            AND pi.year = latest_periods.year
+                            AND pi.month = latest_periods.month
+                          GROUP BY latest_periods.product_id
                     ) pi_agg ON pi_agg.product_id = p.id
                     GROUP BY fm.id
                 ),
@@ -332,13 +337,19 @@ export class RecomendationV2Service {
                     -- Available Stock (On-Hand minus Booked by RELEASED production orders)
                     GREATEST(0,
                         COALESCE((
-                            SELECT SUM(quantity) FROM (
-                                SELECT DISTINCT ON (warehouse_id) quantity
+                            SELECT SUM(rmi.quantity)
+                            FROM (
+                                SELECT DISTINCT ON (warehouse_id) warehouse_id, year, month
                                 FROM "raw_material_inventories"
                                 WHERE raw_material_id = fm.id
                                   AND (year * 12 + month) <= (${invYear} * 12 + ${invMonth})
                                 ORDER BY warehouse_id, year DESC, month DESC
-                            ) latest_rmi
+                            ) latest_periods
+                            JOIN "raw_material_inventories" rmi
+                                ON rmi.raw_material_id = fm.id
+                                AND rmi.warehouse_id = latest_periods.warehouse_id
+                                AND rmi.year = latest_periods.year
+                                AND rmi.month = latest_periods.month
                         ), 0)
                         -
                         COALESCE((

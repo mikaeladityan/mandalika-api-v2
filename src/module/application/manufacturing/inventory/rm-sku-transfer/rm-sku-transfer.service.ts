@@ -1,7 +1,7 @@
 import { Prisma } from "../../../../../generated/prisma/client.js";
 import prisma from "../../../../../config/prisma.js";
 import { RequestRmSkuTransferDTO } from "./rm-sku-transfer.schema.js";
-import { InventoryHelper } from "../../../inventory-v2/inventory.helper.js";
+import { InventoryHelper } from "../../../shared/inventory.helper.js";
 import { MovementEntityType, MovementRefType, MovementType } from "../../../../../generated/prisma/enums.js";
 import { ApiError } from "../../../../../lib/errors/api.error.js";
 

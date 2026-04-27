@@ -1,7 +1,7 @@
 import { Prisma } from "../../../../../generated/prisma/client.js";
 import prisma from "../../../../../config/prisma.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
-import { EXPORT_ROW_LIMIT } from "../../inventory.constants.js";
+import { EXPORT_ROW_LIMIT } from "../../../shared/inventory.constants.js";
 import {
     QueryStockTotalDTO,
     ResponseStockTotalDTO,

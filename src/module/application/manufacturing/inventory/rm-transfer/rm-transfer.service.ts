@@ -15,8 +15,8 @@ import {
     MovementEntityType,
     TransferPhotoStage,
 } from "../../../../../generated/prisma/enums.js";
-import { InventoryHelper, StockItem } from "../../../inventory-v2/inventory.helper.js";
-import { generateDocNumber, generateDocBarcode } from "../../../inventory-v2/inventory.constants.js";
+import { InventoryHelper, StockItem } from "../../../shared/inventory.helper.js";
+import { generateDocNumber, generateDocBarcode } from "../../../shared/inventory.constants.js";
 
 const RM_TRANSFER_INCLUDE = {
     production_order: { select: { id: true, mfg_number: true } },

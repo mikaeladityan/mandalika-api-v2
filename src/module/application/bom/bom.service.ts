@@ -7,7 +7,7 @@ import {
     ResponseGroupedBOMDTO,
     ResponseMaterialBOMDetailDTO,
 } from "./bom.schema.js";
-import { ISSUANCE_THRESHOLD_PERIOD } from "../issuance/issuance.service.js";
+import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 
 export class BOMService {
     static async list(query: QueryBOMDTO): Promise<ResponseBOMListDTO> {

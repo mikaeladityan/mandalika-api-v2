@@ -21,6 +21,7 @@ const app = new Hono();
 app.get("/", ManufacturingController.list);
 app.post("/", validateBody(RequestCreateProductionSchema), ManufacturingController.create);
 app.get("/wastes", ManufacturingController.listWastes);
+app.get("/bom-preview", ManufacturingController.bomPreview);
 app.get("/:id", ManufacturingController.detail);
 app.patch("/:id/status", validateBody(RequestChangeStatusSchema), ManufacturingController.changeStatus);
 app.patch("/:id", validateBody(RequestUpdateProductionSchema), ManufacturingController.update);

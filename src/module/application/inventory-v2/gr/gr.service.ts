@@ -5,8 +5,8 @@ import { GoodsReceiptStatus, MovementType, MovementRefType } from "../../../../g
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";
-import { InventoryHelper } from "../inventory.helper.js";
-import { EXPORT_ROW_LIMIT, PRODUCT_INCLUDE, generateDocNumber } from "../inventory.constants.js";
+import { InventoryHelper } from "../../shared/inventory.helper.js";
+import { EXPORT_ROW_LIMIT, PRODUCT_INCLUDE, generateDocNumber } from "../../shared/inventory.constants.js";
 import { ReturnService } from "../return/return.service.js";
 
 export class GoodsReceiptService {

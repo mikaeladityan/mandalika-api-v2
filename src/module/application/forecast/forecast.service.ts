@@ -10,7 +10,7 @@ import {
     RunForecastDTO,
     UpdateManualForecastDTO,
 } from "./forecast.schema.js";
-import { ISSUANCE_THRESHOLD_PERIOD } from "../issuance/issuance.service.js";
+import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 
 const PRODUCT_SELECT = {
     id: true,

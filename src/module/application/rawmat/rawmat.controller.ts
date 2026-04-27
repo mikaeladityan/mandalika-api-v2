@@ -4,8 +4,8 @@ import { ApiResponse } from "../../../lib/api.response.js";
 import { QueryRawMaterialDTO } from "./rawmat.schema.js";
 import { redisClient } from "../../../config/redis.js";
 import { Cache } from "../../../lib/utils/cache.js";
-import { CreateLogger } from "../log/log.service.js";
-import { CreateLoggingActivityDTO } from "../log/log.schema.js";
+import { CreateLogger } from "../shared/activity-logger.js";
+import { CreateLoggingActivityDTO } from "../shared/activity-logger.js";
 
 const RAW_MATERIAL_LIST_KEY = "raw_material:list";
 const Table = "Raw Material";

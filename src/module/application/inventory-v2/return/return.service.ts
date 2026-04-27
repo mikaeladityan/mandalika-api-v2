@@ -9,8 +9,8 @@ import {
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { RequestReturnDTO, UpdateReturnStatusDTO, QueryReturnDTO, RequestUpdateReturnDTO } from "./return.schema.js";
-import { InventoryHelper, StockItem } from "../inventory.helper.js";
-import { EXPORT_ROW_LIMIT, PRODUCT_INCLUDE, generateDocNumber } from "../inventory.constants.js";
+import { InventoryHelper, StockItem } from "../../shared/inventory.helper.js";
+import { EXPORT_ROW_LIMIT, PRODUCT_INCLUDE, generateDocNumber } from "../../shared/inventory.constants.js";
 
 const RETURN_INCLUDE = {
     items: { include: { product: PRODUCT_INCLUDE } },

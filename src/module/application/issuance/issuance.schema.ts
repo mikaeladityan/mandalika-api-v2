@@ -1,6 +1,12 @@
 import z from "zod";
-import { ResponseProductSchema } from "../product/product.schema.js";
 import { GENDER, IssuanceType } from "../../../generated/prisma/enums.js";
+
+const InlineProductSchema = z.object({
+    id: z.number(),
+    code: z.string(),
+    name: z.string(),
+    product_type: z.object({ id: z.number(), name: z.string(), slug: z.string() }).nullable(),
+});
 
 export const RequestIssuanceSchema = z.object({
     product_id: z.number("Produk tidak boleh kosong"),
@@ -27,21 +33,11 @@ export const ResponseIssuanceSchema = RequestIssuanceSchema.extend({
     year: z.number(),
     created_at: z.date(),
     updated_at: z.date(),
-    product: ResponseProductSchema.pick({
-        id: true,
-        code: true,
-        name: true,
-        product_type: true,
-    }),
+    product: InlineProductSchema,
 });
 
 export const ResponseIssuanceDetailSchema = z.object({
-    product: ResponseProductSchema.pick({
-        id: true,
-        code: true,
-        name: true,
-        product_type: true,
-    }),
+    product: InlineProductSchema,
     year: z.number(),
     month: z.number(),
     issuances: z.array(ResponseIssuanceSchema),

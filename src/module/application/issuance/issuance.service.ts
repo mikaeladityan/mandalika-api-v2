@@ -5,9 +5,9 @@ import { GetPagination } from "../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";
 
 import { QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO, RequestIssuanceBulkDTO, ResponseIssuanceDetailDTO } from "./issuance.schema.js";
+import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 
-// Periode <= threshold → ambil type='ALL'; periode > threshold → SUM semua type non-ALL
-export const ISSUANCE_THRESHOLD_PERIOD = 2026 * 12 + 2; // February 2026
+export { ISSUANCE_THRESHOLD_PERIOD };
 
 export class IssuanceService {
     static readonly THRESHOLD_PERIOD = ISSUANCE_THRESHOLD_PERIOD;

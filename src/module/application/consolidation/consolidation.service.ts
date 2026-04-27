@@ -3,7 +3,15 @@ import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { QueryConsolidationDTO } from "./consolidation.schema.js";
 import ExcelJS from "exceljs";
-import { generateRFQNumber } from "../purchase/rfq/rfq.service.js";
+
+function generateRFQNumber(): string {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    const rand = Math.floor(Math.random() * 9000) + 1000;
+    return `RFQ-${y}${m}${d}-${rand}`;
+}
 
 export class ConsolidationService {
     static async list(query: QueryConsolidationDTO) {

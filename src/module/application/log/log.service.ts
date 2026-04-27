@@ -1,8 +1,2 @@
-import prisma from "../../../config/prisma.js";
-import { CreateLoggingActivityDTO } from "./log.schema.js";
-
-export async function CreateLogger(data: CreateLoggingActivityDTO) {
-    await prisma.loggingActivity.create({
-        data,
-    });
-}
+export { CreateLogger } from "../shared/activity-logger.js";
+export type { CreateLoggingActivityDTO } from "../shared/activity-logger.js";

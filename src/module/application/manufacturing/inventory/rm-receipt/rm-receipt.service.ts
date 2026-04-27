@@ -11,7 +11,7 @@ import {
     TransferPhotoStage,
     WasteType,
 } from "../../../../../generated/prisma/enums.js";
-import { InventoryHelper, StockItem } from "../../../inventory-v2/inventory.helper.js";
+import { InventoryHelper, StockItem } from "../../../shared/inventory.helper.js";
 
 const RM_RECEIPT_INCLUDE = {
     production_order: true,

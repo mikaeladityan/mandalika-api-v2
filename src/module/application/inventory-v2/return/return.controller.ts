@@ -1,7 +1,7 @@
 import { Context } from "hono";
 import { ReturnService } from "./return.service.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
-import { CreateLogger } from "../../log/log.service.js";
+import { CreateLogger } from "../../shared/activity-logger.js";
 import {
     QueryReturnSchema,
     RequestReturnDTO,

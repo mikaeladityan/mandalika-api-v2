@@ -3,8 +3,8 @@ import { ProductService } from "./product.service.js";
 import { ApiResponse } from "../../../lib/api.response.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { STATUS } from "../../../generated/prisma/enums.js";
-import { CreateLogger } from "../log/log.service.js";
-import { CreateLoggingActivityDTO } from "../log/log.schema.js";
+import { CreateLogger } from "../shared/activity-logger.js";
+import { CreateLoggingActivityDTO } from "../shared/activity-logger.js";
 import { QueryProductDTO } from "./product.schema.js";
 import { Cache } from "../../../lib/utils/cache.js";
 

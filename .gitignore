@@ -34,3 +34,4 @@ src/generated
 
 /src/generated/prisma
 /dist
+.aider*

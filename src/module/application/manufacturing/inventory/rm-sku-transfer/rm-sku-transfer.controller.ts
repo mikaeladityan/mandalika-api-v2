@@ -2,7 +2,7 @@ import { Context } from "hono";
 import { RmSkuTransferService } from "./rm-sku-transfer.service.js";
 import { RequestRmSkuTransferDTO } from "./rm-sku-transfer.schema.js";
 import { ApiResponse } from "../../../../../lib/api.response.js";
-import { CreateLogger } from "../../../log/log.service.js";
+import { CreateLogger } from "../../../shared/activity-logger.js";
 
 export class RmSkuTransferController {
     static async transfer(c: Context) {

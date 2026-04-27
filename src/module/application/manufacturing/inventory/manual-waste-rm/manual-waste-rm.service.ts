@@ -13,7 +13,7 @@ import {
     MovementRefType,
     MovementEntityType,
 } from "../../../../../generated/prisma/enums.js";
-import { InventoryHelper } from "../../../inventory-v2/inventory.helper.js";
+import { InventoryHelper } from "../../../shared/inventory.helper.js";
 
 const WASTE_INCLUDE = {
     raw_material: {

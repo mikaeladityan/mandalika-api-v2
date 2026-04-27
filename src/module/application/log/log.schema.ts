@@ -1,16 +1,13 @@
 import { LogActivities } from "../../../generated/prisma/enums.js";
 import z from "zod";
+import { LoggingActivitySchema } from "../shared/activity-logger.js";
 
-export const LoggingActivitySchema = z.object({
-    email: z.email(),
-    activity: z.enum(LogActivities),
-    description: z.string(),
-});
+export { LoggingActivitySchema } from "../shared/activity-logger.js";
+export type { CreateLoggingActivityDTO } from "../shared/activity-logger.js";
 
 export const ResponseLoggingActivitySchema = LoggingActivitySchema.extend({
     id: z.number(),
     created_at: z.date(),
 });
 
-export type CreateLoggingActivityDTO = z.infer<typeof LoggingActivitySchema>;
 export type ResponseLoggingActivityDTO = z.infer<typeof ResponseLoggingActivitySchema>;

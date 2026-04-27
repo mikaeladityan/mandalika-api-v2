@@ -124,4 +124,13 @@ export class ManufacturingController {
         const result = await ManufacturingService.clearItemOverride(orderId, itemId, userId);
         return ApiResponse.sendSuccess(c, result, 200);
     }
+
+    static async bomPreview(c: Context) {
+        const productId = Number(c.req.query("product_id"));
+        if (!productId || isNaN(productId)) {
+            return c.json({ status: "error", message: "product_id wajib diisi" }, 400);
+        }
+        const result = await ManufacturingService.bomPreview(productId);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
 }

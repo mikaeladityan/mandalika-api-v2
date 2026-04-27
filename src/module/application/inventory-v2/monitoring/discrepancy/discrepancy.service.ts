@@ -2,7 +2,7 @@ import prisma from "../../../../../config/prisma.js";
 import { Prisma } from "../../../../../generated/prisma/client.js";
 import { TransferStatus } from "../../../../../generated/prisma/enums.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
-import { EXPORT_ROW_LIMIT, PRODUCT_INCLUDE } from "../../inventory.constants.js";
+import { EXPORT_ROW_LIMIT, PRODUCT_INCLUDE } from "../../../shared/inventory.constants.js";
 import { QueryDiscrepancyDTO } from "./discrepancy.schema.js";
 
 export class DiscrepancyService {
