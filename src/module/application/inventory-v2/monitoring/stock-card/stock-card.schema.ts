@@ -35,6 +35,9 @@ export interface ResponseStockCardDTO {
     entity_id:      number;
     product_code:   string | null;
     product_name:   string | null;
+    barcode:        string | null;
+    category:       string | null;
+    size:           string | null;
     location_type:  string;
     location_id:    number;
     location_name:  string | null;

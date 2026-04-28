@@ -43,7 +43,7 @@ export class StockCardService {
 
         if (search) {
             const pattern = `%${search}%`;
-            conditions.push(Prisma.sql`(p.name ILIKE ${pattern} OR p.code ILIKE ${pattern})`);
+            conditions.push(Prisma.sql`(p.name ILIKE ${pattern} OR p.code ILIKE ${pattern} OR rm.name ILIKE ${pattern} OR rm.barcode ILIKE ${pattern})`);
         }
         if (date_from) {
             conditions.push(Prisma.sql`sm.created_at >= ${new Date(date_from)}`);
@@ -69,8 +69,11 @@ export class StockCardService {
         sm.id,
         sm.entity_type::text           AS entity_type,
         sm.entity_id,
-        p.code                         AS product_code,
-        p.name                         AS product_name,
+        COALESCE(p.code, '')           AS product_code,
+        COALESCE(p.name, rm.name)      AS product_name,
+        COALESCE(rm.barcode, p.code)   AS barcode,
+        COALESCE(pt.name, rmc.name)    AS category,
+        ps.size::text                  AS size,
         sm.location_type::text         AS location_type,
         sm.location_id,
         CASE
@@ -98,6 +101,11 @@ export class StockCardService {
         FROM stock_movements sm
         LEFT JOIN products   p ON sm.entity_id   = p.id
                                    AND sm.entity_type::text = 'PRODUCT'
+        LEFT JOIN raw_materials rm ON sm.entity_id = rm.id
+                                   AND sm.entity_type::text = 'RAW_MATERIAL'
+        LEFT JOIN product_types pt ON p.type_id = pt.id
+        LEFT JOIN product_size  ps ON p.size_id = ps.id
+        LEFT JOIN raw_mat_categories rmc ON rm.raw_mat_categories_id = rmc.id
         LEFT JOIN warehouses w ON sm.location_id  = w.id
                                    AND sm.location_type::text = 'WAREHOUSE'
         LEFT JOIN outlets    o ON sm.location_id  = o.id
@@ -195,6 +203,9 @@ export class StockCardService {
             entity_id:      Number(r.entity_id),
             product_code:   r.product_code   ?? null,
             product_name:   r.product_name   ?? null,
+            barcode:        r.barcode        ?? null,
+            category:       r.category       ?? null,
+            size:           r.size           ?? null,
             location_type:  r.location_type,
             location_id:    Number(r.location_id),
             location_name:  r.location_name  ?? null,
