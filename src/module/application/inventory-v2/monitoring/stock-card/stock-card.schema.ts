@@ -50,6 +50,8 @@ export interface ResponseStockCardDTO {
     reference_id:   number | null;
     reference_type: string | null;
     reference_code: string | null;
+    reference_subtype: string | null;
+    destination_name: string | null;
     created_by:     string;
     created_at:     Date;
 }

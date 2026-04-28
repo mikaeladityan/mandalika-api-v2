@@ -19,6 +19,7 @@ import {
     WasteType,
     TransferLocationType,
     TransferStatus,
+    WarehouseType,
 } from "../../../generated/prisma/enums.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
@@ -39,6 +40,16 @@ interface MaterialStockInfo {
 }
 
 export class ManufacturingService {
+    private static async getRMWarehouses(tx: Prisma.TransactionClient | typeof prisma) {
+        const warehouses = await tx.warehouse.findMany({
+            where: { type: WarehouseType.RAW_MATERIAL, deleted_at: null },
+            select: { id: true, code: true, name: true },
+        });
+        const prdWh = warehouses.find(w => w.code?.toUpperCase().includes("PRD")) ?? null;
+        const kdgWh = warehouses.find(w => w.code?.toUpperCase().includes("KDG")) ?? null;
+        return { warehouses, prdWh, kdgWh };
+    }
+
     private static generateMfgNumber(): string {
         const now = new Date();
         const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -54,10 +65,11 @@ export class ManufacturingService {
     }
 
     private static async getMaterialsStock(
-        tx: Prisma.TransactionClient,
+        tx: Prisma.TransactionClient | typeof prisma,
         materialIds: number[],
         warehouseIds: number[],
-        excludeOrderId?: number
+        excludeOrderId?: number,
+        prdWhId?: number,
     ): Promise<Record<number, Record<number, WarehouseStock>>> {
         if (!materialIds.length || !warehouseIds.length) return {};
 
@@ -129,13 +141,8 @@ export class ManufacturingService {
                 const bookedQty = bookedItems
                     .filter(b => {
                         const isMatchRm = (b.substitute_raw_material_id === rmId || (!b.substitute_raw_material_id && b.raw_material_id === rmId));
-                        // If b.warehouse_id is null, assume it's booked at PRD warehouse
-                        // Find PRD warehouse ID from warehouseIds (using a pattern if needed)
-                        // For simplicity in this service, if it's null, we'll check if whId is the PRD warehouse
-                        const prdWhId = warehouseIds[0]; // Fallback to first if only one, but we should be more specific
-                        // Usually manufacturing uses the PRD warehouse
-                        const isPrdWh = whId === prdWhId; 
-                        
+                        // null warehouse_id means booked at PRD warehouse (legacy items pre-assignment)
+                        const isPrdWh = prdWhId !== undefined ? whId === prdWhId : false;
                         return isMatchRm && (b.warehouse_id === whId || (b.warehouse_id === null && isPrdWh));
                     })
                     .reduce((sum, b) => sum + Number(b.quantity_planned), 0);
@@ -155,19 +162,14 @@ export class ManufacturingService {
         return await prisma.$transaction(async (tx) => {
             const product = await tx.product.findUnique({
                 where: { id: payload.product_id },
-                include: { 
+                include: {
                     recipes: { where: { is_active: true } },
                     size: true
                 },
             });
             if (!product) throw new ApiError(404, "Produk tidak ditemukan");
 
-            // Find default warehouses
-            const rmWarehouses = await tx.warehouse.findMany({
-                where: { type: "RAW_MATERIAL" as any, deleted_at: null },
-                select: { id: true, code: true },
-            });
-            const prdWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("PRD"));
+            const { prdWh, kdgWh } = await this.getRMWarehouses(tx);
             if (!prdWh) throw new ApiError(400, "Gudang Produksi (PRD) tidak ditemukan dalam sistem.");
 
             const pSize = Number(product.size?.size ?? 1);
@@ -208,9 +210,8 @@ export class ManufacturingService {
                 include: { items: true, product: true },
             });
 
-            // Handle Automated RM Transfer using centralized logic
             for (const item of order.items) {
-                await this.syncStockTransfer(tx, order.id, order.mfg_number, item, userId);
+                await this.syncStockTransfer(tx, order.id, order.mfg_number, item, userId, prdWh, kdgWh);
             }
 
             return order;
@@ -224,16 +225,10 @@ export class ManufacturingService {
         mfgNumber: string,
         item: { id: number; raw_material_id: number; quantity_planned: any; substitute_raw_material_id?: number | null },
         userId: string,
+        prdWh: { id: number; code: string | null },
+        kdgWh: { id: number; code: string | null } | null,
         preFetchedStock?: any
     ) {
-        const rmWarehouses = await tx.warehouse.findMany({
-            where: { type: "RAW_MATERIAL" as any, deleted_at: null },
-            select: { id: true, code: true },
-        });
-
-        const prdWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("PRD"));
-        const kdgWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("KDG"));
-
         if (!prdWh || !kdgWh) return;
 
         const effectiveRmId = item.substitute_raw_material_id ?? item.raw_material_id;
@@ -384,46 +379,50 @@ export class ManufacturingService {
             const actualFG = Number(payload.quantity_actual);
             const plannedFG = Number(order.quantity_planned);
 
-            // 0. Pre-validate stock for all items that require deduction (Additional Usage)
+            // Collect items needing extra stock, then validate in one batch
+            const extraUsageItems: { rmId: number; warehouseId: number; neededQty: number; rmName: string }[] = [];
             for (const itemPayload of payload.items) {
-                let rmId: number | undefined;
-                let warehouseId: number | undefined | null;
-                let neededQty: number = 0;
-                let rmName: string = "Bahan Baku";
-
                 const dbItem = order.items.find(i => i.id === itemPayload.id);
                 if (dbItem) {
                     const diff = Number(dbItem.quantity_planned) - itemPayload.quantity_actual;
-                    if (diff < 0) {
-                        neededQty = Math.abs(diff);
-                        rmId = dbItem.substitute_raw_material_id ?? dbItem.raw_material_id;
-                        warehouseId = dbItem.warehouse_id;
-                        rmName = dbItem.substitute_raw_material?.name ?? dbItem.raw_material?.name ?? "Bahan Baku";
+                    if (diff < 0 && dbItem.warehouse_id) {
+                        extraUsageItems.push({
+                            rmId: dbItem.substitute_raw_material_id ?? dbItem.raw_material_id,
+                            warehouseId: dbItem.warehouse_id,
+                            neededQty: Math.abs(diff),
+                            rmName: dbItem.substitute_raw_material?.name ?? dbItem.raw_material?.name ?? "Bahan Baku",
+                        });
                     }
-                } else if (itemPayload.raw_material_id && itemPayload.warehouse_id) {
-                    neededQty = itemPayload.quantity_actual;
-                    rmId = itemPayload.raw_material_id;
-                    warehouseId = itemPayload.warehouse_id;
-                }
-
-                if (rmId && warehouseId && neededQty > 0) {
-                    const stock = await tx.rawMaterialInventory.findFirst({
-                        where: { raw_material_id: rmId, warehouse_id: warehouseId },
-                        orderBy: [{ year: "desc" }, { month: "desc" }],
+                } else if (itemPayload.raw_material_id && itemPayload.warehouse_id && itemPayload.quantity_actual > 0) {
+                    extraUsageItems.push({
+                        rmId: itemPayload.raw_material_id,
+                        warehouseId: itemPayload.warehouse_id,
+                        neededQty: itemPayload.quantity_actual,
+                        rmName: "Bahan Baku",
                     });
-                    const avail = Number(stock?.quantity ?? 0);
-                    if (avail < neededQty) {
-                        const message = `Stok di gudang Produksi (PRD) tidak mencukupi untuk ${rmName}. Tersedia: ${avail}, Dibutuhkan: ${neededQty}. Harap lakukan transfer manual dari gudang Kandangan (KDG) terlebih dahulu.`;
-                        throw new ApiError(400, message);
+                }
+            }
+
+            if (extraUsageItems.length > 0) {
+                const stockResults = await Promise.all(
+                    extraUsageItems.map(e => tx.rawMaterialInventory.findFirst({
+                        where: { raw_material_id: e.rmId, warehouse_id: e.warehouseId },
+                        orderBy: [{ year: "desc" }, { month: "desc" }],
+                        select: { quantity: true },
+                    }))
+                );
+                for (let i = 0; i < extraUsageItems.length; i++) {
+                    const e = extraUsageItems[i]!;
+                    const avail = Number(stockResults[i]?.quantity ?? 0);
+                    if (avail < e.neededQty) {
+                        throw new ApiError(400, `Stok di gudang Produksi (PRD) tidak mencukupi untuk ${e.rmName}. Tersedia: ${avail}, Dibutuhkan: ${e.neededQty}. Harap lakukan transfer manual dari gudang Kandangan (KDG) terlebih dahulu.`);
                     }
                 }
             }
 
-            // 1. Process items (summed usage from all outputs)
             for (const itemPayload of payload.items) {
-                let dbItem = order.items.find(i => i.id === itemPayload.id);
-                
-                // Handle existing items
+                const dbItem = order.items.find(i => i.id === itemPayload.id);
+
                 if (dbItem) {
                     const planned = Number(dbItem.quantity_planned);
                     const actual = itemPayload.quantity_actual;
@@ -754,18 +753,12 @@ export class ManufacturingService {
 
         if (!result) throw new ApiError(404, "Pesanan produksi tidak ditemukan");
 
-        const rmWarehouses = await prisma.warehouse.findMany({
-            where: { type: "RAW_MATERIAL" as any, deleted_at: null },
-            select: { id: true, name: true, code: true },
-        });
+        const { warehouses: rmWarehouses, prdWh, kdgWh } = await this.getRMWarehouses(prisma);
 
         if (rmWarehouses.length > 0) {
             const whIds = rmWarehouses.map(w => w.id);
             const materialIds = result.items.map(i => i.substitute_raw_material_id ?? i.raw_material_id);
-            const stockMap = await this.getMaterialsStock(prisma, materialIds, whIds, result.id);
-
-            const prdWh = rmWarehouses.find(w => w.code?.toUpperCase().includes("PRD"));
-            const kdgWh = rmWarehouses.find(w => w.code?.toUpperCase().includes("KDG"));
+            const stockMap = await this.getMaterialsStock(prisma, materialIds, whIds, result.id, prdWh?.id);
 
             for (const item of result.items) {
                 const rmId = item.substitute_raw_material_id ?? item.raw_material_id;
@@ -952,25 +945,19 @@ export class ManufacturingService {
     }
 
     private static async validateAndAllocateRM(
-        tx: Prisma.TransactionClient, 
-        items: any[], 
-        orderId: number, 
+        tx: Prisma.TransactionClient,
+        items: any[],
+        orderId: number,
         mfgNumber: string,
         userId: string
     ) {
-        const rmWarehouses = await tx.warehouse.findMany({
-            where: { type: "RAW_MATERIAL" as any, deleted_at: null },
-            select: { id: true, code: true, name: true },
-        });
-
-        const prdWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("PRD"));
-        const kdgWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("KDG"));
+        const { warehouses: rmWarehouses, prdWh, kdgWh } = await this.getRMWarehouses(tx);
 
         if (!prdWh) throw new ApiError(400, "Gudang Produksi (PRD) tidak ditemukan dalam sistem.");
 
         const materialIds = items.map(i => i.substitute_raw_material_id ?? i.raw_material_id);
         const whIds = rmWarehouses.map(w => w.id);
-        const stockMap = await this.getMaterialsStock(tx, materialIds, whIds, orderId);
+        const stockMap = await this.getMaterialsStock(tx, materialIds, whIds, orderId, prdWh.id);
 
         for (const item of items) {
             const needed = Number(item.quantity_planned);
@@ -986,8 +973,7 @@ export class ManufacturingService {
                 throw new ApiError(400, `Stok tidak mencukupi untuk ${rmName}. Total tersedia: ${totalAvailable}.`);
             }
 
-            // Sync transfer if PRD stock is low
-            await this.syncStockTransfer(tx, orderId, mfgNumber, item, userId, stockMap);
+            await this.syncStockTransfer(tx, orderId, mfgNumber, item, userId, prdWh, kdgWh, stockMap);
 
             await tx.productionOrderItem.updateMany({
                 where: { id: item.id, production_order_id: orderId },
@@ -1072,7 +1058,8 @@ export class ManufacturingService {
                 include: { raw_material: true, substitute_raw_material: true },
             });
 
-            await this.syncStockTransfer(tx, orderId, order.mfg_number, updated, userId);
+            const { prdWh, kdgWh } = await this.getRMWarehouses(tx);
+            if (prdWh) await this.syncStockTransfer(tx, orderId, order.mfg_number, updated, userId, prdWh, kdgWh);
             return updated;
         });
     }
@@ -1100,7 +1087,8 @@ export class ManufacturingService {
                 include: { raw_material: true, substitute_raw_material: true },
             });
 
-            await this.syncStockTransfer(tx, orderId, order.mfg_number, updated, userId);
+            const { prdWh, kdgWh } = await this.getRMWarehouses(tx);
+            if (prdWh) await this.syncStockTransfer(tx, orderId, order.mfg_number, updated, userId, prdWh, kdgWh);
             return updated;
         });
     }
@@ -1120,14 +1108,11 @@ export class ManufacturingService {
         if (!product) throw new ApiError(404, "Produk tidak ditemukan");
         if (!product.recipes.length) throw new ApiError(404, "Produk tidak memiliki resep aktif");
 
-        const rmWarehouses = await prisma.warehouse.findMany({
-            where: { type: "RAW_MATERIAL" as any, deleted_at: null },
-            select: { id: true, code: true, name: true },
-        });
+        const { warehouses: rmWarehouses, prdWh: bomPrdWh } = await this.getRMWarehouses(prisma);
 
         const whIds = rmWarehouses.map(w => w.id);
         const uniqueRmIds = [...new Set(product.recipes.map(r => r.raw_mat_id))];
-        const stockMap = await this.getMaterialsStock(prisma, uniqueRmIds, whIds);
+        const stockMap = await this.getMaterialsStock(prisma, uniqueRmIds, whIds, undefined, bomPrdWh?.id);
 
         const firstRecipe = product.recipes[0]!;
         const recipes = product.recipes.map((r) => {

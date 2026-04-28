@@ -448,6 +448,7 @@ export class DOService {
         return await prisma.$transaction(async (tx) => {
             const transfer = await tx.stockTransfer.findUnique({
                 where: { id },
+                include: { items: true }
             });
 
             if (!transfer) throw new ApiError(404, "Data Delivery Order tidak ditemukan");
@@ -455,6 +456,24 @@ export class DOService {
             // Only allow update if status is PENDING or APPROVED
             if (transfer.status !== TransferStatus.PENDING && transfer.status !== TransferStatus.APPROVED) {
                 throw new ApiError(400, "Tidak dapat mengubah data yang sudah dalam proses pengiriman atau selesai.");
+            }
+
+            // Update items if provided
+            if (payload.items) {
+                // Delete existing items
+                await tx.stockTransferItem.deleteMany({
+                    where: { transfer_id: id }
+                });
+
+                // Create new items
+                await tx.stockTransferItem.createMany({
+                    data: payload.items.map(i => ({
+                        transfer_id: id,
+                        product_id: i.product_id,
+                        quantity_requested: i.quantity_requested,
+                        notes: i.notes
+                    }))
+                });
             }
 
             const updated = await tx.stockTransfer.update({

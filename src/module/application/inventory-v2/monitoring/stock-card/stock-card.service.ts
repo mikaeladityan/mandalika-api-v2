@@ -93,6 +93,29 @@ export class StockCardService {
             WHEN sm.reference_type::text = 'GOODS_RECEIPT'  THEN gr.gr_number
             ELSE NULL
         END                            AS reference_code,
+        CASE
+            WHEN sm.reference_type::text = 'STOCK_TRANSFER' AND st.to_outlet_id IS NOT NULL THEN 'DO'
+            WHEN sm.reference_type::text = 'STOCK_TRANSFER' AND st.to_warehouse_id IS NOT NULL THEN 'TG'
+            WHEN sm.reference_type::text = 'STOCK_RETURN' THEN 'RETURN'
+            WHEN sm.reference_type::text = 'GOODS_RECEIPT' THEN 'GR'
+            ELSE NULL
+        END                            AS reference_subtype,
+        CASE
+            WHEN sm.movement_type::text IN ('OUT', 'TRANSFER_OUT', 'RETURN_OUT', 'POS_SALE') THEN
+                CASE
+                    WHEN sm.reference_type::text = 'STOCK_TRANSFER' THEN COALESCE(st_tw.name, st_to.name)
+                    WHEN sm.reference_type::text = 'STOCK_RETURN'   THEN COALESCE(sr_tw.name, sr_to.name)
+                    ELSE 'OUTBOUND'
+                END
+            WHEN sm.movement_type::text IN ('IN', 'TRANSFER_IN', 'RETURN_IN', 'INITIAL') THEN
+                CASE
+                    WHEN sm.reference_type::text = 'STOCK_TRANSFER' THEN st_fw.name
+                    WHEN sm.reference_type::text = 'STOCK_RETURN'   THEN COALESCE(sr_fw.name, sr_fo.name)
+                    WHEN sm.reference_type::text = 'GOODS_RECEIPT'  THEN 'PRODUCTION / INBOUND'
+                    ELSE 'INBOUND'
+                END
+            ELSE NULL
+        END                            AS destination_name,
         sm.created_by,
         sm.created_at
     `;
@@ -113,6 +136,14 @@ export class StockCardService {
         LEFT JOIN stock_transfers st ON sm.reference_id = st.id AND sm.reference_type::text = 'STOCK_TRANSFER'
         LEFT JOIN stock_returns   sr ON sm.reference_id = sr.id AND sm.reference_type::text = 'STOCK_RETURN'
         LEFT JOIN goods_receipts  gr ON sm.reference_id = gr.id AND sm.reference_type::text = 'GOODS_RECEIPT'
+        -- Joins for Destination/Source Names
+        LEFT JOIN warehouses st_fw ON st.from_warehouse_id = st_fw.id
+        LEFT JOIN warehouses st_tw ON st.to_warehouse_id = st_tw.id
+        LEFT JOIN outlets    st_to ON st.to_outlet_id    = st_to.id
+        LEFT JOIN warehouses sr_fw ON sr.from_warehouse_id = sr_fw.id
+        LEFT JOIN outlets    sr_fo ON sr.from_outlet_id    = sr_fo.id
+        LEFT JOIN warehouses sr_tw ON sr.to_warehouse_id = sr_tw.id
+        LEFT JOIN outlets    sr_to ON sr.to_outlet_id    = sr_to.id
     `;
 
     /**
@@ -216,6 +247,8 @@ export class StockCardService {
             reference_id:   r.reference_id   != null ? Number(r.reference_id)   : null,
             reference_type: r.reference_type ?? null,
             reference_code: r.reference_code ?? null,
+            reference_subtype: r.reference_subtype ?? null,
+            destination_name: r.destination_name ?? null,
             created_by:     r.created_by,
             created_at:     new Date(r.created_at),
         };

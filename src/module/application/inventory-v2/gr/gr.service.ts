@@ -183,6 +183,7 @@ export class GoodsReceiptService {
         return await prisma.$transaction(async (tx) => {
             const gr = await tx.goodsReceipt.findUnique({
                 where: { id },
+                include: { items: true }
             });
 
             if (!gr) throw new ApiError(404, "Data Goods Receipt tidak ditemukan");
@@ -190,6 +191,25 @@ export class GoodsReceiptService {
             // Only allow update if status is PENDING
             if (gr.status !== GoodsReceiptStatus.PENDING) {
                 throw new ApiError(400, "Tidak dapat mengubah data yang sudah selesai atau dibatalkan.");
+            }
+
+            // Update items if provided
+            if (payload.items) {
+                // Delete existing items
+                await tx.goodsReceiptItem.deleteMany({
+                    where: { gr_id: id }
+                });
+
+                // Create new items
+                await tx.goodsReceiptItem.createMany({
+                    data: payload.items.map(i => ({
+                        gr_id: id,
+                        product_id: i.product_id,
+                        quantity_planned: i.quantity_planned,
+                        quantity_actual: i.quantity_actual,
+                        notes: i.notes
+                    }))
+                });
             }
 
             const updated = await tx.goodsReceipt.update({

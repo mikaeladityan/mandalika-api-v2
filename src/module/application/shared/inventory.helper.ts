@@ -4,6 +4,7 @@ import {
     MovementLocationType,
     MovementRefType,
     MovementType,
+    ProductionStatus,
 } from "../../../generated/prisma/enums.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import prisma from "../../../config/prisma.js";
@@ -17,6 +18,55 @@ export interface StockItem {
 }
 
 export class InventoryHelper {
+    private static getInventoryTable(tx: Prisma.TransactionClient, entity_type: MovementEntityType) {
+        return entity_type === MovementEntityType.PRODUCT
+            ? (tx as any).productInventory
+            : (tx as any).rawMaterialInventory;
+    }
+
+    private static getIdField(entity_type: MovementEntityType) {
+        return entity_type === MovementEntityType.PRODUCT ? 'product_id' : 'raw_material_id';
+    }
+
+    private static async resolveInventoryRecord(
+        inventoryTable: any,
+        idField: string,
+        entityId: number,
+        warehouse_id: number,
+        month: number,
+        year: number,
+    ): Promise<{ qtyBefore: number; targetRecord: any }> {
+        const latest = (await inventoryTable.findMany({
+            where: { [idField]: entityId, warehouse_id },
+            orderBy: [{ year: 'desc' }, { month: 'desc' }],
+            take: 1,
+        }))[0] ?? null;
+
+        const qtyBefore = latest ? Number(latest.quantity) : 0;
+        const targetRecord = latest?.month === month && latest?.year === year ? latest : null;
+        return { qtyBefore, targetRecord };
+    }
+
+    private static async writeInventoryRecord(
+        inventoryTable: any,
+        idField: string,
+        entityId: number,
+        warehouse_id: number,
+        targetRecord: any,
+        qtyAfter: number,
+        month: number,
+        year: number,
+    ): Promise<void> {
+        if (targetRecord) {
+            await inventoryTable.update({ where: { id: targetRecord.id }, data: { quantity: qtyAfter } });
+        } else {
+            // new month — carry forward previous balance
+            await inventoryTable.create({
+                data: { [idField]: entityId, warehouse_id, quantity: qtyAfter, date: 1, month, year },
+            });
+        }
+    }
+
     static async deductWarehouseStock(
         tx: Prisma.TransactionClient,
         warehouse_id: number,
@@ -31,37 +81,14 @@ export class InventoryHelper {
         const now = new Date();
         const month = now.getMonth() + 1;
         const year = now.getFullYear();
+        const inventoryTable = this.getInventoryTable(tx, entity_type);
+        const idField = this.getIdField(entity_type);
 
         for (const item of items) {
             const entityId = entity_type === MovementEntityType.PRODUCT ? item.product_id : item.raw_material_id;
             if (!entityId) throw new ApiError(400, "Entity ID (Product/Raw Material) is required");
 
-            const inventoryTable = entity_type === MovementEntityType.PRODUCT
-                ? (tx as any).productInventory
-                : (tx as any).rawMaterialInventory;
-
-            const idField = entity_type === MovementEntityType.PRODUCT ? 'product_id' : 'raw_material_id';
-
-            // 1. Calculate qtyBefore by looking at all previous records (Carry forward logic)
-            // Instead of just this month/year, we should look for the latest balance
-            const latestRecords = await inventoryTable.findMany({
-                where: { [idField]: entityId, warehouse_id },
-                orderBy: [{ year: 'desc' }, { month: 'desc' }],
-                take: 1
-            });
-
-            let qtyBefore = 0;
-            let targetRecord = null;
-
-            if (latestRecords.length > 0) {
-                const latest = latestRecords[0];
-                qtyBefore = Number(latest.quantity);
-                
-                // If the latest record is from the current month/year, we update it
-                if (latest.month === month && latest.year === year) {
-                    targetRecord = latest;
-                }
-            }
+            const { qtyBefore, targetRecord } = await this.resolveInventoryRecord(inventoryTable, idField, entityId, warehouse_id, month, year);
 
             if (qtyBefore < item.quantity) {
                 const label = entity_type === MovementEntityType.PRODUCT
@@ -71,15 +98,7 @@ export class InventoryHelper {
             }
 
             const qtyAfter = qtyBefore - item.quantity;
-
-            if (targetRecord) {
-                await inventoryTable.update({ where: { id: targetRecord.id }, data: { quantity: qtyAfter } });
-            } else {
-                // Create a new record for the current month, carrying forward the balance
-                await inventoryTable.create({
-                    data: { [idField]: entityId, warehouse_id, quantity: qtyAfter, date: 1, month, year }
-                });
-            }
+            await this.writeInventoryRecord(inventoryTable, idField, entityId, warehouse_id, targetRecord, qtyAfter, month, year);
 
             await tx.stockMovement.create({
                 data: {
@@ -107,47 +126,16 @@ export class InventoryHelper {
         const now = new Date();
         const month = now.getMonth() + 1;
         const year = now.getFullYear();
+        const inventoryTable = this.getInventoryTable(tx, entity_type);
+        const idField = this.getIdField(entity_type);
 
         for (const item of items) {
             const entityId = entity_type === MovementEntityType.PRODUCT ? item.product_id : item.raw_material_id;
             if (!entityId) throw new ApiError(400, "Entity ID (Product/Raw Material) is required");
 
-            const inventoryTable = entity_type === MovementEntityType.PRODUCT
-                ? (tx as any).productInventory
-                : (tx as any).rawMaterialInventory;
-
-            const idField = entity_type === MovementEntityType.PRODUCT ? 'product_id' : 'raw_material_id';
-
-            // 1. Calculate qtyBefore by looking at all previous records (Carry forward logic)
-            const latestRecords = await inventoryTable.findMany({
-                where: { [idField]: entityId, warehouse_id },
-                orderBy: [{ year: 'desc' }, { month: 'desc' }],
-                take: 1
-            });
-
-            let qtyBefore = 0;
-            let targetRecord = null;
-
-            if (latestRecords.length > 0) {
-                const latest = latestRecords[0];
-                qtyBefore = Number(latest.quantity);
-                
-                // If the latest record is from the current month/year, we update it
-                if (latest.month === month && latest.year === year) {
-                    targetRecord = latest;
-                }
-            }
-
+            const { qtyBefore, targetRecord } = await this.resolveInventoryRecord(inventoryTable, idField, entityId, warehouse_id, month, year);
             const qtyAfter = qtyBefore + item.quantity;
-
-            if (targetRecord) {
-                await inventoryTable.update({ where: { id: targetRecord.id }, data: { quantity: qtyAfter } });
-            } else {
-                // Create a new record for the current month, carrying forward the balance
-                await inventoryTable.create({
-                    data: { [idField]: entityId, warehouse_id, quantity: qtyAfter, date: 1, month, year }
-                });
-            }
+            await this.writeInventoryRecord(inventoryTable, idField, entityId, warehouse_id, targetRecord, qtyAfter, month, year);
 
             await tx.stockMovement.create({
                 data: {
@@ -237,34 +225,23 @@ export class InventoryHelper {
     }
 
     static async getAvailableRMStock(rawMaterialId: number, warehouseId: number): Promise<number> {
-        const latestPeriod = await prisma.rawMaterialInventory.findFirst({
-            where: { raw_material_id: rawMaterialId, warehouse_id: warehouseId },
-            orderBy: [{ year: "desc" }, { month: "desc" }],
-            select: { month: true, year: true },
-        });
+        const [latestRecord, booked] = await Promise.all([
+            prisma.rawMaterialInventory.findFirst({
+                where: { raw_material_id: rawMaterialId, warehouse_id: warehouseId },
+                orderBy: [{ year: "desc" }, { month: "desc" }],
+                select: { quantity: true },
+            }),
+            prisma.productionOrderItem.aggregate({
+                where: {
+                    raw_material_id: rawMaterialId,
+                    warehouse_id: warehouseId,
+                    production_order: { status: ProductionStatus.RELEASED },
+                },
+                _sum: { quantity_planned: true },
+            }),
+        ]);
 
-        if (!latestPeriod) return 0;
-
-        const records = await prisma.rawMaterialInventory.findMany({
-            where: {
-                raw_material_id: rawMaterialId,
-                warehouse_id: warehouseId,
-                month: latestPeriod.month,
-                year: latestPeriod.year,
-            },
-        });
-
-        const onHand = records.reduce((sum, r) => sum + Number(r.quantity), 0);
-
-        const booked = await prisma.productionOrderItem.aggregate({
-            where: {
-                raw_material_id: rawMaterialId,
-                warehouse_id: warehouseId,
-                production_order: { status: "RELEASED" as any },
-            },
-            _sum: { quantity_planned: true },
-        });
-
+        const onHand = Number(latestRecord?.quantity ?? 0);
         return Math.max(0, onHand - Number(booked._sum.quantity_planned || 0));
     }
 

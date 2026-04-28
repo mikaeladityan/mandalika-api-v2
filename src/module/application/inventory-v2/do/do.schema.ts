@@ -37,6 +37,7 @@ export const RequestUpdateDeliveryOrderSchema = z.object({
     notes: z.string().optional(),
     from_warehouse_id: z.coerce.number().optional(),
     to_outlet_id: z.coerce.number().optional(),
+    items: z.array(RequestDeliveryOrderItemSchema).optional(),
 });
 
 export const ResponseDeliveryOrderSchema = RequestDeliveryOrderSchema.extend({
@@ -60,6 +61,8 @@ export const ResponseDeliveryOrderSchema = RequestDeliveryOrderSchema.extend({
         .object({
             id: z.number(),
             name: z.string(),
+            code: z.string().optional(),
+            type: z.string().optional(),
         })
         .optional(),
 });

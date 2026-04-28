@@ -24,7 +24,7 @@ export class StockCardController {
             "ID", "Entity Type", "Entity ID", "Product Code", "Product Name",
             "Location Type", "Location ID", "Location Name",
             "Movement Type", "Quantity", "Qty Before", "Qty After",
-            "Reference ID", "Reference Type", "Created By", "Created At",
+            "Reference ID", "Reference Type", "Reference Code", "Destination/Source", "Created By", "Created At",
         ];
 
         const escape = (v: any): string => {
@@ -51,6 +51,8 @@ export class StockCardController {
                 row.qty_after,
                 row.reference_id,
                 row.reference_type,
+                row.reference_code,
+                row.destination_name,
                 row.created_by,
                 row.created_at.toISOString(),
             ]

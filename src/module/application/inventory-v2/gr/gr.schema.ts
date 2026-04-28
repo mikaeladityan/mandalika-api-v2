@@ -57,6 +57,7 @@ export const RequestUpdateGoodsReceiptSchema = z.object({
     date: z.string().optional().refine((v) => !v || !isNaN(Date.parse(v)), { message: "Format tanggal tidak valid" }),
     notes: z.string().optional(),
     warehouse_id: z.coerce.number().optional(),
+    items: z.array(RequestGoodsReceiptItemSchema).optional(),
 });
 
 export type RequestGoodsReceiptDTO = z.infer<typeof RequestGoodsReceiptSchema>;

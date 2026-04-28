@@ -38,6 +38,7 @@ export const RequestUpdateTransferGudangSchema = z.object({
     notes: z.string().optional(),
     from_warehouse_id: z.coerce.number().optional(),
     to_warehouse_id: z.coerce.number().optional(),
+    items: z.array(RequestTransferGudangItemSchema).optional(),
 });
 
 export const ResponseTransferGudangSchema = RequestTransferGudangSchema.extend({
