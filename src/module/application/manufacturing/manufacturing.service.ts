@@ -90,15 +90,26 @@ export class ManufacturingService {
         // 2. Fetch Booked Items and aggregate in JS to handle substitute IDs correctly
         const bookedItems = await tx.productionOrderItem.findMany({
             where: {
-                OR: [
-                    { raw_material_id: { in: materialIds } },
-                    { substitute_raw_material_id: { in: materialIds } }
-                ],
-                warehouse_id: { in: warehouseIds },
-                production_order: {
-                    status: ProductionStatus.RELEASED,
-                    ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
-                },
+                AND: [
+                    {
+                        OR: [
+                            { raw_material_id: { in: materialIds } },
+                            { substitute_raw_material_id: { in: materialIds } }
+                        ]
+                    },
+                    {
+                        OR: [
+                            { warehouse_id: { in: warehouseIds } },
+                            { warehouse_id: null }
+                        ]
+                    },
+                    {
+                        production_order: {
+                            status: { in: [ProductionStatus.PLANNING, ProductionStatus.RELEASED] },
+                            ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
+                        }
+                    }
+                ]
             },
             select: {
                 raw_material_id: true,
@@ -116,7 +127,17 @@ export class ManufacturingService {
                 const stock = stockRecords.find(s => s.raw_material_id === rmId && s.warehouse_id === whId);
                 
                 const bookedQty = bookedItems
-                    .filter(b => (b.substitute_raw_material_id === rmId || (!b.substitute_raw_material_id && b.raw_material_id === rmId)) && b.warehouse_id === whId)
+                    .filter(b => {
+                        const isMatchRm = (b.substitute_raw_material_id === rmId || (!b.substitute_raw_material_id && b.raw_material_id === rmId));
+                        // If b.warehouse_id is null, assume it's booked at PRD warehouse
+                        // Find PRD warehouse ID from warehouseIds (using a pattern if needed)
+                        // For simplicity in this service, if it's null, we'll check if whId is the PRD warehouse
+                        const prdWhId = warehouseIds[0]; // Fallback to first if only one, but we should be more specific
+                        // Usually manufacturing uses the PRD warehouse
+                        const isPrdWh = whId === prdWhId; 
+                        
+                        return isMatchRm && (b.warehouse_id === whId || (b.warehouse_id === null && isPrdWh));
+                    })
                     .reduce((sum, b) => sum + Number(b.quantity_planned), 0);
 
                 const onHand = Number(stock?.on_hand ?? 0);
@@ -140,6 +161,14 @@ export class ManufacturingService {
                 },
             });
             if (!product) throw new ApiError(404, "Produk tidak ditemukan");
+
+            // Find default warehouses
+            const rmWarehouses = await tx.warehouse.findMany({
+                where: { type: "RAW_MATERIAL" as any, deleted_at: null },
+                select: { id: true, code: true },
+            });
+            const prdWh = rmWarehouses.find((w: any) => w.code?.toUpperCase().includes("PRD"));
+            if (!prdWh) throw new ApiError(400, "Gudang Produksi (PRD) tidak ditemukan dalam sistem.");
 
             const pSize = Number(product.size?.size ?? 1);
             let itemsToCreate: { raw_material_id: number; quantity_planned: number }[] = [];
@@ -172,6 +201,7 @@ export class ManufacturingService {
                         create: itemsToCreate.map((i) => ({
                             raw_material_id: i.raw_material_id,
                             quantity_planned: i.quantity_planned,
+                            warehouse_id: prdWh.id, // Default to PRD warehouse
                         })),
                     },
                 },

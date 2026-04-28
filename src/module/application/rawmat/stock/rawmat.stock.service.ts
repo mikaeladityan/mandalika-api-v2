@@ -171,12 +171,14 @@ export class RawMaterialStockService {
                 GROUP BY raw_material_id, warehouse_id
             ) ri ON rm.id = ri.raw_material_id
             LEFT JOIN (
-                SELECT poi.raw_material_id, poi.warehouse_id, SUM(poi.quantity_planned) as booked_qty
+                SELECT poi.raw_material_id, 
+                       COALESCE(poi.warehouse_id, (SELECT id FROM warehouses WHERE code ILIKE '%PRD%' LIMIT 1)) as warehouse_id, 
+                       SUM(poi.quantity_planned) as booked_qty
                 FROM production_order_items poi
                 JOIN production_orders po ON poi.production_order_id = po.id
-                WHERE po.status = 'RELEASED'
-                ${query.warehouse_id ? Prisma.sql`AND poi.warehouse_id = ${query.warehouse_id}` : Prisma.sql``}
-                GROUP BY poi.raw_material_id, poi.warehouse_id
+                WHERE po.status IN ('PLANNING', 'RELEASED')
+                ${query.warehouse_id ? Prisma.sql`AND COALESCE(poi.warehouse_id, (SELECT id FROM warehouses WHERE code ILIKE '%PRD%' LIMIT 1)) = ${query.warehouse_id}` : Prisma.sql``}
+                GROUP BY poi.raw_material_id, 2
             ) bi ON rm.id = bi.raw_material_id AND (ri.warehouse_id = bi.warehouse_id OR ri.warehouse_id IS NULL)
             LEFT JOIN warehouses w_ri ON ri.warehouse_id = w_ri.id
             LEFT JOIN warehouses w_bi ON bi.warehouse_id = w_bi.id
