@@ -20,7 +20,7 @@ export class RmUsageService {
         const where: Prisma.StockMovementWhereInput = {
             entity_type: MovementEntityType.RAW_MATERIAL,
             reference_type: MovementRefType.PRODUCTION,
-            movement_type: { in: [MovementType.OUT, MovementType.TRANSFER_OUT] },
+            movement_type: { in: [MovementType.OUT, MovementType.TRANSFER_OUT, MovementType.IN] },
             ...(warehouse_id && { location_id: warehouse_id }),
             ...(fromDate || toDate ? {
                 created_at: {
@@ -88,7 +88,8 @@ export class RmUsageService {
                 rm_sku: rm?.barcode || rm?.id.toString() || "Unknown",
                 unit: rm?.unit_raw_material.name || "-",
                 warehouse_name: wh?.name || "Unknown",
-                qty_out: Number(m.quantity),
+                qty_in: m.movement_type === MovementType.IN ? Number(m.quantity) : 0,
+                qty_out: m.movement_type !== MovementType.IN ? Number(m.quantity) : 0,
                 qty_after: Number(m.qty_after),
                 notes: m.notes,
             };

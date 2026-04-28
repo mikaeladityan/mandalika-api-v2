@@ -354,6 +354,41 @@ export class ManufacturingService {
             const actualFG = Number(payload.quantity_actual);
             const plannedFG = Number(order.quantity_planned);
 
+            // 0. Pre-validate stock for all items that require deduction (Additional Usage)
+            for (const itemPayload of payload.items) {
+                let rmId: number | undefined;
+                let warehouseId: number | undefined | null;
+                let neededQty: number = 0;
+                let rmName: string = "Bahan Baku";
+
+                const dbItem = order.items.find(i => i.id === itemPayload.id);
+                if (dbItem) {
+                    const diff = Number(dbItem.quantity_planned) - itemPayload.quantity_actual;
+                    if (diff < 0) {
+                        neededQty = Math.abs(diff);
+                        rmId = dbItem.substitute_raw_material_id ?? dbItem.raw_material_id;
+                        warehouseId = dbItem.warehouse_id;
+                        rmName = dbItem.substitute_raw_material?.name ?? dbItem.raw_material?.name ?? "Bahan Baku";
+                    }
+                } else if (itemPayload.raw_material_id && itemPayload.warehouse_id) {
+                    neededQty = itemPayload.quantity_actual;
+                    rmId = itemPayload.raw_material_id;
+                    warehouseId = itemPayload.warehouse_id;
+                }
+
+                if (rmId && warehouseId && neededQty > 0) {
+                    const stock = await tx.rawMaterialInventory.findFirst({
+                        where: { raw_material_id: rmId, warehouse_id: warehouseId },
+                        orderBy: [{ year: "desc" }, { month: "desc" }],
+                    });
+                    const avail = Number(stock?.quantity ?? 0);
+                    if (avail < neededQty) {
+                        const message = `Stok di gudang Produksi (PRD) tidak mencukupi untuk ${rmName}. Tersedia: ${avail}, Dibutuhkan: ${neededQty}. Harap lakukan transfer manual dari gudang Kandangan (KDG) terlebih dahulu.`;
+                        throw new ApiError(400, message);
+                    }
+                }
+            }
+
             // 1. Process items (summed usage from all outputs)
             for (const itemPayload of payload.items) {
                 let dbItem = order.items.find(i => i.id === itemPayload.id);
@@ -379,7 +414,7 @@ export class ManufacturingService {
                                 waste_type: WasteType.RAW_MATERIAL,
                                 raw_material_id: rmId,
                                 quantity: diff,
-                                notes: `RM saving: planned ${planned}, actual ${actual}`,
+                                notes: `Pengembalian Sisa Bahan (Saving): Terencana ${planned}, Aktual ${actual}`,
                             },
                         });
                     } else if (diff < 0 && warehouseId) {
@@ -389,7 +424,7 @@ export class ManufacturingService {
                             tx, warehouseId,
                             [{ raw_material_id: rmId, quantity: overUsage, raw_material: { name: rmName } }],
                             id, MovementRefType.PRODUCTION, MovementType.OUT, userId, 
-                            `Pemakaian Tambahan (Base Overusage + Split FG) - MFG: ${order.mfg_number}`, 
+                            `Pemakaian Tambahan Kumulatif (Overconsumption + Split FG) - MFG: ${order.mfg_number}`, 
                             MovementEntityType.RAW_MATERIAL
                         );
                         await tx.productionOrderWaste.create({
@@ -663,7 +698,7 @@ export class ManufacturingService {
                     include: {
                         raw_material: { include: { unit_raw_material: { select: { id: true, name: true } } } },
                         substitute_raw_material: { include: { unit_raw_material: { select: { id: true, name: true } } } },
-                        warehouse: { select: { id: true, name: true, type: true } },
+                        warehouse: { select: { id: true, name: true, code: true, type: true } },
                     },
                 },
                 wastes: {

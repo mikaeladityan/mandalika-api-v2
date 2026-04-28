@@ -13,11 +13,13 @@ vi.mock("../../config/prisma.js", () => {
         productInventory: { findMany: vi.fn(), update: vi.fn(), create: vi.fn(), findFirst: vi.fn() },
         rawMaterialInventory: { findMany: vi.fn(), update: vi.fn(), create: vi.fn(), findFirst: vi.fn() },
         stockTransfer: { create: vi.fn() },
-        warehouse: { findUnique: vi.fn(), findFirst: vi.fn() },
+        warehouse: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
         product: { findUnique: vi.fn() },
         goodsReceipt: { create: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
         stockMovement: { create: vi.fn() },
         rawMaterial: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+        goodsReceiptItem: { createMany: vi.fn(), create: vi.fn() },
+        productionOrderOutput: { update: vi.fn(), createMany: vi.fn(), deleteMany: vi.fn() },
     };
     mockPrisma.$transaction.mockImplementation(async (cb: any) => {
         if (Array.isArray(cb)) return Promise.all(cb);
@@ -62,6 +64,7 @@ describe("ManufacturingService", () => {
         ]);
         (prisma.productInventory.findFirst as any).mockResolvedValue({ id: 1, quantity: 1000, product: { id: 1, name: "Parfum EDP 100ml", code: "EDP_100" } });
         (prisma.rawMaterialInventory.findFirst as any).mockResolvedValue({ id: 1, quantity: 1000, raw_material: { id: 10, name: "Material A" } });
+        (prisma.warehouse.findMany as any).mockResolvedValue([]);
     });
 
     describe("create", () => {
@@ -303,7 +306,11 @@ describe("ManufacturingService", () => {
             // @ts-ignore
             expect(prisma.productionOrderWaste.create).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({ waste_type: "RAW_MATERIAL", quantity: 10 }),
+                    data: expect.objectContaining({ 
+                        waste_type: "RAW_MATERIAL", 
+                        quantity: 10, 
+                        notes: expect.stringContaining("Pengembalian Sisa Bahan") 
+                    }),
                 }),
             );
         });
@@ -349,6 +356,16 @@ describe("ManufacturingService", () => {
                         waste_type: "RAW_MATERIAL", 
                         quantity: 50,
                         notes: "Pemakaian Berlebih (Overconsumption)"
+                    }),
+                }),
+            );
+
+            // Verify stock movement note
+            // @ts-ignore
+            expect(prisma.stockMovement.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({ 
+                        notes: expect.stringContaining("Pemakaian Tambahan Kumulatif")
                     }),
                 }),
             );

@@ -19,6 +19,7 @@ export const ResponseRmUsageSchema = z.object({
     rm_sku: z.string(),
     unit: z.string(),
     warehouse_name: z.string(),
+    qty_in: z.number(),
     qty_out: z.number(),
     qty_after: z.number(),
     notes: z.string().nullable(),
