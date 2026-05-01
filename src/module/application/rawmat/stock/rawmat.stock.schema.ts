@@ -44,6 +44,7 @@ export const RequestUpsertRawMaterialStockSchema = z.object({
     raw_material_id: z.number(),
     warehouse_id: z.number(),
     quantity: z.number(),
+    min_stock: z.number().nullable().optional(), // min stok per lokasi gudang
     month: z.number().min(1).max(12),
     year: z.number().min(2000),
 });

@@ -131,6 +131,7 @@ export class RawMaterialService {
                         min_buy: s.min_buy ?? null,
                         lead_time: s.lead_time ?? null,
                         is_preferred: s.is_preferred,
+                        status: (s.status as any) ?? "ACTIVE",
                     })),
                 });
             } else if (data.supplier_id) {
@@ -142,6 +143,7 @@ export class RawMaterialService {
                         min_buy: data.min_buy ?? null,
                         lead_time: data.lead_time ?? null,
                         is_preferred: true,
+                        status: "ACTIVE",
                     },
                 });
             }
@@ -210,13 +212,15 @@ export class RawMaterialService {
                             unit_price: s.unit_price,
                             min_buy: s.min_buy ?? null,
                             lead_time: s.lead_time ?? null,
-                            is_preferred: s.is_preferred
+                            is_preferred: s.is_preferred,
+                            status: (s.status as any) ?? "ACTIVE",
                         },
                         update: {
                             unit_price: s.unit_price,
                             min_buy: s.min_buy ?? null,
                             lead_time: s.lead_time ?? null,
-                            is_preferred: s.is_preferred
+                            is_preferred: s.is_preferred,
+                            ...(s.status !== undefined && { status: s.status as any }),
                         }
                     });
                 }
@@ -291,7 +295,8 @@ export class RawMaterialService {
                         'unit_price', sm2.unit_price::float8,
                         'min_buy', sm2.min_buy::float8,
                         'lead_time', sm2.lead_time,
-                        'is_preferred', sm2.is_preferred
+                        'is_preferred', sm2.is_preferred,
+                        'status', sm2.status
                     ))
                     FROM supplier_materials sm2
                     JOIN suppliers s2 ON s2.id = sm2.supplier_id
@@ -391,7 +396,8 @@ export class RawMaterialService {
                             'unit_price', sm2.unit_price::float8,
                             'min_buy', sm2.min_buy::float8,
                             'lead_time', sm2.lead_time,
-                            'is_preferred', sm2.is_preferred
+                            'is_preferred', sm2.is_preferred,
+                            'status', sm2.status
                         ))
                         FROM supplier_materials sm2
                         JOIN suppliers s2 ON s2.id = sm2.supplier_id

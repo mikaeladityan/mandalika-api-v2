@@ -1,5 +1,5 @@
 import z from "zod";
-import { MaterialType } from "../../../generated/prisma/enums.js";
+import { MaterialType, STATUS } from "../../../generated/prisma/enums.js";
 
 export const RequestSupplierMaterialSchema = z.object({
     supplier_id: z.number(),
@@ -7,6 +7,7 @@ export const RequestSupplierMaterialSchema = z.object({
     min_buy: z.number().nullable().optional(),
     lead_time: z.number().int().positive().nullable().optional(),
     is_preferred: z.boolean().default(false),
+    status: z.enum(STATUS).default("ACTIVE").optional(), // ACTIVE | BLOCK | dsb
 });
 
 export const RequestRawMaterialSchema = z.object({
@@ -36,6 +37,7 @@ export const RequestRawMaterialSchema = z.object({
 export const ResponseSupplierMaterialSchema = RequestSupplierMaterialSchema.extend({
     supplier_name: z.string(),
     supplier_country: z.string(),
+    status: z.enum(STATUS).default("ACTIVE"),
 });
 
 export const ResponseRawMaterialSchema = RequestRawMaterialSchema.omit({

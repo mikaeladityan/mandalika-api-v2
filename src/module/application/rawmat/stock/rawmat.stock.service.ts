@@ -50,11 +50,13 @@ export class RawMaterialStockService {
             },
             update: {
                 quantity: data.quantity,
+                ...(data.min_stock !== undefined && { min_stock: data.min_stock }),
             },
             create: {
                 raw_material_id: data.raw_material_id,
                 warehouse_id: data.warehouse_id,
                 quantity: data.quantity,
+                min_stock: data.min_stock ?? null,
                 date: 1,
                 month: data.month,
                 year: data.year,
