@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { IssuanceService } from "../../module/application/issuance/issuance.service.js";
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
-import { IssuanceType } from "../../generated/prisma/enums.js";
+import { IssuanceType } from "../../generated/prisma/index.js";
 
 vi.mock("../../config/prisma.js", () => {
     const mockPrisma = {

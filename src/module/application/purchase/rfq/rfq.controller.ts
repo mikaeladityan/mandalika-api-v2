@@ -16,7 +16,7 @@ export class RFQController {
             ...query,
             page: query.page ? Number(query.page) : undefined,
             take: query.take ? Number(query.take) : undefined,
-            vendor_id: query.vendor_id ? Number(query.vendor_id) : undefined,
+            supplier_id: query.supplier_id ? Number(query.supplier_id) : undefined,
             month: query.month ? Number(query.month) : undefined,
             year: query.year ? Number(query.year) : undefined,
         });
@@ -32,32 +32,33 @@ export class RFQController {
 
     static async create(c: Context) {
         const body = await c.req.json();
+        const user = c.get("user");
+        const session = c.get("session");
+        const userId = user?.id || session?.email || "system";
+        
         const valid = CreateRFQSchema.parse(body);
-        const result = await RFQService.create(valid);
+        const result = await RFQService.create(valid, userId);
         return ApiResponse.sendSuccess(c, result, 201);
     }
 
     static async update(c: Context) {
         const id = Number(c.req.param("id"));
         const body = await c.req.json();
+        const user = c.get("user");
+        const session = c.get("session");
+        const userId = user?.id || session?.email || "system";
+
         const valid = UpdateRFQSchema.parse(body);
-        const result = await RFQService.update(id, valid);
+        const result = await RFQService.update(id, valid, userId);
         return ApiResponse.sendSuccess(c, result);
     }
 
     static async updateStatus(c: Context) {
         const id = Number(c.req.param("id"));
         const body = await c.req.json();
+        const user = c.get("user");
         const valid = UpdateRFQStatusSchema.parse(body);
-        const result = await RFQService.updateStatus(id, valid);
-        return ApiResponse.sendSuccess(c, result);
-    }
-
-    static async convertToPO(c: Context) {
-        const id = Number(c.req.param("id"));
-        const body = await c.req.json();
-        const valid = ConvertToPOSchema.parse(body);
-        const result = await RFQService.convertToPO(id, valid);
+        const result = await RFQService.updateStatus(id, valid, user.id);
         return ApiResponse.sendSuccess(c, result);
     }
 
@@ -65,5 +66,14 @@ export class RFQController {
         const id = Number(c.req.param("id"));
         await RFQService.destroy(id);
         return ApiResponse.sendSuccess(c, { message: "RFQ deleted successfully" });
+    }
+
+    static async convertToPO(c: Context) {
+        const id = Number(c.req.param("id"));
+        const body = await c.req.json();
+        const user = c.get("user");
+        const valid = ConvertToPOSchema.parse(body);
+        const result = await RFQService.convertToPO(id, valid, user.id);
+        return ApiResponse.sendSuccess(c, result);
     }
 }

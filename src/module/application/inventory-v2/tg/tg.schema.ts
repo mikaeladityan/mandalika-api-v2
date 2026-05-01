@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TransferStatus } from "../../../../generated/prisma/enums.js";
+import { TransferStatus } from "../../../../generated/prisma/index.js";
 
 export const RequestTransferGudangItemSchema = z.object({
     product_id: z.coerce.number({ error: "ID Produk harus berupa angka" }),

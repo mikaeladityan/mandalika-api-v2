@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { WarehouseType } from "../../../../generated/prisma/client.js";
+import { WarehouseType } from "../../../../generated/prisma/index.js";
 
 export const ResponseWarehouseSharedSchema = z.object({
     id: z.number(),

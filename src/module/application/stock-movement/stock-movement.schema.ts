@@ -4,7 +4,7 @@ import {
     MovementLocationType,
     MovementType,
     MovementRefType,
-} from "../../../generated/prisma/enums.js";
+} from "../../../generated/prisma/index.js";
 
 export const QueryStockMovementSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),

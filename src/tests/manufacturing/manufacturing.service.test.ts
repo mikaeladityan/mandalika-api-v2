@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ManufacturingService } from "../../module/application/manufacturing/manufacturing.service.js";
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
-import { ProductionStatus } from "../../generated/prisma/enums.js";
+import { ProductionStatus } from "../../generated/prisma/index.js";
 
 vi.mock("../../config/prisma.js", () => {
     const mockPrisma = {

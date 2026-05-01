@@ -1,5 +1,5 @@
 import z from "zod";
-import { GENDER } from "../../../../generated/prisma/enums.js";
+import { GENDER } from "../../../../generated/prisma/index.js";
 
 export const RequestProductStockSchema = z.object({
     code: z.string(),

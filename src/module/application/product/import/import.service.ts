@@ -1,7 +1,7 @@
 // import.service.ts
 import { randomUUID } from "crypto";
 import prisma from "../../../../config/prisma.js";
-import { GENDER } from "../../../../generated/prisma/enums.js";
+import { GENDER } from "../../../../generated/prisma/index.js";
 import { normalizeSlug } from "../../../../lib/index.js";
 import {
     ProductImportPreviewDTO,

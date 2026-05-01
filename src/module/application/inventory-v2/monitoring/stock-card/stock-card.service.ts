@@ -1,4 +1,4 @@
-import { Prisma } from "../../../../../generated/prisma/client.js";
+import { Prisma } from "../../../../../generated/prisma/index.js";
 import prisma from "../../../../../config/prisma.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
 import { QueryStockCardDTO, ResponseStockCardDTO } from "./stock-card.schema.js";

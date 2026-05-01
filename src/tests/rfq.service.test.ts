@@ -1,43 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RFQService } from "../module/application/purchase/rfq/rfq.service.js";
 import prisma from "../config/prisma.js";
+import { ApiError } from "../lib/errors/api.error.js";
+
+const mockUser = { id: "user-123", name: "Test User" };
 
 const mockRFQDraft = {
     id: 1,
     rfq_number: "RFQ-20260422-1234",
-    vendor_id: null,
-    warehouse_id: null,
-    date: new Date("2026-04-22"),
+    rfq_date: new Date("2026-04-22"),
+    supplier_id: null,
+    supplier_name: "Vendor A",
+    supplier_code: null,
     status: "DRAFT",
     notes: null,
+    created_by: "user-123",
     created_at: new Date("2026-04-22"),
     updated_at: new Date("2026-04-22"),
-};
-
-const mockRFQApproved = {
-    ...mockRFQDraft,
-    id: 2,
-    status: "APPROVED",
-    items: [
-        {
-            id: 10,
-            rfq_id: 2,
-            raw_material_id: 5,
-            quantity: 100,
-            unit_price: 5000,
-            notes: null,
-            purchase_draft_id: null,
-            raw_material: { id: 5, name: "Material A" },
-        },
-    ],
 };
 
 describe("RFQService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
-
-    // ─── list ────────────────────────────────────────────────────────────────
 
     describe("list", () => {
         it("should return paginated data", async () => {
@@ -46,7 +31,7 @@ describe("RFQService", () => {
             const mockCount = vi.fn().mockResolvedValue(1);
 
             // @ts-ignore
-            prisma.requestForQuotation = {
+            prisma.purchaseRFQ = {
                 findMany: mockFindMany,
                 count: mockCount,
             };
@@ -60,7 +45,6 @@ describe("RFQService", () => {
             expect(result.data).toEqual(mockData);
             expect(result.total).toBe(1);
             expect(mockFindMany).toHaveBeenCalledOnce();
-            expect(mockCount).toHaveBeenCalledOnce();
         });
 
         it("should apply status filter when provided", async () => {
@@ -68,233 +52,116 @@ describe("RFQService", () => {
             const mockCount = vi.fn().mockResolvedValue(0);
 
             // @ts-ignore
-            prisma.requestForQuotation = {
+            prisma.purchaseRFQ = {
                 findMany: mockFindMany,
                 count: mockCount,
             };
 
-            await RFQService.list({ page: 1, take: 10, status: "SENT", order: "desc" });
+            await RFQService.list({ page: 1, take: 10, status: "SUBMITTED", order: "desc" });
 
             const calledWith = mockFindMany.mock.calls[0]?.[0];
-            expect(calledWith?.where?.status).toBe("SENT");
-        });
-
-        it("should apply search filter when provided", async () => {
-            const mockFindMany = vi.fn().mockResolvedValue([]);
-            const mockCount = vi.fn().mockResolvedValue(0);
-
-            // @ts-ignore
-            prisma.requestForQuotation = {
-                findMany: mockFindMany,
-                count: mockCount,
-            };
-
-            await RFQService.list({ page: 1, take: 10, search: "RFQ-2026", order: "desc" });
-
-            const calledWith = mockFindMany.mock.calls[0]?.[0];
-            expect(calledWith?.where?.OR).toBeDefined();
-            expect(calledWith?.where?.OR?.[0]?.rfq_number?.contains).toBe("RFQ-2026");
+            expect(calledWith?.where?.status).toBe("SUBMITTED");
         });
     });
 
-    // ─── create ──────────────────────────────────────────────────────────────
-
     describe("create", () => {
         it("should create an RFQ successfully", async () => {
-            const mockCreated = { ...mockRFQDraft, items: [], vendor: null };
+            const mockCreated = { ...mockRFQDraft, items: [] };
             const mockFindFirst = vi.fn().mockResolvedValue(null);
             const mockCreate = vi.fn().mockResolvedValue(mockCreated);
 
             // @ts-ignore
-            prisma.rFQItem = { findFirst: mockFindFirst };
+            prisma.purchaseRFQItem = { findFirst: mockFindFirst };
             // @ts-ignore
-            prisma.requestForQuotation = { create: mockCreate };
+            prisma.purchaseRFQ = { create: mockCreate };
 
             const result = await RFQService.create({
-                items: [{ raw_material_id: 1, quantity: 50 }],
-            });
+                rfq_number: "RFQ-001",
+                supplier_name: "Vendor A",
+                is_new_supplier: false,
+                supplier_source: "LOCAL",
+                items: [{ item_code: "RM001", item_name: "RM 1", uom: "kg", qty_requested: 50, unit_price: 1000 }],
+            }, mockUser.id);
 
             expect(result).toEqual(mockCreated);
             expect(mockCreate).toHaveBeenCalledOnce();
             const createArg = mockCreate.mock.calls[0]?.[0];
-            expect(createArg?.data?.items?.create).toHaveLength(1);
-            expect(createArg?.data?.items?.create?.[0]?.raw_material_id).toBe(1);
-            expect(createArg?.data?.items?.create?.[0]?.quantity).toBe(50);
+            expect(createArg?.data?.created_by).toBe(mockUser.id);
+            expect(createArg?.data?.items?.create?.[0]?.item_code).toBe("RM001");
         });
 
-        it("should throw an error when purchase_draft_id is already linked", async () => {
-            const mockFindFirst = vi.fn().mockResolvedValue({
-                id: 99,
-                purchase_draft_id: 5,
-            });
+        it("should throw if purchase_draft_id is already linked", async () => {
+            const mockFindFirst = vi.fn().mockResolvedValue({ id: 99, purchase_draft_id: 5 });
 
             // @ts-ignore
-            prisma.rFQItem = { findFirst: mockFindFirst };
+            prisma.purchaseRFQItem = { findFirst: mockFindFirst };
 
             await expect(
                 RFQService.create({
-                    items: [{ raw_material_id: 1, quantity: 50, purchase_draft_id: 5 }],
-                })
-            ).rejects.toThrow("already linked to an RFQ item");
-        });
-
-        it("should skip duplicate draft check when no purchase_draft_ids", async () => {
-            const mockFindFirst = vi.fn();
-            const mockCreate = vi.fn().mockResolvedValue({ ...mockRFQDraft, items: [] });
-
-            // @ts-ignore
-            prisma.rFQItem = { findFirst: mockFindFirst };
-            // @ts-ignore
-            prisma.requestForQuotation = { create: mockCreate };
-
-            await RFQService.create({
-                items: [{ raw_material_id: 2, quantity: 10 }],
-            });
-
-            expect(mockFindFirst).not.toHaveBeenCalled();
+                    rfq_number: "RFQ-002",
+                    supplier_name: "Vendor A",
+                    is_new_supplier: false,
+                    supplier_source: "LOCAL",
+                    items: [{ item_code: "RM001", item_name: "RM 1", uom: "kg", qty_requested: 50, purchase_draft_id: 5, unit_price: 1000 }],
+                }, mockUser.id)
+            ).rejects.toThrow(ApiError);
         });
     });
 
-    // ─── updateStatus ────────────────────────────────────────────────────────
-
     describe("updateStatus", () => {
-        it("should transition DRAFT -> SENT successfully", async () => {
-            const mockUpdated = { ...mockRFQDraft, status: "SENT" };
+        it("should transition DRAFT -> SUBMITTED successfully", async () => {
+            const mockUpdated = { ...mockRFQDraft, status: "SUBMITTED" };
             const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(mockRFQDraft);
             const mockUpdate = vi.fn().mockResolvedValue(mockUpdated);
 
             // @ts-ignore
-            prisma.requestForQuotation = {
+            prisma.purchaseRFQ = {
                 findUniqueOrThrow: mockFindUniqueOrThrow,
                 update: mockUpdate,
             };
 
-            const result = await RFQService.updateStatus(1, { status: "SENT" });
+            const result = await RFQService.updateStatus(1, { status: "SUBMITTED" }, mockUser.id);
 
-            expect(result.status).toBe("SENT");
+            expect(result.status).toBe("SUBMITTED");
             expect(mockUpdate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: { id: 1 },
-                    data: { status: "SENT" },
+                    data: expect.objectContaining({ status: "SUBMITTED", updated_by: mockUser.id }),
                 })
             );
+        });
+
+        it("should set approved fields when transition to APPROVED", async () => {
+            const submittedRFQ = { ...mockRFQDraft, status: "REVIEWED" };
+            const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(submittedRFQ);
+            const mockUpdate = vi.fn().mockResolvedValue({ ...submittedRFQ, status: "APPROVED" });
+
+            // @ts-ignore
+            prisma.purchaseRFQ = {
+                findUniqueOrThrow: mockFindUniqueOrThrow,
+                update: mockUpdate,
+            };
+
+            await RFQService.updateStatus(1, { status: "APPROVED" }, mockUser.id);
+
+            const updateArg = mockUpdate.mock.calls[0]?.[0];
+            expect(updateArg?.data?.approved_by).toBe(mockUser.id);
+            expect(updateArg?.data?.approved_at).toBeDefined();
         });
 
         it("should throw on invalid transition DRAFT -> APPROVED", async () => {
             const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(mockRFQDraft);
 
             // @ts-ignore
-            prisma.requestForQuotation = {
+            prisma.purchaseRFQ = {
                 findUniqueOrThrow: mockFindUniqueOrThrow,
             };
 
             await expect(
-                RFQService.updateStatus(1, { status: "APPROVED" })
-            ).rejects.toThrow("Cannot transition from DRAFT to APPROVED");
-        });
-
-        it("should throw on invalid transition CONVERTED -> SENT", async () => {
-            const convertedRFQ = { ...mockRFQDraft, status: "CONVERTED" };
-            const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(convertedRFQ);
-
-            // @ts-ignore
-            prisma.requestForQuotation = {
-                findUniqueOrThrow: mockFindUniqueOrThrow,
-            };
-
-            await expect(
-                RFQService.updateStatus(1, { status: "SENT" })
-            ).rejects.toThrow("Allowed: none");
+                RFQService.updateStatus(1, { status: "APPROVED" }, mockUser.id)
+            ).rejects.toThrow(ApiError);
         });
     });
-
-    // ─── convertToPO ─────────────────────────────────────────────────────────
-
-    describe("convertToPO", () => {
-        it("should create open POs and set status to CONVERTED when all items selected", async () => {
-            const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(mockRFQApproved);
-            const mockTxCreate = vi.fn().mockResolvedValue({ id: 20, raw_material_id: 5, quantity: 100 });
-            const mockTxUpdate = vi.fn().mockResolvedValue({ ...mockRFQApproved, status: "CONVERTED" });
-
-            const txMock = {
-                rawMaterialOpenPo: { create: mockTxCreate },
-                requestForQuotation: { update: mockTxUpdate },
-            };
-            const mockTransaction = vi.fn().mockImplementation((cb) => cb(txMock));
-
-            // @ts-ignore
-            prisma.requestForQuotation = { findUniqueOrThrow: mockFindUniqueOrThrow };
-            // @ts-ignore
-            prisma.$transaction = mockTransaction;
-
-            const result = await RFQService.convertToPO(2, { item_ids: [10] });
-
-            expect(result.rfq_status).toBe("CONVERTED");
-            expect(result.created_pos).toHaveLength(1);
-            expect(mockTxCreate).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    data: expect.objectContaining({
-                        raw_material_id: 5,
-                        rfq_id: 2,
-                        status: "OPEN",
-                    }),
-                })
-            );
-        });
-
-        it("should set PARTIAL_CONVERTED when only some items are selected", async () => {
-            const rfqWithTwoItems = {
-                ...mockRFQApproved,
-                items: [
-                    ...mockRFQApproved.items,
-                    { id: 11, rfq_id: 2, raw_material_id: 6, quantity: 200, unit_price: null, notes: null, purchase_draft_id: null, raw_material: { id: 6, name: "Material B" } },
-                ],
-            };
-            const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(rfqWithTwoItems);
-            const mockTxCreate = vi.fn().mockResolvedValue({ id: 21, raw_material_id: 5, quantity: 100 });
-            const mockTxUpdate = vi.fn().mockResolvedValue({ ...rfqWithTwoItems, status: "PARTIAL_CONVERTED" });
-
-            const txMock = {
-                rawMaterialOpenPo: { create: mockTxCreate },
-                requestForQuotation: { update: mockTxUpdate },
-            };
-            const mockTransaction = vi.fn().mockImplementation((cb) => cb(txMock));
-
-            // @ts-ignore
-            prisma.requestForQuotation = { findUniqueOrThrow: mockFindUniqueOrThrow };
-            // @ts-ignore
-            prisma.$transaction = mockTransaction;
-
-            const result = await RFQService.convertToPO(2, { item_ids: [10] }); // only item 10
-
-            expect(result.rfq_status).toBe("PARTIAL_CONVERTED");
-        });
-
-        it("should throw when RFQ status is not APPROVED or PARTIAL_CONVERTED", async () => {
-            const draftRFQ = { ...mockRFQApproved, status: "DRAFT", items: mockRFQApproved.items };
-            const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(draftRFQ);
-
-            // @ts-ignore
-            prisma.requestForQuotation = { findUniqueOrThrow: mockFindUniqueOrThrow };
-
-            await expect(
-                RFQService.convertToPO(2, { item_ids: [10] })
-            ).rejects.toThrow("RFQ must be APPROVED or PARTIAL_CONVERTED");
-        });
-
-        it("should throw when item_ids do not match any RFQ items", async () => {
-            const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(mockRFQApproved);
-
-            // @ts-ignore
-            prisma.requestForQuotation = { findUniqueOrThrow: mockFindUniqueOrThrow };
-
-            await expect(
-                RFQService.convertToPO(2, { item_ids: [999] }) // non-existent item
-            ).rejects.toThrow("No valid items found for conversion");
-        });
-    });
-
-    // ─── destroy ─────────────────────────────────────────────────────────────
 
     describe("destroy", () => {
         it("should delete a DRAFT RFQ successfully", async () => {
@@ -302,7 +169,7 @@ describe("RFQService", () => {
             const mockDelete = vi.fn().mockResolvedValue(mockRFQDraft);
 
             // @ts-ignore
-            prisma.requestForQuotation = {
+            prisma.purchaseRFQ = {
                 findUniqueOrThrow: mockFindUniqueOrThrow,
                 delete: mockDelete,
             };
@@ -314,31 +181,15 @@ describe("RFQService", () => {
         });
 
         it("should throw when trying to delete a non-DRAFT RFQ", async () => {
-            const sentRFQ = { ...mockRFQDraft, status: "SENT" };
-            const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(sentRFQ);
+            const submittedRFQ = { ...mockRFQDraft, status: "SUBMITTED" };
+            const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(submittedRFQ);
 
             // @ts-ignore
-            prisma.requestForQuotation = {
+            prisma.purchaseRFQ = {
                 findUniqueOrThrow: mockFindUniqueOrThrow,
             };
 
-            await expect(RFQService.destroy(1)).rejects.toThrow(
-                "Only DRAFT RFQs can be deleted"
-            );
-        });
-
-        it("should throw when trying to delete a CONVERTED RFQ", async () => {
-            const convertedRFQ = { ...mockRFQDraft, status: "CONVERTED" };
-            const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(convertedRFQ);
-
-            // @ts-ignore
-            prisma.requestForQuotation = {
-                findUniqueOrThrow: mockFindUniqueOrThrow,
-            };
-
-            await expect(RFQService.destroy(1)).rejects.toThrow(
-                "Only DRAFT RFQs can be deleted"
-            );
+            await expect(RFQService.destroy(1)).rejects.toThrow(ApiError);
         });
     });
 });

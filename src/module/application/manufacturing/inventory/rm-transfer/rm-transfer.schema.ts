@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TransferStatus } from "../../../../../generated/prisma/enums.js";
+import { TransferStatus } from "../../../../../generated/prisma/index.js";
 
 export const QueryRmTransferSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import app from "../../app.js";
 import prisma from "../../config/prisma.js";
-import { ProductionStatus } from "../../generated/prisma/enums.js";
+import { ProductionStatus } from "../../generated/prisma/index.js";
 
 vi.mock("../../config/redis.js", () => {
     const mockRedis = {

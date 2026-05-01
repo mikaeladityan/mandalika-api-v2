@@ -1,5 +1,5 @@
 import z from "zod";
-import { GENDER } from "../../../../generated/prisma/enums.js";
+import { GENDER } from "../../../../generated/prisma/index.js";
 
 const sanitizeNumber = (val: unknown) => {
     if (val === "" || val === null || val === undefined) return 0;

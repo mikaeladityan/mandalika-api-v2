@@ -1,7 +1,7 @@
-import { Prisma } from "../../../generated/prisma/client.js";
+import { Prisma } from "../../../generated/prisma/index.js";
 import prisma from "../../../config/prisma.js";
 import { RequestStockTransferDTO, QueryStockTransferDTO, RequestUpdateStockTransferStatusDTO } from "./stock-transfer.schema.js";
-import { TransferStatus, MovementType, MovementEntityType, MovementRefType } from "../../../generated/prisma/enums.js";
+import { TransferStatus, MovementType, MovementEntityType, MovementRefType } from "../../../generated/prisma/index.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 

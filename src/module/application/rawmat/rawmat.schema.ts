@@ -1,5 +1,5 @@
 import z from "zod";
-import { MaterialType, STATUS } from "../../../generated/prisma/enums.js";
+import { MaterialType, STATUS } from "../../../generated/prisma/index.js";
 
 export const RequestSupplierMaterialSchema = z.object({
     supplier_id: z.number(),

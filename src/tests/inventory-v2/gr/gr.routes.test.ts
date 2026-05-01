@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import GRRoutes from "../../../module/application/inventory-v2/gr/gr.routes.js";
 import { GRController } from "../../../module/application/inventory-v2/gr/gr.controller.js";
-import { GoodsReceiptStatus } from "../../../generated/prisma/enums.js";
+import { GoodsReceiptStatus } from "../../../generated/prisma/index.js";
 
 vi.mock("../../../module/application/inventory-v2/gr/gr.controller.js");
 

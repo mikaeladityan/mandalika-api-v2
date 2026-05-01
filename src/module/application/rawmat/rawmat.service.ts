@@ -12,9 +12,9 @@ import {
     RawMatCategories,
     Supplier,
     UnitRawMaterial,
-} from "../../../generated/prisma/client.js";
+} from "../../../generated/prisma/index.js";
 import { normalizeSlug } from "../../../lib/index.js";
-import { MaterialType } from "../../../generated/prisma/enums.js";
+import { MaterialType } from "../../../generated/prisma/index.js";
 import ExcelJS from "exceljs";
 
 type RawRow = {
@@ -372,7 +372,8 @@ export class RawMaterialService {
             FROM raw_materials rm
             JOIN unit_raw_materials urm ON urm.id = rm.unit_id
             LEFT JOIN raw_mat_categories rmc ON rmc.id = rm.raw_mat_categories_id
-            LEFT JOIN supplier_materials sm ON sm.raw_material_id = rm.id AND sm.is_preferred = true
+            LEFT JOIN supplier_materials sm ON sm.raw_material_id = rm.id 
+                AND sm.supplier_id = COALESCE(${supplier_id}, (SELECT sm_inner.supplier_id FROM supplier_materials sm_inner WHERE sm_inner.raw_material_id = rm.id AND sm_inner.is_preferred = true LIMIT 1))
             LEFT JOIN suppliers s ON s.id = sm.supplier_id
         `;
 

@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../src/generated/prisma"
 }
 
@@ -222,7 +222,10 @@ model RawMaterial {
   production_order_substitute_items ProductionOrderItem[]  @relation("ProductionItemSubstituteRM")
   production_rm_wastes              ProductionOrderWaste[] @relation("ProductionWasteRM")
   transfer_items          StockTransferItem[]
-  rfq_items               RFQItem[]
+  rfq_items               PurchaseRFQItem[]
+  po_items                PurchaseOrderItem[]
+  receipt_items           PurchaseReceiptItem[]
+  vendor_return_items     VendorReturnItem[]
 
   @@map("raw_materials")
 }
@@ -280,7 +283,9 @@ model Supplier {
   slug               String?               @unique
   source             RawMaterialSource     @default(LOCAL)
   supplier_materials SupplierMaterial[]
-  rfqs               RequestForQuotation[]
+  purchase_rfqs      PurchaseRFQ[]
+  purchase_orders    PurchaseOrder[]
+  account_payables   AccountPayable[]
 
   @@map("suppliers")
 }
@@ -325,7 +330,9 @@ model Warehouse {
   production_orders_fg     ProductionOrder[]      @relation("ProductionFGWarehouse")
   production_order_items   ProductionOrderItem[]  @relation("ProductionItemWarehouse")
   production_order_wastes  ProductionOrderWaste[] @relation("ProductionWasteWarehouse")
-  rfqs                     RequestForQuotation[]
+  purchase_orders          PurchaseOrder[]        @relation("POWarehouse")
+  purchase_receipts        PurchaseReceipt[]      @relation("ReceiptWarehouse")
+  vendor_returns           VendorReturn[]         @relation("VendorReturnWarehouse")
 
   @@index([name])
   @@map("warehouses")
@@ -468,7 +475,7 @@ model MaterialPurchaseDraft {
   total_needed         Decimal              @default(0) @db.Decimal(18, 2)
   open_po              RawMaterialOpenPo?   @relation(fields: [open_po_id], references: [id])
   raw_material         RawMaterial          @relation(fields: [raw_mat_id], references: [id], onDelete: Cascade)
-  rfq_item             RFQItem?
+  rfq_item             PurchaseRFQItem?
 
   @@unique([raw_mat_id, month, year])
   @@map("material_purchase_drafts")
@@ -484,13 +491,10 @@ model RawMaterialOpenPo {
   status           String                 @default("OPEN") @db.VarChar(50)
   created_at       DateTime               @default(now())
   updated_at       DateTime               @updatedAt
-  rfq_id           Int?
   purchase_draft   MaterialPurchaseDraft?
   raw_material     RawMaterial            @relation(fields: [raw_material_id], references: [id], onDelete: Cascade)
-  rfq              RequestForQuotation?   @relation(fields: [rfq_id], references: [id])
 
   @@index([raw_material_id, status])
-  @@index([rfq_id])
   @@map("raw_material_open_pos")
 }
 
@@ -854,44 +858,301 @@ model ProductionOrderOutput {
   @@map("production_order_outputs")
 }
 
-model RequestForQuotation {
-  id           Int       @id @default(autoincrement())
-  rfq_number   String    @unique @db.VarChar(50)
-  vendor_id    Int?
-  warehouse_id Int?
-  date         DateTime  @default(now())
-  status       RFQStatus @default(DRAFT)
-  notes        String?
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
+// ============================================================
+// PURCHASING MODULE — Models Baru
+// ============================================================
 
-  vendor    Supplier?           @relation(fields: [vendor_id], references: [id])
-  warehouse Warehouse?          @relation(fields: [warehouse_id], references: [id])
-  items     RFQItem[]
-  open_pos  RawMaterialOpenPo[]
+model PurchaseRFQ {
+  id                Int              @id @default(autoincrement())
+  rfq_number        String           @unique @db.VarChar(50)
+  rfq_date          DateTime         @default(now())
+  supplier_id       Int?
+  supplier_name     String           @db.VarChar(150)
+  supplier_code     String?          @db.VarChar(50)
+  is_new_supplier   Boolean          @default(false)
+  supplier_category String?          @db.VarChar(100)
+  location_code     String?          @db.VarChar(50)
+  status            RFQStatus        @default(DRAFT)
+  notes             String?
+  source_draft_ids  Json?
+  created_by        String           @db.VarChar(100)
+  updated_by        String?          @db.VarChar(100)
+  approved_by       String?          @db.VarChar(100)
+  approved_at       DateTime?
+  converted_at      DateTime?
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
 
-  @@index([status])
-  @@index([vendor_id])
-  @@index([date])
-  @@map("request_for_quotations")
+  supplier          Supplier?        @relation(fields: [supplier_id], references: [id])
+  items             PurchaseRFQItem[]
+  purchase_orders   PurchaseOrder[]
+
+  @@index([status, rfq_date(sort: Desc)])
+  @@index([supplier_id, rfq_date(sort: Desc)])
+  @@map("purchase_rfqs")
 }
 
-model RFQItem {
-  id                Int     @id @default(autoincrement())
-  rfq_id            Int
-  raw_material_id   Int
-  purchase_draft_id Int?    @unique
-  quantity          Decimal @db.Decimal(18, 2)
-  unit_price        Decimal? @db.Decimal(18, 2)
-  notes             String?
+model PurchaseRFQItem {
+  id              Int          @id @default(autoincrement())
+  rfq_id          Int
+  raw_material_id Int?
+  purchase_draft_id Int?       @unique
+  item_code       String       @db.VarChar(100)
+  item_name       String       @db.VarChar(255)
+  item_category   String?      @db.VarChar(100)
+  uom             String       @db.VarChar(50)
+  qty_requested   Decimal      @db.Decimal(18, 2)
+  notes           String?
+  created_at      DateTime     @default(now())
 
-  rfq            RequestForQuotation    @relation(fields: [rfq_id], references: [id], onDelete: Cascade)
-  raw_material   RawMaterial            @relation(fields: [raw_material_id], references: [id])
-  purchase_draft MaterialPurchaseDraft? @relation(fields: [purchase_draft_id], references: [id])
+  rfq             PurchaseRFQ  @relation(fields: [rfq_id], references: [id], onDelete: Cascade)
+  raw_material    RawMaterial? @relation(fields: [raw_material_id], references: [id])
+  purchase_draft  MaterialPurchaseDraft? @relation(fields: [purchase_draft_id], references: [id])
 
   @@index([rfq_id])
   @@index([raw_material_id])
-  @@map("rfq_items")
+  @@map("purchase_rfq_items")
+}
+
+model PurchaseOrder {
+  id              Int                  @id @default(autoincrement())
+  po_number       String               @unique @db.VarChar(50)
+  po_date         DateTime             @default(now())
+  po_type         POType               @default(LOCAL)
+  supplier_id     Int?
+  supplier_name   String               @db.VarChar(150)
+  supplier_code   String?              @db.VarChar(50)
+  is_new_supplier Boolean              @default(false)
+  warehouse_id    Int?
+  source_rfq_id   Int?
+  currency        String               @default("IDR") @db.VarChar(10)
+  exchange_rate   Decimal?             @db.Decimal(18, 4)
+  total_estimated Decimal              @default(0) @db.Decimal(18, 2)
+  status          POStatus             @default(DRAFT)
+  notes           String?
+  created_by      String               @db.VarChar(100)
+  updated_by      String?              @db.VarChar(100)
+  approved_by     String?              @db.VarChar(100)
+  approved_at     DateTime?
+  ordered_at      DateTime?
+  closed_at       DateTime?
+  cancelled_at    DateTime?
+  cancelled_by    String?              @db.VarChar(100)
+  created_at      DateTime             @default(now())
+  updated_at      DateTime             @updatedAt
+
+  supplier        Supplier?            @relation(fields: [supplier_id], references: [id])
+  warehouse       Warehouse?           @relation("POWarehouse", fields: [warehouse_id], references: [id])
+  source_rfq      PurchaseRFQ?         @relation(fields: [source_rfq_id], references: [id])
+  items           PurchaseOrderItem[]
+  payment_terms   PurchasePaymentTerm[]
+  tracking        PurchaseTracking?
+  receipt_items   PurchaseReceiptItem[]
+  account_payables AccountPayable[]
+
+  @@index([status, po_date(sort: Desc)])
+  @@index([po_type, status])
+  @@index([supplier_id, po_date(sort: Desc)])
+  @@index([warehouse_id])
+  @@index([source_rfq_id])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              Int            @id @default(autoincrement())
+  po_id           Int
+  raw_material_id Int?
+  item_code       String         @db.VarChar(100)
+  item_name       String         @db.VarChar(255)
+  item_category   String?        @db.VarChar(100)
+  item_type       POItemType     @default(MASTER)
+  uom             String         @db.VarChar(50)
+  moq             Decimal?       @db.Decimal(18, 2)
+  unit_price      Decimal        @default(0) @db.Decimal(18, 4)
+  qty_ordered     Decimal        @db.Decimal(18, 2)
+  qty_received    Decimal        @default(0) @db.Decimal(18, 2)
+  subtotal        Decimal        @default(0) @db.Decimal(18, 2)
+  notes           String?
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+
+  po              PurchaseOrder  @relation(fields: [po_id], references: [id], onDelete: Cascade)
+  raw_material    RawMaterial?   @relation(fields: [raw_material_id], references: [id])
+  receipt_items   PurchaseReceiptItem[]
+
+  @@index([po_id])
+  @@index([raw_material_id])
+  @@map("purchase_order_items")
+}
+
+model PurchasePaymentTerm {
+  id          Int           @id @default(autoincrement())
+  po_id       Int
+  term_seq    Int
+  percentage  Decimal       @db.Decimal(5, 2)
+  due_days    Int?
+  notes       String?
+  created_at  DateTime      @default(now())
+
+  po          PurchaseOrder @relation(fields: [po_id], references: [id], onDelete: Cascade)
+
+  @@unique([po_id, term_seq])
+  @@map("purchase_payment_terms")
+}
+
+model PurchaseTracking {
+  id              Int                     @id @default(autoincrement())
+  po_id           Int                     @unique
+  order_status    POTrackingOrderStatus   @default(ORDERED)
+  payment_status  POTrackingPaymentStatus @default(UNPAID)
+  eta_date        DateTime?
+  ship_date       DateTime?
+  arrive_date     DateTime?
+  dp_paid_date    DateTime?
+  dp_paid_pct     Decimal?                @db.Decimal(5, 2)
+  final_paid_date DateTime?
+  tracking_number String?                 @db.VarChar(100)
+  notes           String?
+  updated_by      String?                 @db.VarChar(100)
+  created_at      DateTime                @default(now())
+  updated_at      DateTime                @updatedAt
+
+  po              PurchaseOrder           @relation(fields: [po_id], references: [id], onDelete: Cascade)
+
+  @@index([order_status, updated_at(sort: Desc)])
+  @@index([payment_status])
+  @@map("purchase_trackings")
+}
+
+model PurchaseReceipt {
+  id              Int                   @id @default(autoincrement())
+  receipt_number  String                @unique @db.VarChar(50)
+  receipt_date    DateTime              @default(now())
+  warehouse_id    Int
+  status          ReceiptStatus         @default(DRAFT)
+  total_qty       Decimal               @default(0) @db.Decimal(18, 2)
+  total_amount    Decimal               @default(0) @db.Decimal(18, 2)
+  notes           String?
+  posted_at       DateTime?
+  created_by      String                @db.VarChar(100)
+  updated_by      String?               @db.VarChar(100)
+  approved_by     String?               @db.VarChar(100)
+  created_at      DateTime              @default(now())
+  updated_at      DateTime              @updatedAt
+
+  warehouse       Warehouse             @relation("ReceiptWarehouse", fields: [warehouse_id], references: [id])
+  items           PurchaseReceiptItem[]
+  account_payables AccountPayable[]
+  vendor_returns  VendorReturn[]
+
+  @@index([status, receipt_date(sort: Desc)])
+  @@index([warehouse_id, receipt_date(sort: Desc)])
+  @@map("purchase_receipts")
+}
+
+model PurchaseReceiptItem {
+  id              Int              @id @default(autoincrement())
+  receipt_id      Int
+  po_id           Int
+  po_item_id      Int
+  raw_material_id Int?
+  item_code       String           @db.VarChar(100)
+  item_name       String           @db.VarChar(255)
+  uom             String           @db.VarChar(50)
+  qty_received    Decimal          @db.Decimal(18, 2)
+  unit_price      Decimal          @db.Decimal(18, 4)
+  amount          Decimal          @db.Decimal(18, 2)
+  notes           String?
+  created_at      DateTime         @default(now())
+
+  receipt         PurchaseReceipt  @relation(fields: [receipt_id], references: [id], onDelete: Cascade)
+  po              PurchaseOrder    @relation(fields: [po_id], references: [id])
+  po_item         PurchaseOrderItem @relation(fields: [po_item_id], references: [id])
+  raw_material    RawMaterial?     @relation(fields: [raw_material_id], references: [id])
+  vendor_return_items VendorReturnItem[]
+
+  @@index([receipt_id])
+  @@index([po_item_id])
+  @@index([po_id])
+  @@index([raw_material_id])
+  @@map("purchase_receipt_items")
+}
+
+model VendorReturn {
+  id            Int                @id @default(autoincrement())
+  return_number String             @unique @db.VarChar(50)
+  return_date   DateTime           @default(now())
+  receipt_id    Int
+  warehouse_id  Int
+  status        VendorReturnStatus @default(DRAFT)
+  reason        String?
+  notes         String?
+  posted_at     DateTime?
+  created_by    String             @db.VarChar(100)
+  updated_by    String?            @db.VarChar(100)
+  created_at    DateTime           @default(now())
+  updated_at    DateTime           @updatedAt
+
+  receipt       PurchaseReceipt    @relation(fields: [receipt_id], references: [id])
+  warehouse     Warehouse          @relation("VendorReturnWarehouse", fields: [warehouse_id], references: [id])
+  items         VendorReturnItem[]
+
+  @@index([receipt_id])
+  @@index([status, return_date(sort: Desc)])
+  @@map("vendor_returns")
+}
+
+model VendorReturnItem {
+  id              Int                  @id @default(autoincrement())
+  return_id       Int
+  receipt_item_id Int
+  raw_material_id Int?
+  item_code       String               @db.VarChar(100)
+  item_name       String               @db.VarChar(255)
+  uom             String               @db.VarChar(50)
+  qty_returned    Decimal              @db.Decimal(18, 2)
+  unit_price      Decimal              @db.Decimal(18, 4)
+  amount          Decimal              @db.Decimal(18, 2)
+  reason          String?
+  created_at      DateTime             @default(now())
+
+  return_doc      VendorReturn         @relation(fields: [return_id], references: [id], onDelete: Cascade)
+  receipt_item    PurchaseReceiptItem  @relation(fields: [receipt_item_id], references: [id])
+  raw_material    RawMaterial?         @relation(fields: [raw_material_id], references: [id])
+
+  @@index([return_id])
+  @@index([receipt_item_id])
+  @@map("vendor_return_items")
+}
+
+model AccountPayable {
+  id               Int            @id @default(autoincrement())
+  ap_number        String         @unique @db.VarChar(50)
+  po_id            Int
+  receipt_id       Int
+  supplier_id      Int?
+  supplier_name    String         @db.VarChar(150)
+  invoice_number   String?        @db.VarChar(100)
+  invoice_date     DateTime?
+  due_date         DateTime?
+  amount           Decimal        @db.Decimal(18, 2)
+  paid_amount      Decimal        @default(0) @db.Decimal(18, 2)
+  remaining_amount Decimal        @default(0) @db.Decimal(18, 2)
+  status           APStatus       @default(UNPAID)
+  notes            String?
+  created_by       String         @db.VarChar(100)
+  created_at       DateTime       @default(now())
+  updated_at       DateTime       @updatedAt
+
+  po               PurchaseOrder  @relation(fields: [po_id], references: [id])
+  receipt          PurchaseReceipt @relation(fields: [receipt_id], references: [id])
+  supplier         Supplier?      @relation(fields: [supplier_id], references: [id])
+
+  @@index([status, due_date])
+  @@index([supplier_id, status])
+  @@index([po_id])
+  @@index([receipt_id])
+  @@map("account_payables")
 }
 
 enum IssuanceType {
@@ -928,16 +1189,6 @@ enum LogActivities {
   CLEAN
 }
 
-enum SOSMED {
-  facebook
-  twitter
-  instagram
-  linkedin
-  youtube
-  tiktok
-  whatsapp
-}
-
 enum ROLE {
   STAFF
   SUPER_ADMIN
@@ -962,16 +1213,6 @@ enum ForecastStatus {
   ADJUSTED
 }
 
-enum ForecastModel {
-  SIMPLE_MOVING_AVERAGE
-  EXPONENTIAL_SMOOTHING
-  HOLT_WINTERS
-  LINEAR_REGRESSION
-  ARIMA
-  ENSEMBLE
-  AUTO
-}
-
 enum Trend {
   UP
   DOWN
@@ -981,12 +1222,6 @@ enum Trend {
 enum MaterialType {
   FO
   PCKG
-}
-
-enum StatusProduction {
-  PENDING
-  PROCESSING
-  FINISH
 }
 
 enum RawMaterialSource {
@@ -1101,10 +1336,64 @@ enum ReturnStatus {
 
 enum RFQStatus {
   DRAFT
-  SENT
-  RECEIVED
+  SUBMITTED
+  REVIEWED
   APPROVED
-  PARTIAL_CONVERTED
   CONVERTED
+  CLOSED
+}
+
+enum POType {
+  LOCAL
+  IMPORT
+  FO
+}
+
+enum POStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  ORDERED
+  CLOSED
   CANCELLED
+}
+
+enum POItemType {
+  MASTER
+  MANUAL
+}
+
+enum POTrackingOrderStatus {
+  ORDERED
+  SHIPPED
+  ARRIVED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CLOSED
+}
+
+enum POTrackingPaymentStatus {
+  UNPAID
+  DP_PAID
+  PARTIALLY_PAID
+  PAID
+}
+
+enum ReceiptStatus {
+  DRAFT
+  POSTED
+  APPROVED
+}
+
+enum VendorReturnStatus {
+  DRAFT
+  POSTED
+  APPROVED
+}
+
+enum APStatus {
+  UNPAID
+  DP_PAID
+  PARTIALLY_PAID
+  PAID
 }

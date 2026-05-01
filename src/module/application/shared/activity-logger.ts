@@ -1,5 +1,5 @@
 import prisma from "../../../config/prisma.js";
-import { LogActivities } from "../../../generated/prisma/enums.js";
+import { LogActivities } from "../../../generated/prisma/index.js";
 import z from "zod";
 
 export const LoggingActivitySchema = z.object({

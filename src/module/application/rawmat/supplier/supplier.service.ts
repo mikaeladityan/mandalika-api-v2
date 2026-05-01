@@ -1,5 +1,5 @@
 import prisma from "../../../../config/prisma.js";
-import { Prisma, Supplier } from "../../../../generated/prisma/client.js";
+import { Prisma, Supplier } from "../../../../generated/prisma/index.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { normalizeSlug } from "../../../../lib/index.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
@@ -112,28 +112,41 @@ export class SupplierService {
         sortBy = "updated_at",
         sortOrder = "desc",
         search,
-    }: QuerySupplierDTO): Promise<{ data: ResponseSupplierDTO[]; len: number }> {
+    }: QuerySupplierDTO): Promise<{ data: any[]; len: number }> {
         const { skip, take: limit } = GetPagination(page, take);
-        const sortCol = Prisma.raw(SORT_MAP[sortBy] ?? "updated_at");
-        const sortDir = Prisma.raw(sortOrder.toUpperCase() === "DESC" ? "DESC" : "ASC");
 
-        const where = search
-            ? Prisma.sql`WHERE (name ILIKE ${"%" + search + "%"} OR phone ILIKE ${"%" + search + "%"} OR country ILIKE ${"%" + search + "%"})`
-            : Prisma.empty;
+        const where: any = search
+            ? {
+                OR: [
+                    { name: { contains: search, mode: "insensitive" } },
+                    { phone: { contains: search, mode: "insensitive" } },
+                    { country: { contains: search, mode: "insensitive" } },
+                ],
+            }
+            : {};
 
-        const [rows, [{ count }]] = await Promise.all([
-            prisma.$queryRaw<ResponseSupplierDTO[]>(Prisma.sql`
-                SELECT id, name, addresses, country, phone, source, created_at, updated_at
-                FROM suppliers ${where}
-                ORDER BY ${sortCol} ${sortDir}
-                LIMIT ${limit} OFFSET ${skip}
-            `),
-            prisma.$queryRaw<[{ count: bigint }]>(Prisma.sql`
-                SELECT COUNT(*) AS count FROM suppliers ${where}
-            `),
+        const [data, total] = await Promise.all([
+            prisma.supplier.findMany({
+                where,
+                skip,
+                take: limit,
+                orderBy: { [sortBy]: sortOrder as any },
+                include: {
+                    supplier_materials: {
+                        include: {
+                            raw_material: {
+                                include: {
+                                    unit_raw_material: true,
+                                },
+                            },
+                        },
+                    },
+                },
+            }),
+            prisma.supplier.count({ where }),
         ]);
 
-        return { len: Number(count), data: rows };
+        return { len: total, data };
     }
 
     private static async findSupplier(id: number): Promise<Supplier | null> {

@@ -1,6 +1,6 @@
 import { env } from "../config/env.js";
 import { redisClient } from "../config/redis.js";
-import { ROLE } from "../generated/prisma/enums.js";
+import { ROLE } from "../generated/prisma/index.js";
 import { ApiError } from "../lib/errors/api.error.js";
 import { logger } from "../lib/logger.js";
 import { sessionCache } from "../lib/session.management.js";

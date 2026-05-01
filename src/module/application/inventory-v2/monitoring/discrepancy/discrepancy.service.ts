@@ -1,6 +1,6 @@
 import prisma from "../../../../../config/prisma.js";
-import { Prisma } from "../../../../../generated/prisma/client.js";
-import { TransferStatus } from "../../../../../generated/prisma/enums.js";
+import { Prisma } from "../../../../../generated/prisma/index.js";
+import { TransferStatus } from "../../../../../generated/prisma/index.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
 import { EXPORT_ROW_LIMIT, PRODUCT_INCLUDE } from "../../../shared/inventory.constants.js";
 import { QueryDiscrepancyDTO } from "./discrepancy.schema.js";

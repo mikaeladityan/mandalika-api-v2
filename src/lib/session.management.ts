@@ -3,7 +3,7 @@ import { v4 as uuid } from "uuid";
 import { Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { redisClient } from "../config/redis.js";
-import { Account, User } from "../generated/prisma/client.js";
+import { Account, User } from "../generated/prisma/index.js";
 
 type UserResDTO = Omit<User, "created_at" | "updated_at" | "deleted_at" | "id" | "account_id">;
 type AccountResDTO = Omit<

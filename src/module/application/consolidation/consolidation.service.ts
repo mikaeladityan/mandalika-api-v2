@@ -473,35 +473,39 @@ export class ConsolidationService {
                     if (!vendorDrafts) continue;
 
                     // Create RFQ for this supplier
-                    const rfq = await tx.requestForQuotation.create({
+                    const rfq = await tx.purchaseRFQ.create({
                         data: {
                             rfq_number: generateRFQNumber(),
-                            vendor_id: vendorId,
-                            date: new Date(),
-                            status: "DRAFT", // Initial status for auto-created RFQ
+                            supplier_id: vendorId,
+                            supplier_name: vendorDrafts[0].raw_material?.supplier_materials?.[0]?.supplier?.name || "Unknown",
+                            rfq_date: new Date(),
+                            status: "DRAFT",
+                            created_by: "system", // Or get current user
                         },
                     });
 
                     // Create items for this RFQ
                     for (const draft of vendorDrafts) {
-                        // Create Open PO record linked to RFQ
+                        // Create Open PO record (legacy, but still used as per ERD note)
                         const openPo = await tx.rawMaterialOpenPo.create({
                             data: {
                                 raw_material_id: draft.raw_mat_id,
                                 quantity: draft.quantity,
                                 po_number: null,
                                 status: "OPEN",
-                                rfq_id: rfq.id,
                             },
                         });
 
                         // Create RFQ Item
-                        await tx.rFQItem.create({
+                        await tx.purchaseRFQItem.create({
                             data: {
                                 rfq_id: rfq.id,
                                 raw_material_id: draft.raw_mat_id,
                                 purchase_draft_id: draft.id,
-                                quantity: draft.quantity,
+                                item_code: draft.raw_material?.barcode || "N/A",
+                                item_name: draft.raw_material?.name || "Unknown",
+                                uom: draft.raw_material?.unit_raw_material?.name || "UNIT",
+                                qty_requested: draft.quantity,
                                 notes: "Auto-created from Consolidation",
                             },
                         });

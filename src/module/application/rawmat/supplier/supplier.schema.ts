@@ -23,6 +23,7 @@ export const ResponseSupplierSchema = RequestSupplierSchema.extend({
     id: z.number(),
     created_at: z.date(),
     updated_at: z.date(),
+    supplier_materials: z.array(z.any()).optional(),
 });
 
 export const QuerySupplierSchema = z.object({

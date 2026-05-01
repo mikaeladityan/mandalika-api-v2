@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GoodsReceiptService } from "../../../module/application/inventory-v2/gr/gr.service.js";
-import { GoodsReceiptStatus, GoodsReceiptType } from "../../../generated/prisma/enums.js";
+import { GoodsReceiptStatus, GoodsReceiptType } from "../../../generated/prisma/index.js";
 import prisma from "../../../config/prisma.js";
 import { RequestGoodsReceiptDTO } from "../../../module/application/inventory-v2/gr/gr.schema.js";
 import { ReturnService } from "../../../module/application/inventory-v2/return/return.service.js";

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ReturnService } from "../../../module/application/inventory-v2/return/return.service.js";
-import { ReturnStatus, TransferLocationType, MovementType, MovementRefType } from "../../../generated/prisma/enums.js";
+import { ReturnStatus, TransferLocationType, MovementType, MovementRefType } from "../../../generated/prisma/index.js";
 import prisma from "../../../config/prisma.js";
 import { RequestReturnDTO } from "../../../module/application/inventory-v2/return/return.schema.js";
 

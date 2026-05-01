@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import prisma from "../../../../config/prisma.js";
 import { RmReceiptService } from "../../../../module/application/manufacturing/inventory/rm-receipt/rm-receipt.service.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
-import { TransferStatus } from "../../../../generated/prisma/enums.js";
+import { TransferStatus } from "../../../../generated/prisma/index.js";
 
 vi.mock("../../../../config/prisma.js", () => ({
     default: {

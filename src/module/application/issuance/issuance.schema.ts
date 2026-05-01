@@ -1,5 +1,5 @@
 import z from "zod";
-import { GENDER, IssuanceType } from "../../../generated/prisma/enums.js";
+import { GENDER, IssuanceType } from "../../../generated/prisma/index.js";
 
 const InlineProductSchema = z.object({
     id: z.number(),

@@ -1,4 +1,4 @@
-import { Prisma } from "../../../generated/prisma/client.js";
+import { Prisma } from "../../../generated/prisma/index.js";
 import prisma from "../../../config/prisma.js";
 import {
     QueryRecomendationV2DTO,
@@ -535,7 +535,8 @@ export class RecomendationV2Service {
             SELECT COUNT(rm.id)::int as count
             FROM "raw_materials" rm
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-            LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+            LEFT JOIN "supplier_materials" sm_pref ON sm_pref.raw_material_id = rm.id AND sm_pref.is_preferred = true
+            LEFT JOIN "suppliers" s ON s.id = sm_pref.supplier_id
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
@@ -965,7 +966,8 @@ export class RecomendationV2Service {
             FROM "raw_materials" rm
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-            LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+            LEFT JOIN "supplier_materials" sm_pref ON sm_pref.raw_material_id = rm.id AND sm_pref.is_preferred = true
+            LEFT JOIN "suppliers" s ON s.id = sm_pref.supplier_id
             LEFT JOIN "material_purchase_drafts" mro
                 ON mro.raw_mat_id = rm.id AND mro.month = ${month} AND mro.year = ${year}
             LEFT JOIN po_agg po ON po.raw_material_id = rm.id

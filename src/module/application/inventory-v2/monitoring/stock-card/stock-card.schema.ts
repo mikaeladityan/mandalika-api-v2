@@ -4,7 +4,7 @@ import {
     MovementLocationType,
     MovementType,
     MovementRefType,
-} from "../../../../../generated/prisma/enums.js";
+} from "../../../../../generated/prisma/index.js";
 
 // ── Query ───────────────────────────────────────────────────────────────────
 export const QueryStockCardSchema = z.object({

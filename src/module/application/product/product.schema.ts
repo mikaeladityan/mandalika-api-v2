@@ -1,5 +1,5 @@
 import z from "zod";
-import { GENDER, STATUS } from "../../../generated/prisma/enums.js";
+import { GENDER, STATUS } from "../../../generated/prisma/index.js";
 import { UnitResponseSchema } from "./unit/unit.schema.js";
 import { TypeResponseSchema } from "./type/type.schema.js";
 import { ResponseProductSizeSchema } from "./size/size.schema.js";

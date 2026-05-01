@@ -1,6 +1,6 @@
 import prisma from "../../../config/prisma.js";
 import ExcelJS from "exceljs";
-import { Prisma } from "../../../generated/prisma/client.js";
+import { Prisma } from "../../../generated/prisma/index.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import {
@@ -151,7 +151,13 @@ export class RecipeService {
                 ps.size         AS size_val,
                 rm.name         AS rm_name,
                 rm.barcode      AS rm_barcode,
-                rm.price        AS rm_price,
+                COALESCE((
+                    SELECT unit_price 
+                    FROM supplier_materials 
+                    WHERE raw_material_id = rm.id 
+                    AND is_preferred = true 
+                    LIMIT 1
+                ), 0) AS rm_price,
                 r.version,
                 r.is_active,
                 r.description,

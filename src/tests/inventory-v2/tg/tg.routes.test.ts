@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import TGRoutes from "../../../module/application/inventory-v2/tg/tg.routes.js";
 import { TGController } from "../../../module/application/inventory-v2/tg/tg.controller.js";
-import { TransferStatus } from "../../../generated/prisma/enums.js";
+import { TransferStatus } from "../../../generated/prisma/index.js";
 
 vi.mock("../../../module/application/inventory-v2/tg/tg.controller.js");
 

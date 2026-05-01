@@ -1,4 +1,4 @@
-import { Prisma } from "../../../../../generated/prisma/client.js";
+import { Prisma } from "../../../../../generated/prisma/index.js";
 import prisma from "../../../../../config/prisma.js";
 import { QueryRmReceiptDTO, UpdateRmStatusDTO } from "./rm-receipt.schema.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
@@ -10,7 +10,7 @@ import {
     MovementEntityType,
     TransferPhotoStage,
     WasteType,
-} from "../../../../../generated/prisma/enums.js";
+} from "../../../../../generated/prisma/index.js";
 import { InventoryHelper, StockItem } from "../../../shared/inventory.helper.js";
 
 const RM_RECEIPT_INCLUDE = {

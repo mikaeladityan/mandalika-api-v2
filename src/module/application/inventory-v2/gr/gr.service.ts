@@ -1,7 +1,7 @@
-import { Prisma } from "../../../../generated/prisma/client.js";
+import { Prisma } from "../../../../generated/prisma/index.js";
 import prisma from "../../../../config/prisma.js";
 import { RequestGoodsReceiptDTO, QueryGoodsReceiptDTO, RequestUpdateGoodsReceiptDTO } from "./gr.schema.js";
-import { GoodsReceiptStatus, MovementType, MovementRefType } from "../../../../generated/prisma/enums.js";
+import { GoodsReceiptStatus, MovementType, MovementRefType } from "../../../../generated/prisma/index.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";

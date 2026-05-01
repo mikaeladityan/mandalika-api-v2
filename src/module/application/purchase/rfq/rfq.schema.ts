@@ -1,37 +1,54 @@
 import { z } from "zod";
 
 export const RFQStatusEnum = z.enum([
-    "DRAFT", "SENT", "RECEIVED", "APPROVED",
-    "PARTIAL_CONVERTED", "CONVERTED", "CANCELLED",
+    "DRAFT", "SUBMITTED", "REVIEWED", "APPROVED", "CONVERTED", "CLOSED",
 ]);
 
 export const CreateRFQItemSchema = z.object({
-    raw_material_id: z.number().int().positive(),
+    raw_material_id: z.number().int().positive().optional().nullable(),
     purchase_draft_id: z.number().int().positive().optional().nullable(),
-    quantity: z.number().positive(),
-    unit_price: z.number().nonnegative().optional().nullable(),
+    item_code: z.string().min(1),
+    item_name: z.string().min(1),
+    item_category: z.string().optional().nullable(),
+    uom: z.string().min(1),
+    qty_requested: z.number().positive(),
+    unit_price: z.number().optional().default(0),
+    moq: z.number().optional().nullable(),
+    lead_time: z.number().int().optional().nullable(),
     notes: z.string().optional().nullable(),
 });
 
 export const CreateRFQSchema = z.object({
-    vendor_id: z.number().int().positive().optional().nullable(),
-    warehouse_id: z.number().int().positive().optional().nullable(),
-    date: z.coerce.date().optional(),
+    rfq_number: z.string().optional(),
+    rfq_date: z.coerce.date().optional(),
+    supplier_id: z.number().int().positive().optional().nullable(),
+    supplier_name: z.string().min(1),
+    supplier_code: z.string().optional().nullable(),
+    is_new_supplier: z.boolean().default(false),
+    supplier_category: z.string().optional().nullable(),
+    location_code: z.string().optional().nullable(),
     notes: z.string().optional().nullable(),
+    country: z.string().optional().nullable(),
+    addresses: z.string().optional().nullable(),
+    supplier_source: z.enum(["LOCAL", "IMPORT"]).optional().default("LOCAL"),
+    source_draft_ids: z.array(z.number()).optional().nullable(),
     items: z.array(CreateRFQItemSchema).min(1, "At least one item is required"),
 });
 
 export type CreateRFQDTO = z.infer<typeof CreateRFQSchema>;
 
 export const UpdateRFQSchema = z.object({
-    vendor_id: z.number().int().positive().optional().nullable(),
-    warehouse_id: z.number().int().positive().optional().nullable(),
-    date: z.coerce.date().optional(),
+    rfq_date: z.coerce.date().optional(),
+    supplier_id: z.number().int().positive().optional().nullable(),
+    supplier_name: z.string().min(1).optional(),
+    supplier_code: z.string().optional().nullable(),
+    supplier_category: z.string().optional().nullable(),
+    location_code: z.string().optional().nullable(),
     notes: z.string().optional().nullable(),
     status: RFQStatusEnum.optional(),
     items: z.array(
         CreateRFQItemSchema.extend({
-            id: z.number().int().positive().optional(), // existing item id
+            id: z.number().int().positive().optional(),
         })
     ).optional(),
 });
@@ -49,10 +66,11 @@ export const QueryRFQSchema = z.object({
     take: z.coerce.number().min(1).max(500).default(50),
     search: z.string().optional(),
     status: RFQStatusEnum.optional(),
-    vendor_id: z.coerce.number().int().positive().optional(),
+    vendor_id: z.coerce.number().int().positive().optional(), // backward compatibility if needed, but ERD uses supplier_id
+    supplier_id: z.coerce.number().int().positive().optional(),
     month: z.coerce.number().min(1).max(12).optional(),
     year: z.coerce.number().min(2000).optional(),
-    sortBy: z.enum(["date", "rfq_number", "status", "created_at"]).optional(),
+    sortBy: z.enum(["rfq_date", "rfq_number", "status", "created_at"]).optional(),
     order: z.enum(["asc", "desc"]).optional().default("desc"),
 });
 
