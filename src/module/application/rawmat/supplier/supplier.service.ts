@@ -77,7 +77,7 @@ export class SupplierService {
         const supplier = await this.findSupplier(id);
         if (!supplier) throw new ApiError(404, "Supplier tidak ditemukan");
 
-        const usedCount = await prisma.rawMaterial.count({ where: { supplier_id: id } });
+        const usedCount = await prisma.supplierMaterial.count({ where: { supplier_id: id } });
         if (usedCount > 0)
             throw new ApiError(400, "Supplier masih digunakan oleh beberapa Raw Material");
 
@@ -87,14 +87,14 @@ export class SupplierService {
     static async bulkDelete(ids: number[]) {
         const suppliers = await prisma.supplier.findMany({
             where: { id: { in: ids } },
-            include: { _count: { select: { raw_materials: true } } },
+            include: { _count: { select: { supplier_materials: true } } },
         });
 
         if (suppliers.length !== ids.length) {
             throw new ApiError(404, "Beberapa supplier tidak ditemukan");
         }
 
-        const usedSuppliers = suppliers.filter((s) => (s as any)._count.raw_materials > 0);
+        const usedSuppliers = suppliers.filter((s) => (s as any)._count.supplier_materials > 0);
         if (usedSuppliers.length > 0) {
             const names = usedSuppliers.map((s) => s.name).join(", ");
             throw new ApiError(

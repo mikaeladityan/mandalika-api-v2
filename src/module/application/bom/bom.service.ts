@@ -316,7 +316,11 @@ export class BOMService {
             include: {
                 unit_raw_material: true,
                 raw_mat_category: true,
-                supplier: true,
+                supplier_materials: {
+                    where: { is_preferred: true },
+                    include: { supplier: true },
+                    take: 1,
+                },
             },
         });
 
@@ -528,11 +532,11 @@ export class BOMService {
                     id: rawMat.id,
                     barcode: rawMat.barcode || "",
                     name: rawMat.name,
-                    price: Number(rawMat.price),
+                    price: Number((rawMat as any).supplier_materials?.[0]?.unit_price) || 0,
                     category: rawMat.raw_mat_category?.name || "-",
-                    supplier: rawMat.supplier?.name || "-",
-                    supplier_country: rawMat.supplier?.country || "-",
-                    source: rawMat.supplier?.source ?? "LOCAL",
+                    supplier: (rawMat as any).supplier_materials?.[0]?.supplier?.name || "-",
+                    supplier_country: (rawMat as any).supplier_materials?.[0]?.supplier?.country || "-",
+                    source: (rawMat as any).supplier_materials?.[0]?.supplier?.source ?? "LOCAL",
                     unit: rawMat.unit_raw_material?.name || "UNIT",
                 },
                 inventory: {

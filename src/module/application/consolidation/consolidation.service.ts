@@ -36,7 +36,7 @@ export class ConsolidationService {
             } else if (query.type === "lokal" || query.type === "impor") {
                 const targetSource = query.type === "lokal" ? "LOCAL" : "IMPORT";
                 type_condition.AND = [
-                    { OR: [{ source: targetSource }, { supplier: { source: targetSource } }] },
+                    { supplier_materials: { some: { supplier: { source: targetSource } } } },
                     {
                         OR: [
                             { raw_mat_categories_id: null },
@@ -58,7 +58,9 @@ export class ConsolidationService {
 
         if (query.supplier_id || query.type || search) {
             query_condition.raw_material = {
-                ...(query.supplier_id && { supplier_id: query.supplier_id }),
+                ...(query.supplier_id && {
+                    supplier_materials: { some: { supplier_id: query.supplier_id } },
+                }),
                 ...(query.type && type_condition),
                 ...(search && {
                     name: {
@@ -85,22 +87,15 @@ export class ConsolidationService {
                     orderByClause = { raw_material: { barcode: dir } };
                     break;
                 case "supplier_name":
-                    orderByClause = { raw_material: { supplier: { name: dir } } };
+                    orderByClause = { raw_material: { name: dir } };
                     break;
                 case "quantity":
                     orderByClause = { quantity: dir };
-                    break;
-                case "moq":
-                    orderByClause = { raw_material: { min_buy: dir } };
-                    break;
-                case "price":
-                    orderByClause = { raw_material: { price: dir } };
                     break;
                 case "created_at":
                     orderByClause = { created_at: dir };
                     break;
                 default:
-                    // default order
                     break;
             }
         }
@@ -110,7 +105,11 @@ export class ConsolidationService {
             include: {
                 raw_material: {
                     include: {
-                        supplier: true,
+                        supplier_materials: {
+                            where: { is_preferred: true },
+                            include: { supplier: true },
+                            take: 1,
+                        },
                         unit_raw_material: true,
                     },
                 },
@@ -120,20 +119,23 @@ export class ConsolidationService {
             take: limit,
         });
 
-        const parsedData = data.map((item) => ({
-            recommendation_id: item.id,
-            material_id: item.raw_mat_id,
-            barcode: item.raw_material?.barcode || null,
-            material_name: item.raw_material?.name || "Unknown",
-            supplier_name: item.raw_material?.supplier?.name || "-",
-            quantity: Number(item.quantity) || 0,
-            uom: item.raw_material?.unit_raw_material?.name || "UNIT",
-            price: Number(item.raw_material?.price) || 0,
-            moq: item.raw_material?.min_buy ? Number(item.raw_material.min_buy) : null,
-            pic_id: item.pic_id,
-            status: item.status,
-            created_at: item.created_at,
-        }));
+        const parsedData = data.map((item) => {
+            const preferredSM = item.raw_material?.supplier_materials?.[0];
+            return {
+                recommendation_id: item.id,
+                material_id: item.raw_mat_id,
+                barcode: item.raw_material?.barcode || null,
+                material_name: item.raw_material?.name || "Unknown",
+                supplier_name: preferredSM?.supplier?.name || "-",
+                quantity: Number(item.quantity) || 0,
+                uom: item.raw_material?.unit_raw_material?.name || "UNIT",
+                price: Number(preferredSM?.unit_price) || 0,
+                moq: preferredSM?.min_buy ? Number(preferredSM.min_buy) : null,
+                pic_id: item.pic_id,
+                status: item.status,
+                created_at: item.created_at,
+            };
+        });
 
         return { data: parsedData, len: total };
     }
@@ -159,7 +161,7 @@ export class ConsolidationService {
             } else if (query.type === "lokal" || query.type === "impor") {
                 const targetSource = query.type === "lokal" ? "LOCAL" : "IMPORT";
                 type_condition.AND = [
-                    { OR: [{ source: targetSource }, { supplier: { source: targetSource } }] },
+                    { supplier_materials: { some: { supplier: { source: targetSource } } } },
                     {
                         OR: [
                             { raw_mat_categories_id: null },
@@ -181,7 +183,9 @@ export class ConsolidationService {
 
         if (query.supplier_id || query.type || search) {
             query_condition.raw_material = {
-                ...(query.supplier_id && { supplier_id: query.supplier_id }),
+                ...(query.supplier_id && {
+                    supplier_materials: { some: { supplier_id: query.supplier_id } },
+                }),
                 ...(query.type && type_condition),
                 ...(search && {
                     name: {
@@ -197,29 +201,28 @@ export class ConsolidationService {
             include: {
                 raw_material: {
                     include: {
-                        supplier: true,
+                        supplier_materials: {
+                            where: { is_preferred: true },
+                            include: { supplier: true },
+                            take: 1,
+                        },
                         unit_raw_material: true,
                     },
                 },
             },
-            orderBy: {
-                raw_material: {
-                    supplier: {
-                        name: "asc",
-                    },
-                },
-            },
+            orderBy: { raw_material: { name: "asc" } },
         });
 
         const grouping: Record<string, any> = {};
 
         data.forEach((item) => {
-            const supplierId = item.raw_material?.supplier?.id || "N/A";
-            const supplierName = item.raw_material?.supplier?.name || "No Supplier";
-            const supplierAddress = item.raw_material?.supplier?.addresses || "";
-            const supplierPhone = item.raw_material?.supplier?.phone || "";
-            const supplierCountry = item.raw_material?.supplier?.country || "";
-            const source = (item.raw_material?.supplier as any)?.source || item.raw_material?.source || "LOCAL";
+            const preferredSM = item.raw_material?.supplier_materials?.[0];
+            const supplierId = preferredSM?.supplier?.id || "N/A";
+            const supplierName = preferredSM?.supplier?.name || "No Supplier";
+            const supplierAddress = preferredSM?.supplier?.addresses || "";
+            const supplierPhone = preferredSM?.supplier?.phone || "";
+            const supplierCountry = preferredSM?.supplier?.country || "";
+            const source = preferredSM?.supplier?.source || "LOCAL";
 
             if (!grouping[supplierId]) {
                 grouping[supplierId] = {
@@ -235,7 +238,7 @@ export class ConsolidationService {
                 };
             }
 
-            const itemPrice = Number(item.raw_material?.price) || 0;
+            const itemPrice = Number(preferredSM?.unit_price) || 0;
             const itemQty = Number(item.quantity) || 0;
             const subtotal = itemPrice * itemQty;
 
@@ -441,7 +444,10 @@ export class ConsolidationService {
                     include: {
                         raw_material: {
                             include: {
-                                supplier: true,
+                                supplier_materials: {
+                                    where: { is_preferred: true },
+                                    take: 1,
+                                },
                             },
                         },
                     },
@@ -449,10 +455,10 @@ export class ConsolidationService {
 
                 if (drafts.length === 0) return { count: 0 };
 
-                // 2. Group drafts by supplier_id
+                // 2. Group drafts by preferred supplier_id
                 const vendorGroups: Record<number, any[]> = {};
                 for (const draft of drafts) {
-                    const vendorId = draft.raw_material?.supplier_id;
+                    const vendorId = draft.raw_material?.supplier_materials?.[0]?.supplier_id;
                     if (!vendorId) continue;
                     if (!vendorGroups[vendorId]) vendorGroups[vendorId] = [];
                     vendorGroups[vendorId].push(draft);
@@ -514,9 +520,9 @@ export class ConsolidationService {
                     }
                 }
 
-                // 4. Handle any remaining ids that didn't have a vendor_id (unlikely but safe)
+                // 4. Handle any remaining ids that didn't have a preferred vendor (unlikely but safe)
                 const remainingIds = drafts
-                    .filter((d) => !d.raw_material?.supplier_id)
+                    .filter((d) => !d.raw_material?.supplier_materials?.[0]?.supplier_id)
                     .map((d) => d.id);
                 
                 if (remainingIds.length > 0) {

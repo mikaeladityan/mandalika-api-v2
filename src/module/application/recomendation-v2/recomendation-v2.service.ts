@@ -121,7 +121,8 @@ export class RecomendationV2Service {
                 FROM "raw_material_open_pos" po
                 JOIN "raw_materials" rm ON rm.id = po.raw_material_id
                 LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-                LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+                LEFT JOIN "supplier_materials" sm_pref ON sm_pref.raw_material_id = rm.id AND sm_pref.is_preferred = true
+                LEFT JOIN "suppliers" s ON s.id = sm_pref.supplier_id
                 LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
                 WHERE po.status NOT IN ('RECEIVED', 'CANCELLED')
                   AND ${typeFilter}
@@ -188,13 +189,14 @@ export class RecomendationV2Service {
                         rm.id, 
                         rm.barcode, 
                         rm.name, 
-                        s.name as s_name, 
-                        urm.name as u_name, 
-                        rm.min_buy, 
-                        rm.lead_time,
+                        s.name as s_name,
+                        urm.name as u_name,
+                        sm_pref.min_buy,
+                        sm_pref.lead_time,
                         rm.raw_mat_categories_id
                     FROM "raw_materials" rm
-                    LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
+                    LEFT JOIN "supplier_materials" sm_pref ON sm_pref.raw_material_id = rm.id AND sm_pref.is_preferred = true
+                LEFT JOIN "suppliers" s ON s.id = sm_pref.supplier_id
                     LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
                     LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
                     WHERE ${typeFilter}
@@ -1168,8 +1170,8 @@ export class RecomendationV2Service {
 
     static async updateMoq(body: RequestUpdateMoqDTO) {
         const { material_id, moq } = body;
-        return await prisma.rawMaterial.update({
-            where: { id: material_id },
+        return await prisma.supplierMaterial.updateMany({
+            where: { raw_material_id: material_id, is_preferred: true },
             data: { min_buy: moq },
         });
     }

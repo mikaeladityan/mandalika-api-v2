@@ -274,91 +274,75 @@ export class RawmatImportService {
                 }
             }
 
-            // ── 4. Validate & build column arrays for batch upsert ─────────────────
-            // Sentinel: 0 untuk nullable FK (NULLIF(x,0) → NULL di SQL)
-            const barcodes: string[]    = [];
-            const names: string[]       = [];
-            const prices: number[]      = [];
-            const minBuys: number[]     = [];
-            const minStocks: number[]   = [];
-            const unitIds: number[]     = [];
-            const categoryIds: number[] = []; // 0 = NULL
-            const supplierIds: number[] = []; // 0 = NULL
-            const leadTimes: number[]   = []; // 0 = NULL
-            const sources: string[]     = [];
-
-            // Dedup data by barcode (non-empty) to avoid "affect row a second time" error
-            const dedupped = new Map<string, RawmatImportPreviewDTO>();
-            const noBarcode: RawmatImportPreviewDTO[] = [];
+            // ── 4. Validate & build data for raw_materials ─────────────────────────
+            const finalData: RawmatImportPreviewDTO[] = [];
+            const barcodesSet = new Set<string>();
             for (const d of data) {
-                if (d.barcode?.trim()) dedupped.set(d.barcode.trim(), d);
-                else noBarcode.push(d);
+                if (d.barcode?.trim()) {
+                    if (barcodesSet.has(d.barcode.trim())) continue;
+                    barcodesSet.add(d.barcode.trim());
+                }
+                finalData.push(d);
             }
-            const finalData = [...dedupped.values(), ...noBarcode];
 
+            // ── 5. Insert/Update raw_materials & get IDs ───────────────────────────
+            const rmResults: { id: number; barcode: string | null; name: string }[] = [];
             for (const row of finalData) {
                 const unitId = row.unit ? unitSlugToId.get(normalizeSlug(row.unit)) : undefined;
                 if (!unitId) throw new Error(`Unit tidak ditemukan untuk material: ${row.name}`);
 
-                barcodes.push(row.barcode || "");
-                names.push(row.name);
-                prices.push(this.parseDecimal(row.price) ?? 0);
-                minBuys.push(this.parseDecimal(row.min_buy) ?? 0);
-                minStocks.push(this.parseDecimal(row.min_stock) ?? 0);
-                unitIds.push(unitId);
-                categoryIds.push(row.category ? (categorySlugToId.get(normalizeSlug(row.category)) ?? 0) : 0);
-                supplierIds.push(row.supplier ? (supplierSlugToId.get(normalizeSlug(row.supplier)) ?? 0) : 0);
-                leadTimes.push(row.lead_time || 0);
-                sources.push(row.source);
+                const categoryId = row.category ? (categorySlugToId.get(normalizeSlug(row.category)) ?? null) : null;
+
+                const rm = await tx.rawMaterial.upsert({
+                    where: row.barcode?.trim() ? { barcode: row.barcode.trim() } : { id: -1 }, // ID -1 to force create if no barcode
+                    create: {
+                        barcode: row.barcode?.trim() || null,
+                        name: row.name,
+                        min_stock: this.parseDecimal(row.min_stock) ?? 0,
+                        unit_id: unitId,
+                        raw_mat_categories_id: categoryId,
+                    },
+                    update: {
+                        name: row.name,
+                        min_stock: this.parseDecimal(row.min_stock) ?? 0,
+                        unit_id: unitId,
+                        raw_mat_categories_id: categoryId,
+                    },
+                    select: { id: true, barcode: true, name: true }
+                });
+                rmResults.push(rm);
             }
 
-            // ── 5. Single batch upsert raw_materials (1 query) ────────────────────
-            // NULLIF(x, 0) mengkonversi sentinel 0 → NULL untuk nullable FK
-            // NULLIF(b, '') mengkonversi empty string → NULL untuk barcode
-            // ON CONFLICT (barcode): NULL barcode tidak pernah conflict → selalu INSERT
-            await tx.$executeRaw`
-                INSERT INTO raw_materials (
-                    barcode, name, price, min_buy, min_stock,
-                    unit_id, raw_mat_categories_id, supplier_id, lead_time,
-                    source, created_at, updated_at
-                )
-                SELECT
-                    NULLIF(b, ''),
-                    n,
-                    p::numeric,
-                    NULLIF(mb, 0)::numeric,
-                    NULLIF(ms, 0)::numeric,
-                    ui::int,
-                    NULLIF(ci, 0)::int,
-                    NULLIF(si, 0)::int,
-                    NULLIF(lt, 0)::int,
-                    s::"RawMaterialSource",
-                    NOW(),
-                    NOW()
-                FROM unnest(
-                    ${barcodes}::text[],
-                    ${names}::text[],
-                    ${prices}::numeric[],
-                    ${minBuys}::numeric[],
-                    ${minStocks}::numeric[],
-                    ${unitIds}::int[],
-                    ${categoryIds}::int[],
-                    ${supplierIds}::int[],
-                    ${leadTimes}::int[],
-                    ${sources}::text[]
-                ) AS t(b, n, p, mb, ms, ui, ci, si, lt, s)
-                ON CONFLICT (barcode) DO UPDATE SET
-                    name                  = EXCLUDED.name,
-                    price                 = EXCLUDED.price,
-                    min_buy               = EXCLUDED.min_buy,
-                    min_stock             = EXCLUDED.min_stock,
-                    unit_id               = EXCLUDED.unit_id,
-                    raw_mat_categories_id = EXCLUDED.raw_mat_categories_id,
-                    supplier_id           = EXCLUDED.supplier_id,
-                    lead_time             = EXCLUDED.lead_time,
-                    source                = EXCLUDED.source,
-                    updated_at            = NOW()
-            `;
-        }, { maxWait: 30000, timeout: 60000 });
+            // ── 6. Upsert supplier_materials (Linking) ─────────────────────────────
+            for (let i = 0; i < finalData.length; i++) {
+                const row = finalData[i];
+                const rm = rmResults[i];
+                const supplierId = row.supplier ? supplierSlugToId.get(normalizeSlug(row.supplier)) : null;
+
+                if (supplierId && rm) {
+                    await tx.supplierMaterial.upsert({
+                        where: {
+                            supplier_id_raw_material_id: {
+                                supplier_id: supplierId,
+                                raw_material_id: rm.id
+                            }
+                        },
+                        create: {
+                            supplier_id: supplierId,
+                            raw_material_id: rm.id,
+                            unit_price: this.parseDecimal(row.price) ?? 0,
+                            min_buy: this.parseDecimal(row.min_buy) ?? 0,
+                            lead_time: row.lead_time || 0,
+                            is_preferred: true, // Default to preferred if imported
+                        },
+                        update: {
+                            unit_price: this.parseDecimal(row.price) ?? 0,
+                            min_buy: this.parseDecimal(row.min_buy) ?? 0,
+                            lead_time: row.lead_time || 0,
+                        }
+                    });
+                }
+            }
+        }, { maxWait: 60000, timeout: 120000 });
     }
 }

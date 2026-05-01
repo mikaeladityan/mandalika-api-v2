@@ -364,6 +364,10 @@ export class ProductService {
                         raw_materials: {
                             include: {
                                 unit_raw_material: true,
+                                supplier_materials: {
+                                    where: { is_preferred: true },
+                                    take: 1,
+                                },
                             },
                         },
                     },
@@ -396,7 +400,7 @@ export class ProductService {
                 raw_material: {
                     id: r.raw_materials.id,
                     name: r.raw_materials.name,
-                    price: Number(r.raw_materials.price),
+                    price: Number((r.raw_materials as any).supplier_materials?.[0]?.unit_price) || 0,
                     unit_raw_material: {
                         name: r.raw_materials.unit_raw_material.name,
                     },

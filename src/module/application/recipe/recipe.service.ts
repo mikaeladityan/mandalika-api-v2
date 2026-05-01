@@ -248,6 +248,10 @@ export class RecipeService {
                 raw_materials: {
                     include: {
                         unit_raw_material: true,
+                        supplier_materials: {
+                            where: { is_preferred: true },
+                            take: 1,
+                        },
                     }
                 }
             }
@@ -266,7 +270,7 @@ export class RecipeService {
             raw_mat_id: r.raw_materials?.id ?? null,
             barcode: r.raw_materials?.barcode ?? null,
             rm_name: r.raw_materials?.name ?? null,
-            rm_price: r.raw_materials?.price ?? null,
+            rm_price: Number((r.raw_materials as any)?.supplier_materials?.[0]?.unit_price) || null,
             rm_quantity: r.quantity,
             version: r.version,
             is_active: r.is_active,

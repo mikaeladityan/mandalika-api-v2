@@ -77,9 +77,12 @@ export class RFQService {
                 items: {
                     include: {
                         raw_material: {
-                            select: {
-                                id: true, barcode: true, name: true, price: true,
+                            include: {
                                 unit_raw_material: { select: { name: true } },
+                                supplier_materials: {
+                                    where: { is_preferred: true },
+                                    take: 1,
+                                },
                             },
                         },
                         purchase_draft: {

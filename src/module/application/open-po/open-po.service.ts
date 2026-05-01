@@ -23,7 +23,7 @@ export class OpenPoService {
 
         if (query.supplier_id) {
             whereCondition.raw_material = {
-                supplier_id: query.supplier_id,
+                supplier_materials: { some: { supplier_id: query.supplier_id } },
             };
         }
 
@@ -44,10 +44,9 @@ export class OpenPoService {
                 { raw_material: { barcode: { contains: search, mode: "insensitive" } } },
                 {
                     raw_material: {
-                        supplier: {
-                            name: {
-                                contains: search,
-                                mode: "insensitive",
+                        supplier_materials: {
+                            some: {
+                                supplier: { name: { contains: search, mode: "insensitive" } },
                             },
                         },
                     },
@@ -64,7 +63,11 @@ export class OpenPoService {
                 include: {
                     raw_material: {
                         include: {
-                            supplier: true,
+                            supplier_materials: {
+                                where: { is_preferred: true },
+                                include: { supplier: true },
+                                take: 1,
+                            },
                             unit_raw_material: true,
                         },
                     },
@@ -77,21 +80,25 @@ export class OpenPoService {
             }),
         ]);
 
-        const parsedData = data.map((item) => ({
-            id: item.id,
-            raw_material_id: item.raw_material_id,
-            barcode: item.raw_material?.barcode || null,
-            material_name: item.raw_material?.name || "Unknown",
-            supplier_name: item.raw_material?.supplier?.name || "-",
-            po_number: item.po_number,
-            quantity: Number(item.quantity) || 0,
-            price: Number(item.raw_material?.price) || 0,
-            subtotal: (Number(item.quantity) || 0) * (Number(item.raw_material?.price) || 0),
-            order_date: item.order_date,
-            expected_arrival: item.expected_arrival || (item.order_date ? new Date(new Date(item.order_date).getTime() + (item.raw_material?.lead_time || 0) * 24 * 60 * 60 * 1000) : null),
-            status: item.status,
-            lead_time: item.raw_material?.lead_time || null,
-        }));
+        const parsedData = data.map((item) => {
+            const preferredSM = item.raw_material?.supplier_materials?.[0];
+            const leadTime = preferredSM?.lead_time || 0;
+            return {
+                id: item.id,
+                raw_material_id: item.raw_material_id,
+                barcode: item.raw_material?.barcode || null,
+                material_name: item.raw_material?.name || "Unknown",
+                supplier_name: preferredSM?.supplier?.name || "-",
+                po_number: item.po_number,
+                quantity: Number(item.quantity) || 0,
+                price: Number(preferredSM?.unit_price) || 0,
+                subtotal: (Number(item.quantity) || 0) * (Number(preferredSM?.unit_price) || 0),
+                order_date: item.order_date,
+                expected_arrival: item.expected_arrival || (item.order_date ? new Date(new Date(item.order_date).getTime() + leadTime * 24 * 60 * 60 * 1000) : null),
+                status: item.status,
+                lead_time: preferredSM?.lead_time || null,
+            };
+        });
 
         return { data: parsedData, len: total };
     }
@@ -113,7 +120,7 @@ export class OpenPoService {
 
         if (query.supplier_id) {
             whereCondition.raw_material = {
-                supplier_id: query.supplier_id,
+                supplier_materials: { some: { supplier_id: query.supplier_id } },
             };
         }
 
@@ -122,7 +129,13 @@ export class OpenPoService {
                 { po_number: { contains: search, mode: "insensitive" } },
                 { raw_material: { name: { contains: search, mode: "insensitive" } } },
                 { raw_material: { barcode: { contains: search, mode: "insensitive" } } },
-                { raw_material: { supplier: { name: { contains: search, mode: "insensitive" } } } },
+                {
+                    raw_material: {
+                        supplier_materials: {
+                            some: { supplier: { name: { contains: search, mode: "insensitive" } } },
+                        },
+                    },
+                },
             ];
         }
 
@@ -131,21 +144,24 @@ export class OpenPoService {
             include: {
                 raw_material: {
                     include: {
-                        supplier: true,
+                        supplier_materials: {
+                            where: { is_preferred: true },
+                            include: { supplier: true },
+                            take: 1,
+                        },
                         unit_raw_material: true,
                     },
                 },
             },
-            orderBy: {
-                raw_material: { supplier: { name: "asc" } },
-            },
+            orderBy: { raw_material: { name: "asc" } },
         });
 
         const grouping: Record<string, any> = {};
 
         data.forEach((item) => {
-            const supplierId = item.raw_material?.supplier?.id || "N/A";
-            const supplierName = item.raw_material?.supplier?.name || "No Supplier";
+            const preferredSM = item.raw_material?.supplier_materials?.[0];
+            const supplierId = preferredSM?.supplier?.id || "N/A";
+            const supplierName = preferredSM?.supplier?.name || "No Supplier";
 
             if (!grouping[supplierId]) {
                 grouping[supplierId] = {
@@ -157,7 +173,8 @@ export class OpenPoService {
                 };
             }
 
-            const itemPrice = Number(item.raw_material?.price) || 0;
+            const itemPrice = Number(preferredSM?.unit_price) || 0;
+            const leadTime = preferredSM?.lead_time || 0;
             const itemQty = Number(item.quantity) || 0;
             const subtotal = itemPrice * itemQty;
 
@@ -173,8 +190,8 @@ export class OpenPoService {
                 uom: item.raw_material?.unit_raw_material?.name,
                 status: item.status,
                 order_date: item.order_date,
-                expected_arrival: item.expected_arrival || (item.order_date ? new Date(new Date(item.order_date).getTime() + (item.raw_material?.lead_time || 0) * 24 * 60 * 60 * 1000) : null),
-                lead_time: item.raw_material?.lead_time || null,
+                expected_arrival: item.expected_arrival || (item.order_date ? new Date(new Date(item.order_date).getTime() + leadTime * 24 * 60 * 60 * 1000) : null),
+                lead_time: preferredSM?.lead_time || null,
             });
         });
 

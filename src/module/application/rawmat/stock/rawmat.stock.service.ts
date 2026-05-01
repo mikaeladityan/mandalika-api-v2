@@ -101,7 +101,10 @@ export class RawMaterialStockService {
         }
 
         if (supplier_id) {
-            conditions.push(Prisma.sql`rm.supplier_id = ${supplier_id}`);
+            conditions.push(Prisma.sql`EXISTS (
+                SELECT 1 FROM supplier_materials sm_filter
+                WHERE sm_filter.raw_material_id = rm.id AND sm_filter.supplier_id = ${supplier_id}
+            )`);
         }
 
         if (search) {
