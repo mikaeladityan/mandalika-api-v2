@@ -1336,11 +1336,15 @@ enum ReturnStatus {
 
 enum RFQStatus {
   DRAFT
+  SENT
+  RECEIVED
   SUBMITTED
   REVIEWED
   APPROVED
   CONVERTED
+  PARTIAL_CONVERTED
   CLOSED
+  CANCELLED
 }
 
 enum POType {
