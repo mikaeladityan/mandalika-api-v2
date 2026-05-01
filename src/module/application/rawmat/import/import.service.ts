@@ -313,13 +313,14 @@ export class RawmatImportService {
                 rmResults.push(rm);
             }
 
-            // ── 6. Upsert supplier_materials (Linking) ─────────────────────────────
             for (let i = 0; i < finalData.length; i++) {
                 const row = finalData[i];
                 const rm = rmResults[i];
+                if (!row || !rm) continue;
+
                 const supplierId = row.supplier ? supplierSlugToId.get(normalizeSlug(row.supplier)) : null;
 
-                if (supplierId && rm) {
+                if (supplierId) {
                     await tx.supplierMaterial.upsert({
                         where: {
                             supplier_id_raw_material_id: {
