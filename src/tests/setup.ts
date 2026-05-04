@@ -621,6 +621,20 @@ vi.mock("../config/prisma.js", () => ({
             delete: vi.fn().mockResolvedValue({ id: 1 }),
             count: vi.fn().mockResolvedValue(1),
         },
+        purchaseOrder: {
+            findUnique: vi.fn(),
+            findMany: vi.fn(),
+            count: vi.fn(),
+            create: vi.fn(),
+            update: vi.fn(),
+            delete: vi.fn(),
+            findUniqueOrThrow: vi.fn(),
+        },
+        purchaseOrderItem: {
+            create: vi.fn(),
+            update: vi.fn(),
+            deleteMany: vi.fn(),
+        },
         stockMovement: {
             findFirst: vi.fn(),
             findMany: vi.fn().mockResolvedValue([]),
@@ -981,6 +995,15 @@ vi.mock("../config/prisma.js", () => ({
                     ]),
                     update: vi.fn().mockResolvedValue({ id: 1, quantity: 450 }),
                     create: vi.fn().mockResolvedValue({ id: 2, quantity: 50 }),
+                },
+                purchaseOrder: {
+                    create: vi.fn(),
+                    update: vi.fn(),
+                },
+                purchaseOrderItem: {
+                    create: vi.fn(),
+                    createMany: vi.fn(),
+                    deleteMany: vi.fn(),
                 },
                 $executeRawUnsafe: vi.fn().mockResolvedValue(1),
             });
