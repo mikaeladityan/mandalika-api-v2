@@ -165,20 +165,25 @@ export class RawMaterialInventoryImportService {
 
             const materialMap = new Map(materials.map((m) => [m.barcode, m.id]));
 
-            const finalPayload: { rm_id: number; w_id: number; qty: number }[] = [];
+            // Deduplicate by rm_id: same barcode appearing multiple times in the sheet
+            // would produce duplicate (rm_id, warehouse_id, date, month, year) keys,
+            // causing PostgreSQL "ON CONFLICT DO UPDATE command cannot affect row a second time".
+            const deduped = new Map<number, { rm_id: number; w_id: number; qty: number }>();
 
             for (const row of data) {
                 const materialId = materialMap.get(row.barcode);
                 if (!materialId) continue;
 
                 if (row.amount !== undefined) {
-                    finalPayload.push({
+                    deduped.set(materialId, {
                         rm_id: materialId,
                         w_id: warehouse_id,
                         qty: Number(row.amount),
                     });
                 }
             }
+
+            const finalPayload = [...deduped.values()];
 
             if (finalPayload.length === 0) return;
 
