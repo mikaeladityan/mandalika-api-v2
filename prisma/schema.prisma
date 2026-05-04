@@ -811,6 +811,8 @@ enum IssuanceType {
   SPIN_WHEEL
   GARANSI_OUT
   B2B
+  LAIN_LAIN
+  BAGI_VIAL
 }
 
 enum WarehouseType {
