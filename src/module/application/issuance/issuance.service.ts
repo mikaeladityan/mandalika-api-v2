@@ -368,10 +368,10 @@ export class IssuanceService {
 
         if (total === 0) return { rekap: [], len: 0 };
 
-        const validSortFields = ["name", "code", "offline", "online", "spin_wheel", "garansi_out", "b2b", "all_qty", "total_qty"];
+        const validSortFields = ["name", "code", "offline", "online", "spin_wheel", "garansi_out", "b2b", "lain_lain", "bagi_vial", "all_qty", "total_qty"];
         const actualSortBy = validSortFields.includes(sortBy) ? sortBy : "name";
         const actualSortOrder = sortOrder === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
-        
+
         let orderBySql = Prisma.sql`ORDER BY p.name ASC`;
         if (actualSortBy === "name") orderBySql = Prisma.sql`ORDER BY p.name ${actualSortOrder}`;
         else if (actualSortBy === "code") orderBySql = Prisma.sql`ORDER BY p.code ${actualSortOrder}`;
@@ -380,7 +380,9 @@ export class IssuanceService {
         else if (actualSortBy === "spin_wheel") orderBySql = Prisma.sql`ORDER BY spin_wheel ${actualSortOrder}`;
         else if (actualSortBy === "garansi_out") orderBySql = Prisma.sql`ORDER BY garansi_out ${actualSortOrder}`;
         else if (actualSortBy === "b2b") orderBySql = Prisma.sql`ORDER BY b2b ${actualSortOrder}`;
-        else if (actualSortBy === "all_qty" || actualSortBy === "total_qty") 
+        else if (actualSortBy === "lain_lain") orderBySql = Prisma.sql`ORDER BY lain_lain ${actualSortOrder}`;
+        else if (actualSortBy === "bagi_vial") orderBySql = Prisma.sql`ORDER BY bagi_vial ${actualSortOrder}`;
+        else if (actualSortBy === "all_qty" || actualSortBy === "total_qty")
             orderBySql = Prisma.sql`ORDER BY total_qty ${actualSortOrder}`;
 
         const forceAll = (year * 12 + month) <= IssuanceService.THRESHOLD_PERIOD;
@@ -398,6 +400,8 @@ export class IssuanceService {
                 COALESCE(SUM(CASE WHEN ${!forceAll} AND sa.type::text = 'SPIN_WHEEL' THEN sa.quantity ELSE 0 END), 0)::float AS spin_wheel,
                 COALESCE(SUM(CASE WHEN ${!forceAll} AND sa.type::text = 'GARANSI_OUT' THEN sa.quantity ELSE 0 END), 0)::float AS garansi_out,
                 COALESCE(SUM(CASE WHEN ${!forceAll} AND sa.type::text = 'B2B' THEN sa.quantity ELSE 0 END), 0)::float AS b2b,
+                COALESCE(SUM(CASE WHEN ${!forceAll} AND sa.type::text = 'LAIN_LAIN' THEN sa.quantity ELSE 0 END), 0)::float AS lain_lain,
+                COALESCE(SUM(CASE WHEN ${!forceAll} AND sa.type::text = 'BAGI_VIAL' THEN sa.quantity ELSE 0 END), 0)::float AS bagi_vial,
                 COALESCE(
                     NULLIF(SUM(CASE WHEN ${!forceAll} AND sa.type::text != 'ALL' THEN sa.quantity ELSE 0 END), 0),
                     SUM(CASE WHEN ${forceAll} AND sa.type::text = 'ALL' THEN sa.quantity ELSE 0 END)
@@ -428,6 +432,8 @@ export class IssuanceService {
                 spin_wheel: row.spin_wheel,
                 garansi_out: row.garansi_out,
                 b2b: row.b2b,
+                lain_lain: row.lain_lain,
+                bagi_vial: row.bagi_vial,
                 all_qty: row.total_qty,
                 total_qty: row.total_qty,
             })),
@@ -564,6 +570,8 @@ export class IssuanceService {
             { header: "SPIN WHEEL", key: "spin_wheel", width: 12, uiId: "spin_wheel" },
             { header: "GARANSI OUT", key: "garansi_out", width: 12, uiId: "garansi_out" },
             { header: "B2B", key: "b2b", width: 12, uiId: "b2b" },
+            { header: "LAIN LAIN", key: "lain_lain", width: 12, uiId: "lain_lain" },
+            { header: "BAGI VIAL", key: "bagi_vial", width: 12, uiId: "bagi_vial" },
             { header: "TOTAL", key: "total_qty", width: 15, uiId: "total_qty" },
         ];
 
@@ -597,6 +605,8 @@ export class IssuanceService {
                 spin_wheel: row.spin_wheel,
                 garansi_out: row.garansi_out,
                 b2b: row.b2b,
+                lain_lain: row.lain_lain,
+                bagi_vial: row.bagi_vial,
                 total_qty: row.total_qty,
             });
         });
