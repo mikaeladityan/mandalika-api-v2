@@ -59,4 +59,28 @@ export class ProductStockController {
         const result = await ProductStockService.upsertStock(body);
         return ApiResponse.sendSuccess(c, result, 201);
     }
+
+    static async exportStock(c: Context) {
+        const { gender, search, type_id, warehouse_id, month, year } = c.req.query();
+
+        const params: QueryProductStockDTO = {
+            search,
+            gender: gender as QueryProductStockDTO["gender"],
+            type_id: type_id ? Number(type_id) : undefined,
+            warehouse_id: warehouse_id ? Number(warehouse_id) : undefined,
+            month: month ? Number(month) : undefined,
+            year: year ? Number(year) : undefined,
+        };
+
+        const warehouseName = warehouse_id
+            ? (await ProductStockService.listWarehouses()).find((w) => w.id === Number(warehouse_id))?.name ?? "Gudang"
+            : "Semua-Gudang";
+
+        const buffer = await ProductStockService.exportStock(params);
+        const filename = `Stok_${warehouseName.replace(/\s+/g, "_")}_${month ?? ""}_${year ?? ""}.csv`;
+
+        c.header("Content-Type", "text/csv");
+        c.header("Content-Disposition", `attachment; filename="${filename}"`);
+        return c.body(buffer as any);
+    }
 }
