@@ -124,7 +124,7 @@ export class RecomendationV2Service {
                 LEFT JOIN "supplier_materials" sm_pref ON sm_pref.raw_material_id = rm.id AND sm_pref.is_preferred = true
                 LEFT JOIN "suppliers" s ON s.id = sm_pref.supplier_id
                 LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
-                WHERE po.status NOT IN ('RECEIVED', 'CANCELLED')
+                WHERE po.status = 'OPEN'
                   AND ${typeFilter}
                   ${searchFilter}
             `,
@@ -363,14 +363,14 @@ export class RecomendationV2Service {
                         ), 0)
                     ) AS current_stock,
 
-                    -- Open PO (Total unreceived)
+                    -- Open PO (Total OPEN only)
                     COALESCE((
                         SELECT SUM(po.quantity)
                         FROM "raw_material_open_pos" po
-                        WHERE po.raw_material_id = fm.id AND po.status != 'RECEIVED'
+                        WHERE po.raw_material_id = fm.id AND po.status = 'OPEN'
                     ), 0) AS open_po,
 
-                    -- Open PO per month
+                    -- Open PO per month (OPEN only)
                     (
                         SELECT COALESCE(json_agg(
                              json_build_object(
@@ -380,12 +380,12 @@ export class RecomendationV2Service {
                              )
                         ), '[]'::json)
                         FROM (
-                            SELECT 
+                            SELECT
                                 EXTRACT(MONTH FROM po.order_date)::int as m,
                                 EXTRACT(YEAR FROM po.order_date)::int as y,
                                 SUM(po.quantity) as qty
                             FROM "raw_material_open_pos" po
-                            WHERE po.raw_material_id = fm.id AND po.status != 'RECEIVED'
+                            WHERE po.raw_material_id = fm.id AND po.status = 'OPEN'
                             GROUP BY 1, 2
                         ) p_data
                     ) AS po_data,

@@ -15,9 +15,9 @@ export class OpenPoService {
 
         const whereCondition: any = {
             status: status || "OPEN",
-            created_at: {
-                gte: new Date(currentYear, currentMonth - 1, 1),
-                lt: new Date(currentYear, currentMonth, 1),
+            order_date: {
+                gte: new Date(Date.UTC(currentYear, currentMonth - 1, 1)),
+                lt: new Date(Date.UTC(currentYear, currentMonth, 1)),
             },
         };
 
@@ -112,9 +112,9 @@ export class OpenPoService {
 
         const whereCondition: any = {
             status: status || "OPEN",
-            created_at: {
-                gte: new Date(currentYear, currentMonth - 1, 1),
-                lt: new Date(currentYear, currentMonth, 1),
+            order_date: {
+                gte: new Date(Date.UTC(currentYear, currentMonth - 1, 1)),
+                lt: new Date(Date.UTC(currentYear, currentMonth, 1)),
             },
         };
 
