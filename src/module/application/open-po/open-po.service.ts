@@ -1,7 +1,7 @@
 import prisma from "../../../config/prisma.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
-import { QueryOpenPoDTO, RequestBulkUpdateStatusDTO, RequestUpdateOpenPoDTO } from "./open-po.schema.js";
+import { QueryOpenPoDTO, RequestBulkUpdateStatusDTO, RequestUpdateOpenPoDTO, RequestChangeStatusByIdDTO } from "./open-po.schema.js";
 import ExcelJS from "exceljs";
 
 export class OpenPoService {
@@ -304,10 +304,25 @@ export class OpenPoService {
         return await prisma.rawMaterialOpenPo.update({
             where: { id },
             data: {
-                po_number: data.po_number,
-                expected_arrival: data.expected_arrival ? new Date(data.expected_arrival) : null,
-                status: data.status,
+                ...(data.po_number !== undefined && { po_number: data.po_number }),
+                ...(data.expected_arrival !== undefined && {
+                    expected_arrival: data.expected_arrival ? new Date(data.expected_arrival) : null,
+                }),
+                ...(data.status !== undefined && { status: data.status }),
             },
+        });
+    }
+
+    static async changeStatusById(id: number, body: RequestChangeStatusByIdDTO) {
+        const find = await prisma.rawMaterialOpenPo.findUnique({
+            where: { id },
+        });
+
+        if (!find) throw new ApiError(404, "Data PO tidak ditemukan");
+
+        return await prisma.rawMaterialOpenPo.update({
+            where: { id },
+            data: { status: body.status },
         });
     }
 

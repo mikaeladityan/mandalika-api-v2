@@ -1,5 +1,5 @@
 import { Context } from "hono";
-import { QueryOpenPoSchema, RequestBulkUpdateStatusSchema, RequestUpdateOpenPoSchema } from "./open-po.schema.js";
+import { QueryOpenPoSchema, RequestBulkUpdateStatusSchema, RequestUpdateOpenPoSchema, RequestChangeStatusByIdSchema } from "./open-po.schema.js";
 import { OpenPoService } from "./open-po.service.js";
 import { ApiResponse } from "../../../lib/api.response.js";
 
@@ -35,6 +35,14 @@ export class OpenPoController {
         c.header("Content-Disposition", "attachment; filename=Tracking_PO_Open.csv");
 
         return c.body(buffer as any);
+    }
+
+    static async changeStatusById(c: Context) {
+        const id = Number(c.req.param("id"));
+        const body = await c.req.json();
+        const validBody = RequestChangeStatusByIdSchema.parse(body);
+        const result = await OpenPoService.changeStatusById(id, validBody);
+        return ApiResponse.sendSuccess(c, result);
     }
 
     static async bulkUpdateStatus(c: Context) {

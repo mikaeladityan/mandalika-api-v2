@@ -30,6 +30,12 @@ export const RequestBulkUpdateStatusSchema = z.object({
 
 export type RequestBulkUpdateStatusDTO = z.infer<typeof RequestBulkUpdateStatusSchema>;
 
+export const RequestChangeStatusByIdSchema = z.object({
+    status: z.enum(["OPEN", "RECEIVED", "CANCELLED"]),
+});
+
+export type RequestChangeStatusByIdDTO = z.infer<typeof RequestChangeStatusByIdSchema>;
+
 export const ResponseOpenPoSchema = z.object({
     id: z.number(),
     raw_material_id: z.number(),
