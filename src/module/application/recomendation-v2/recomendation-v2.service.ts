@@ -916,7 +916,7 @@ export class RecomendationV2Service {
                 rm.id AS raw_mat_id,
                 ${month} AS month,
                 ${year} AS year,
-                mro.quantity AS quantity,
+                COALESCE(mro.quantity, 0) AS quantity,
                 ${horizon} AS horizon,
                 COALESCE(fc.total, 0) AS total_needed,
                 COALESCE(inv.total, 0) AS current_stock,
@@ -946,6 +946,7 @@ export class RecomendationV2Service {
               )
             ON CONFLICT (raw_mat_id, month, year) DO UPDATE SET
                 horizon = EXCLUDED.horizon,
+                quantity = CASE WHEN "material_purchase_drafts".status = 'DRAFT' THEN 0 ELSE "material_purchase_drafts".quantity END,
                 total_needed = EXCLUDED.total_needed,
                 current_stock = EXCLUDED.current_stock,
                 stock_fg_x_resep = EXCLUDED.stock_fg_x_resep,
