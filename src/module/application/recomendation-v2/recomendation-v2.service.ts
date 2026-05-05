@@ -781,13 +781,21 @@ export class RecomendationV2Service {
         });
 
         if (!rec) throw new Error("Work order not found.");
-        if (rec.status !== "DRAFT") {
-            throw new Error("Only DRAFT work orders can be deleted.");
+
+        if (rec.status === "DRAFT") {
+            return await prisma.materialPurchaseDraft.delete({ where: { id } });
         }
 
-        return await prisma.materialPurchaseDraft.delete({
-            where: { id },
-        });
+        if (rec.status === "ACC") {
+            return await prisma.$transaction(async (tx) => {
+                if (rec.open_po_id) {
+                    await tx.rawMaterialOpenPo.delete({ where: { id: rec.open_po_id } });
+                }
+                return await tx.materialPurchaseDraft.delete({ where: { id } });
+            });
+        }
+
+        throw new Error(`Work order dengan status "${rec.status}" tidak dapat dihapus.`);
     }
 
     static async bulkSaveHorizon(body: RequestBulkSaveHorizonDTO) {
@@ -949,12 +957,7 @@ export class RecomendationV2Service {
                 rm.id AS raw_mat_id,
                 ${month} AS month,
                 ${year} AS year,
-                COALESCE(mro.quantity,
-                    GREATEST(0,
-                        COALESCE(fc.total, 0)
-                        - (COALESCE(inv.total, 0) - COALESCE(ss.total, 0) + COALESCE(po.total, 0))
-                    )
-                ) AS quantity,
+                COALESCE(mro.quantity, 0) AS quantity,
                 ${horizon} AS horizon,
                 COALESCE(fc.total, 0) AS total_needed,
                 COALESCE(inv.total, 0) AS current_stock,
@@ -985,7 +988,7 @@ export class RecomendationV2Service {
               )
             ON CONFLICT (raw_mat_id, month, year) DO UPDATE SET
                 horizon = EXCLUDED.horizon,
-                quantity = EXCLUDED.quantity,
+                quantity = CASE WHEN "material_purchase_drafts".status = 'DRAFT' THEN 0 ELSE "material_purchase_drafts".quantity END,
                 total_needed = EXCLUDED.total_needed,
                 current_stock = EXCLUDED.current_stock,
                 stock_fg_x_resep = EXCLUDED.stock_fg_x_resep,
