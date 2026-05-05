@@ -1,7 +1,7 @@
 import prisma from "../../../config/prisma.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
-import { QueryOpenPoDTO, RequestUpdateOpenPoDTO } from "./open-po.schema.js";
+import { QueryOpenPoDTO, RequestBulkUpdateStatusDTO, RequestUpdateOpenPoDTO } from "./open-po.schema.js";
 import ExcelJS from "exceljs";
 
 export class OpenPoService {
@@ -309,5 +309,18 @@ export class OpenPoService {
                 status: data.status,
             },
         });
+    }
+
+    static async bulkUpdateStatus(body: RequestBulkUpdateStatusDTO) {
+        const { ids, status } = body;
+
+        if (ids.length === 0) throw new ApiError(400, "Tidak ada PO yang dipilih");
+
+        const result = await prisma.rawMaterialOpenPo.updateMany({
+            where: { id: { in: ids } },
+            data: { status },
+        });
+
+        return { updated: result.count };
     }
 }

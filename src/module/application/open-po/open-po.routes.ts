@@ -6,6 +6,7 @@ const OpenPoRoutes = new Hono();
 OpenPoRoutes.get("/", OpenPoController.list);
 OpenPoRoutes.get("/summary", OpenPoController.summary);
 OpenPoRoutes.get("/export", OpenPoController.export);
+OpenPoRoutes.patch("/bulk-status", OpenPoController.bulkUpdateStatus);
 OpenPoRoutes.patch("/:id", OpenPoController.update);
 
 export default OpenPoRoutes;
