@@ -4,7 +4,7 @@ import {
     ResponseRawMaterialDTO,
 } from "./rawmat.schema.js";
 import prisma from "../../../config/prisma.js";
-import { RawMaterial } from "../../../generated/prisma/browser.js";
+import { RawMaterial } from "../../../generated/prisma/index.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import {

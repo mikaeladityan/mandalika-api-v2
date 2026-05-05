@@ -117,7 +117,6 @@ export class POService {
                     total_estimated: body.total_estimated,
                     status: "DRAFT",
                     notes: body.notes || null,
-                    payment_notes: body.payment_notes || null,
                     created_by: userId,
                     items: {
                         create: body.items.map((item) => ({
@@ -174,7 +173,6 @@ export class POService {
                     exchange_rate: body.exchange_rate !== undefined ? body.exchange_rate : undefined,
                     total_estimated: body.total_estimated !== undefined ? body.total_estimated : undefined,
                     notes: body.notes !== undefined ? body.notes : undefined,
-                    payment_notes: body.payment_notes !== undefined ? body.payment_notes : undefined,
                     updated_by: userId,
                 },
             });
