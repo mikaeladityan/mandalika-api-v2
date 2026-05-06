@@ -2,7 +2,7 @@ import { Context } from "hono";
 import { ProductService } from "./product.service.js";
 import { ApiResponse } from "../../../lib/api.response.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
-import { STATUS } from "../../../generated/prisma/index.js";
+import { STATUS } from "../../../generated/prisma/client.js";
 import { CreateLogger } from "../shared/activity-logger.js";
 import { CreateLoggingActivityDTO } from "../shared/activity-logger.js";
 import { QueryProductDTO } from "./product.schema.js";

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { StockTransferService } from "../../module/application/stock-transfer/stock-transfer.service.js";
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
-import { TransferLocationType, TransferStatus } from "../../generated/prisma/index.js";
+import { TransferLocationType, TransferStatus } from "../../generated/prisma/client.js";
 
 const mockTransfer = {
     id: 1,

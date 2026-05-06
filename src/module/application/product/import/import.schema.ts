@@ -1,5 +1,5 @@
 import z from "zod";
-import { GENDER } from "../../../../generated/prisma/index.js";
+import { GENDER } from "../../../../generated/prisma/client.js";
 
 const sanitizeNumber = (val: unknown) => {
     if (val === "" || val === null || val === undefined) return 0;

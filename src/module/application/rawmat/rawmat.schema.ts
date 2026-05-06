@@ -1,5 +1,5 @@
 import z from "zod";
-import { MaterialType, STATUS, RawMaterialSource } from "../../../generated/prisma/index.js";
+import { MaterialType, STATUS, RawMaterialSource } from "../../../generated/prisma/client.js";
 
 export const RequestSupplierMaterialSchema = z.object({
     supplier_id: z.number(),

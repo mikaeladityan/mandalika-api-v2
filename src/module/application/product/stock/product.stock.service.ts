@@ -1,5 +1,5 @@
 import prisma from "../../../../config/prisma.js";
-import { Prisma, STATUS } from "../../../../generated/prisma/index.js";
+import { Prisma, STATUS } from "../../../../generated/prisma/client.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { QueryProductStockDTO, ResponseProductStockDTO, RequestUpsertProductStockDTO } from "./product.stock.schema.js";
 import ExcelJS from "exceljs";

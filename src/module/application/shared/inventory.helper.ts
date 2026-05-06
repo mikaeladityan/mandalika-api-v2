@@ -1,11 +1,11 @@
-import { Prisma } from "../../../generated/prisma/index.js";
+import { Prisma } from "../../../generated/prisma/client.js";
 import {
     MovementEntityType,
     MovementLocationType,
     MovementRefType,
     MovementType,
     ProductionStatus,
-} from "../../../generated/prisma/index.js";
+} from "../../../generated/prisma/client.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import prisma from "../../../config/prisma.js";
 

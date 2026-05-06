@@ -4,7 +4,7 @@ import {
     MovementLocationType,
     MovementType,
     MovementRefType,
-} from "../../../../../generated/prisma/index.js";
+} from "../../../../../generated/prisma/client.js";
 
 // ── Query ───────────────────────────────────────────────────────────────────
 export const QueryStockCardSchema = z.object({

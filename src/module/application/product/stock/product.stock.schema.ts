@@ -1,5 +1,5 @@
 import z from "zod";
-import { GENDER } from "../../../../generated/prisma/index.js";
+import { GENDER } from "../../../../generated/prisma/client.js";
 
 export const RequestProductStockSchema = z.object({
     code: z.string(),

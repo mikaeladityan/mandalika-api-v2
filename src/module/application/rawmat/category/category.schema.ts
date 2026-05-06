@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { STATUS } from "../../../../generated/prisma/index.js";
+import { STATUS } from "../../../../generated/prisma/client.js";
 export const RequestRawMatCategorySchema = z.object({
     name: z.string().min(2, "Category name must be at least 2 characters").max(255),
     status: z.enum(STATUS).optional(),

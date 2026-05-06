@@ -1,4 +1,4 @@
-import { Prisma } from "../../../generated/prisma/index.js";
+import { Prisma } from "../../../generated/prisma/client.js";
 import prisma from "../../../config/prisma.js";
 import { QueryStockMovementDTO } from "./stock-movement.schema.js";
 import { ApiError } from "../../../lib/errors/api.error.js";

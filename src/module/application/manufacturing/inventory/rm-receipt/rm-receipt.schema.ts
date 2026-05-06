@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TransferStatus } from "../../../../../generated/prisma/index.js";
+import { TransferStatus } from "../../../../../generated/prisma/client.js";
 
 export const QueryRmReceiptSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),

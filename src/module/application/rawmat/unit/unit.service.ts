@@ -1,5 +1,5 @@
 import prisma from "../../../../config/prisma.js";
-import { Prisma, UnitRawMaterial } from "../../../../generated/prisma/index.js";
+import { Prisma, UnitRawMaterial } from "../../../../generated/prisma/client.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { normalizeSlug } from "../../../../lib/index.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";

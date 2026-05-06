@@ -1,4 +1,4 @@
-import { Prisma } from "../../../../generated/prisma/index.js";
+import { Prisma } from "../../../../generated/prisma/client.js";
 import prisma from "../../../../config/prisma.js";
 import {
     RequestTransferGudangDTO,
@@ -12,7 +12,7 @@ import {
     MovementType,
     MovementRefType,
     TransferPhotoStage,
-} from "../../../../generated/prisma/index.js";
+} from "../../../../generated/prisma/client.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";

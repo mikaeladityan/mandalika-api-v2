@@ -1,5 +1,5 @@
 import z from "zod";
-import { IssuanceType } from "../../../../generated/prisma/index.js";
+import { IssuanceType } from "../../../../generated/prisma/client.js";
 
 export const IssuanceImportRowSchema = z.object({
     "PRODUCT CODE": z.string().min(1),

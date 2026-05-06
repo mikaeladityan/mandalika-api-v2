@@ -1,8 +1,8 @@
-import { Prisma } from "../../../../../generated/prisma/index.js";
+import { Prisma } from "../../../../../generated/prisma/client.js";
 import prisma from "../../../../../config/prisma.js";
 import { QueryRmMovmentDTO } from "./rm-movement.schema.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
-import { MovementEntityType, MovementRefType, MovementType } from "../../../../../generated/prisma/index.js";
+import { MovementEntityType, MovementRefType, MovementType } from "../../../../../generated/prisma/client.js";
 
 export class RmMovmentService {
     static async getMovements(query: QueryRmMovmentDTO) {

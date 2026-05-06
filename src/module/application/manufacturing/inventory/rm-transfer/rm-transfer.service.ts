@@ -1,4 +1,4 @@
-import { Prisma } from "../../../../../generated/prisma/index.js";
+import { Prisma } from "../../../../../generated/prisma/client.js";
 import prisma from "../../../../../config/prisma.js";
 import { 
     CreateRmTransferDTO, 
@@ -14,7 +14,7 @@ import {
     MovementRefType,
     MovementEntityType,
     TransferPhotoStage,
-} from "../../../../../generated/prisma/index.js";
+} from "../../../../../generated/prisma/client.js";
 import { InventoryHelper, StockItem } from "../../../shared/inventory.helper.js";
 import { generateDocNumber, generateDocBarcode } from "../../../shared/inventory.constants.js";
 

@@ -1,7 +1,7 @@
 import { Context } from "hono";
 import { WarehouseService } from "./warehouse.service.js";
 import { ApiResponse } from "../../../lib/api.response.js";
-import { STATUS } from "../../../generated/prisma/index.js";
+import { STATUS } from "../../../generated/prisma/client.js";
 import { QueryWarehouseDTO } from "./warehouse.schema.js";
 
 export class WarehouseController {

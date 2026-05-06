@@ -1,4 +1,4 @@
-import { LogActivities } from "../../../generated/prisma/index.js";
+import { LogActivities } from "../../../generated/prisma/client.js";
 import z from "zod";
 import { LoggingActivitySchema } from "../shared/activity-logger.js";
 

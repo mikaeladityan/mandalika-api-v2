@@ -1,6 +1,6 @@
 import z from "zod";
 
-import { WarehouseType } from "../../../generated/prisma/index.js";
+import { WarehouseType } from "../../../generated/prisma/client.js";
 
 const RequestWarehouseAddressSchema = z.object({
     street: z

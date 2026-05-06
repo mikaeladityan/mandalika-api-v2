@@ -1,4 +1,4 @@
-import { Prisma, STATUS } from "../../../generated/prisma/index.js";
+import { Prisma, STATUS } from "../../../generated/prisma/client.js";
 import { QueryProductDTO, RequestProductDTO, ResponseProductDTO } from "./product.schema.js";
 import prisma from "../../../config/prisma.js";
 import { ApiError } from "../../../lib/errors/api.error.js";

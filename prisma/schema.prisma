@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
   output   = "../src/generated/prisma"
 }
 
@@ -110,37 +110,37 @@ model Address {
 }
 
 model Product {
-  id                      Int                    @id @default(autoincrement())
-  name                    String                 @db.VarChar(100)
-  unit_id                 Int?
-  type_id                 Int?
-  code                    String                 @unique @db.VarChar(100)
-  gender                  GENDER                 @default(UNISEX)
-  status                  STATUS                 @default(PENDING)
-  description             String?
-  z_value                 Decimal                @default(1.65) @db.Decimal(5, 2)
-  lead_time               Int                    @default(30)
-  review_period           Int                    @default(30)
-  created_at              DateTime               @default(now())
-  updated_at              DateTime               @updatedAt
-  deleted_at              DateTime?
-  distribution_percentage Decimal?               @default(0) @db.Decimal(5, 2)
-  safety_percentage       Decimal?               @default(0) @db.Decimal(5, 2)
-  size_id                 Int?
-  forecasts               Forecast[]
-  outlet_inventories      OutletInventory[]
-  product_inventories     ProductInventory[]
-  issuances               ProductIssuance[]
-  size                    ProductSize?           @relation(fields: [size_id], references: [id])
-  product_type            ProductType?           @relation(fields: [type_id], references: [id])
-  unit                    Unit?                  @relation(fields: [unit_id], references: [id])
-  recipes                 Recipes[]
-  safety_stock            SafetyStock[]
-  stock_transfer_items    StockTransferItem[]
-  goods_receipt_items     GoodsReceiptItem[]
-  returns                 StockReturnItem[]
-  production_orders       ProductionOrder[]
-  production_fg_wastes    ProductionOrderWaste[] @relation("ProductionWasteFG")
+  id                       Int                     @id @default(autoincrement())
+  name                     String                  @db.VarChar(100)
+  unit_id                  Int?
+  type_id                  Int?
+  code                     String                  @unique @db.VarChar(100)
+  gender                   GENDER                  @default(UNISEX)
+  status                   STATUS                  @default(PENDING)
+  description              String?
+  z_value                  Decimal                 @default(1.65) @db.Decimal(5, 2)
+  lead_time                Int                     @default(30)
+  review_period            Int                     @default(30)
+  created_at               DateTime                @default(now())
+  updated_at               DateTime                @updatedAt
+  deleted_at               DateTime?
+  distribution_percentage  Decimal?                @default(0) @db.Decimal(5, 2)
+  safety_percentage        Decimal?                @default(0) @db.Decimal(5, 2)
+  size_id                  Int?
+  forecasts                Forecast[]
+  outlet_inventories       OutletInventory[]
+  product_inventories      ProductInventory[]
+  issuances                ProductIssuance[]
+  size                     ProductSize?            @relation(fields: [size_id], references: [id])
+  product_type             ProductType?            @relation(fields: [type_id], references: [id])
+  unit                     Unit?                   @relation(fields: [unit_id], references: [id])
+  recipes                  Recipes[]
+  safety_stock             SafetyStock[]
+  stock_transfer_items     StockTransferItem[]
+  goods_receipt_items      GoodsReceiptItem[]
+  returns                  StockReturnItem[]
+  production_orders        ProductionOrder[]
+  production_fg_wastes     ProductionOrderWaste[]  @relation("ProductionWasteFG")
   production_order_outputs ProductionOrderOutput[]
 
   @@index([code])
@@ -200,32 +200,32 @@ model UnitRawMaterial {
 }
 
 model RawMaterial {
-  id                      Int                       @id @default(autoincrement())
-  barcode                 String?                   @unique @db.VarChar(50)
-  name                    String                    @db.VarChar(255)
-  min_stock               Decimal?                  @db.Decimal(18, 2)
-  unit_id                 Int
-  raw_mat_categories_id   Int?
-  created_at              DateTime                  @default(now())
-  deleted_at              DateTime?
-  updated_at              DateTime?                 @updatedAt
-  type                    MaterialType?
-  purchase_drafts         MaterialPurchaseDraft[]
-  rawmaterial_inventories RawMaterialInventory[]
-  open_pos                RawMaterialOpenPo[]
-  need_overrides          RawMaterialNeedOverride[]
-  raw_mat_category        RawMatCategories?         @relation(fields: [raw_mat_categories_id], references: [id])
-  unit_raw_material       UnitRawMaterial           @relation(fields: [unit_id], references: [id], onDelete: Cascade)
-  supplier_materials      SupplierMaterial[]
-  recipes                 Recipes[]
-  production_order_items            ProductionOrderItem[]  @relation("ProductionItemRM")
-  production_order_substitute_items ProductionOrderItem[]  @relation("ProductionItemSubstituteRM")
-  production_rm_wastes              ProductionOrderWaste[] @relation("ProductionWasteRM")
-  transfer_items          StockTransferItem[]
-  rfq_items               PurchaseRFQItem[]
-  po_items                PurchaseOrderItem[]
-  receipt_items           PurchaseReceiptItem[]
-  vendor_return_items     VendorReturnItem[]
+  id                                Int                       @id @default(autoincrement())
+  barcode                           String?                   @unique @db.VarChar(50)
+  name                              String                    @db.VarChar(255)
+  min_stock                         Decimal?                  @db.Decimal(18, 2)
+  unit_id                           Int
+  raw_mat_categories_id             Int?
+  created_at                        DateTime                  @default(now())
+  deleted_at                        DateTime?
+  updated_at                        DateTime?                 @updatedAt
+  type                              MaterialType?
+  purchase_drafts                   MaterialPurchaseDraft[]
+  rawmaterial_inventories           RawMaterialInventory[]
+  open_pos                          RawMaterialOpenPo[]
+  need_overrides                    RawMaterialNeedOverride[]
+  raw_mat_category                  RawMatCategories?         @relation(fields: [raw_mat_categories_id], references: [id])
+  unit_raw_material                 UnitRawMaterial           @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+  supplier_materials                SupplierMaterial[]
+  recipes                           Recipes[]
+  production_order_items            ProductionOrderItem[]     @relation("ProductionItemRM")
+  production_order_substitute_items ProductionOrderItem[]     @relation("ProductionItemSubstituteRM")
+  production_rm_wastes              ProductionOrderWaste[]    @relation("ProductionWasteRM")
+  transfer_items                    StockTransferItem[]
+  rfq_items                         PurchaseRFQItem[]
+  po_items                          PurchaseOrderItem[]
+  receipt_items                     PurchaseReceiptItem[]
+  vendor_return_items               VendorReturnItem[]
 
   @@map("raw_materials")
 }
@@ -273,15 +273,15 @@ model RawMaterialInventory {
 }
 
 model Supplier {
-  id                 Int                   @id @default(autoincrement())
-  name               String                @db.VarChar(100)
+  id                 Int                @id @default(autoincrement())
+  name               String             @db.VarChar(100)
   addresses          String
-  country            String                @db.VarChar(100)
-  phone              String?               @unique @db.VarChar(20)
-  created_at         DateTime              @default(now())
-  updated_at         DateTime              @updatedAt
-  slug               String?               @unique
-  source             RawMaterialSource     @default(LOCAL)
+  country            String             @db.VarChar(100)
+  phone              String?            @unique @db.VarChar(20)
+  created_at         DateTime           @default(now())
+  updated_at         DateTime           @updatedAt
+  slug               String?            @unique
+  source             RawMaterialSource  @default(LOCAL)
   supplier_materials SupplierMaterial[]
   purchase_rfqs      PurchaseRFQ[]
   purchase_orders    PurchaseOrder[]
@@ -595,40 +595,40 @@ model StockMovement {
 }
 
 model StockTransfer {
-  id                Int                  @id @default(autoincrement())
-  transfer_number   String               @unique @db.VarChar(50)
-  from_type         TransferLocationType
-  from_warehouse_id Int?
-  from_outlet_id    Int?
-  to_type           TransferLocationType
-  to_warehouse_id   Int?
-  to_outlet_id      Int?
-  status            TransferStatus       @default(PENDING)
-  notes             String?
-  shipment_notes    String?
-  fulfillment_notes String?
-  created_by        String               @db.VarChar(100)
-  approved_by       String?              @db.VarChar(100)
-  date              DateTime?
-  approved_at       DateTime?
-  shipped_at        DateTime?
-  received_at       DateTime?
-  fulfilled_at      DateTime?
-  cancelled_at      DateTime?
-  cancelled_by      String?              @db.VarChar(100)
-  created_at        DateTime             @default(now())
-  updated_at        DateTime             @updatedAt
-  barcode           String               @unique @db.VarChar(20)
-  received_notes    String?
-  items             StockTransferItem[]
-  photos            StockTransferPhoto[]
-  production_order_id Int?               @unique
-  production_order    ProductionOrder?   @relation(fields: [production_order_id], references: [id])
-  from_outlet       Outlet?              @relation("TransferFromOutlet", fields: [from_outlet_id], references: [id])
-  from_warehouse    Warehouse?           @relation("TransferFromWarehouse", fields: [from_warehouse_id], references: [id])
-  to_outlet         Outlet?              @relation("TransferToOutlet", fields: [to_outlet_id], references: [id])
-  to_warehouse      Warehouse?           @relation("TransferToWarehouse", fields: [to_warehouse_id], references: [id])
-  returns           StockReturn[]
+  id                  Int                  @id @default(autoincrement())
+  transfer_number     String               @unique @db.VarChar(50)
+  from_type           TransferLocationType
+  from_warehouse_id   Int?
+  from_outlet_id      Int?
+  to_type             TransferLocationType
+  to_warehouse_id     Int?
+  to_outlet_id        Int?
+  status              TransferStatus       @default(PENDING)
+  notes               String?
+  shipment_notes      String?
+  fulfillment_notes   String?
+  created_by          String               @db.VarChar(100)
+  approved_by         String?              @db.VarChar(100)
+  date                DateTime?
+  approved_at         DateTime?
+  shipped_at          DateTime?
+  received_at         DateTime?
+  fulfilled_at        DateTime?
+  cancelled_at        DateTime?
+  cancelled_by        String?              @db.VarChar(100)
+  created_at          DateTime             @default(now())
+  updated_at          DateTime             @updatedAt
+  barcode             String               @unique @db.VarChar(20)
+  received_notes      String?
+  items               StockTransferItem[]
+  photos              StockTransferPhoto[]
+  production_order_id Int?                 @unique
+  production_order    ProductionOrder?     @relation(fields: [production_order_id], references: [id])
+  from_outlet         Outlet?              @relation("TransferFromOutlet", fields: [from_outlet_id], references: [id])
+  from_warehouse      Warehouse?           @relation("TransferFromWarehouse", fields: [from_warehouse_id], references: [id])
+  to_outlet           Outlet?              @relation("TransferToOutlet", fields: [to_outlet_id], references: [id])
+  to_warehouse        Warehouse?           @relation("TransferToWarehouse", fields: [to_warehouse_id], references: [id])
+  returns             StockReturn[]
 
   @@index([barcode])
   @@index([status])
@@ -644,7 +644,7 @@ model StockTransferItem {
   id                 Int           @id @default(autoincrement())
   transfer_id        Int
   product_id         Int?
-  raw_material_id     Int?
+  raw_material_id    Int?
   quantity_requested Decimal       @db.Decimal(18, 2)
   quantity_packed    Decimal?      @db.Decimal(18, 2)
   quantity_received  Decimal?      @db.Decimal(18, 2)
@@ -746,14 +746,14 @@ model GoodsReceipt {
 }
 
 model ProductionOrder {
-  id                Int                    @id @default(autoincrement())
-  mfg_number        String                 @unique @db.VarChar(50)
+  id                Int                     @id @default(autoincrement())
+  mfg_number        String                  @unique @db.VarChar(50)
   product_id        Int
-  quantity_planned  Decimal                @db.Decimal(18, 2)
-  quantity_actual   Decimal?               @db.Decimal(18, 2)
-  quantity_accepted Decimal?               @db.Decimal(18, 2)
-  quantity_rejected Decimal?               @db.Decimal(18, 2)
-  status            ProductionStatus       @default(PLANNING)
+  quantity_planned  Decimal                 @db.Decimal(18, 2)
+  quantity_actual   Decimal?                @db.Decimal(18, 2)
+  quantity_accepted Decimal?                @db.Decimal(18, 2)
+  quantity_rejected Decimal?                @db.Decimal(18, 2)
+  status            ProductionStatus        @default(PLANNING)
   target_date       DateTime?
   notes             String?
   qc_notes          String?
@@ -762,12 +762,12 @@ model ProductionOrder {
   completed_at      DateTime?
   finished_at       DateTime?
   fg_warehouse_id   Int?
-  created_by        String                 @db.VarChar(100)
-  updated_by        String?                @db.VarChar(100)
-  created_at        DateTime               @default(now())
-  updated_at        DateTime               @updatedAt
-  product           Product                @relation(fields: [product_id], references: [id])
-  fg_warehouse      Warehouse?             @relation("ProductionFGWarehouse", fields: [fg_warehouse_id], references: [id])
+  created_by        String                  @db.VarChar(100)
+  updated_by        String?                 @db.VarChar(100)
+  created_at        DateTime                @default(now())
+  updated_at        DateTime                @updatedAt
+  product           Product                 @relation(fields: [product_id], references: [id])
+  fg_warehouse      Warehouse?              @relation("ProductionFGWarehouse", fields: [fg_warehouse_id], references: [id])
   items             ProductionOrderItem[]
   outputs           ProductionOrderOutput[]
   wastes            ProductionOrderWaste[]
@@ -843,17 +843,17 @@ model GoodsReceiptItem {
 }
 
 model ProductionOrderOutput {
-  id                  Int              @id @default(autoincrement())
+  id                  Int             @id @default(autoincrement())
   production_order_id Int
   product_id          Int
-  quantity_actual     Decimal          @db.Decimal(18, 2)
-  quantity_accepted   Decimal?         @db.Decimal(18, 2)
-  quantity_rejected   Decimal?         @db.Decimal(18, 2)
+  quantity_actual     Decimal         @db.Decimal(18, 2)
+  quantity_accepted   Decimal?        @db.Decimal(18, 2)
+  quantity_rejected   Decimal?        @db.Decimal(18, 2)
   notes               String?
-  created_at          DateTime         @default(now())
-  updated_at          DateTime         @updatedAt
-  production_order    ProductionOrder  @relation(fields: [production_order_id], references: [id], onDelete: Cascade)
-  product             Product          @relation(fields: [product_id], references: [id])
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  production_order    ProductionOrder @relation(fields: [production_order_id], references: [id], onDelete: Cascade)
+  product             Product         @relation(fields: [product_id], references: [id])
 
   @@map("production_order_outputs")
 }
@@ -863,29 +863,29 @@ model ProductionOrderOutput {
 // ============================================================
 
 model PurchaseRFQ {
-  id                Int              @id @default(autoincrement())
-  rfq_number        String           @unique @db.VarChar(50)
-  rfq_date          DateTime         @default(now())
+  id                Int       @id @default(autoincrement())
+  rfq_number        String    @unique @db.VarChar(50)
+  rfq_date          DateTime  @default(now())
   supplier_id       Int?
-  supplier_name     String           @db.VarChar(150)
-  supplier_code     String?          @db.VarChar(50)
-  is_new_supplier   Boolean          @default(false)
-  supplier_category String?          @db.VarChar(100)
-  location_code     String?          @db.VarChar(50)
-  status            RFQStatus        @default(DRAFT)
+  supplier_name     String    @db.VarChar(150)
+  supplier_code     String?   @db.VarChar(50)
+  is_new_supplier   Boolean   @default(false)
+  supplier_category String?   @db.VarChar(100)
+  location_code     String?   @db.VarChar(50)
+  status            RFQStatus @default(DRAFT)
   notes             String?
   source_draft_ids  Json?
-  created_by        String           @db.VarChar(100)
-  updated_by        String?          @db.VarChar(100)
-  approved_by       String?          @db.VarChar(100)
+  created_by        String    @db.VarChar(100)
+  updated_by        String?   @db.VarChar(100)
+  approved_by       String?   @db.VarChar(100)
   approved_at       DateTime?
   converted_at      DateTime?
-  created_at        DateTime         @default(now())
-  updated_at        DateTime         @updatedAt
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
 
-  supplier          Supplier?        @relation(fields: [supplier_id], references: [id])
-  items             PurchaseRFQItem[]
-  purchase_orders   PurchaseOrder[]
+  supplier        Supplier?         @relation(fields: [supplier_id], references: [id])
+  items           PurchaseRFQItem[]
+  purchase_orders PurchaseOrder[]
 
   @@index([status, rfq_date(sort: Desc)])
   @@index([supplier_id, rfq_date(sort: Desc)])
@@ -893,24 +893,24 @@ model PurchaseRFQ {
 }
 
 model PurchaseRFQItem {
-  id              Int          @id @default(autoincrement())
-  rfq_id          Int
-  raw_material_id Int?
-  purchase_draft_id Int?       @unique
-  item_code       String       @db.VarChar(100)
-  item_name       String       @db.VarChar(255)
-  item_category   String?      @db.VarChar(100)
-  uom             String       @db.VarChar(50)
-  qty_requested   Decimal      @db.Decimal(18, 2)
-  unit_price      Decimal      @default(0) @db.Decimal(18, 2)
-  moq             Decimal?     @db.Decimal(18, 2)
-  lead_time       Int?
-  notes           String?
-  created_at      DateTime     @default(now())
+  id                Int      @id @default(autoincrement())
+  rfq_id            Int
+  raw_material_id   Int?
+  purchase_draft_id Int?     @unique
+  item_code         String   @db.VarChar(100)
+  item_name         String   @db.VarChar(255)
+  item_category     String?  @db.VarChar(100)
+  uom               String   @db.VarChar(50)
+  qty_requested     Decimal  @db.Decimal(18, 2)
+  unit_price        Decimal  @default(0) @db.Decimal(18, 2)
+  moq               Decimal? @db.Decimal(18, 2)
+  lead_time         Int?
+  notes             String?
+  created_at        DateTime @default(now())
 
-  rfq             PurchaseRFQ  @relation(fields: [rfq_id], references: [id], onDelete: Cascade)
-  raw_material    RawMaterial? @relation(fields: [raw_material_id], references: [id])
-  purchase_draft  MaterialPurchaseDraft? @relation(fields: [purchase_draft_id], references: [id])
+  rfq            PurchaseRFQ            @relation(fields: [rfq_id], references: [id], onDelete: Cascade)
+  raw_material   RawMaterial?           @relation(fields: [raw_material_id], references: [id])
+  purchase_draft MaterialPurchaseDraft? @relation(fields: [purchase_draft_id], references: [id])
 
   @@index([rfq_id])
   @@index([raw_material_id])
@@ -918,41 +918,41 @@ model PurchaseRFQItem {
 }
 
 model PurchaseOrder {
-  id              Int                  @id @default(autoincrement())
-  po_number       String               @unique @db.VarChar(50)
-  po_date         DateTime             @default(now())
-  po_type         POType               @default(LOCAL)
+  id              Int       @id @default(autoincrement())
+  po_number       String    @unique @db.VarChar(50)
+  po_date         DateTime  @default(now())
+  po_type         POType    @default(LOCAL)
   supplier_id     Int?
-  supplier_name   String               @db.VarChar(150)
-  supplier_code   String?              @db.VarChar(50)
-  is_new_supplier Boolean              @default(false)
+  supplier_name   String    @db.VarChar(150)
+  supplier_code   String?   @db.VarChar(50)
+  is_new_supplier Boolean   @default(false)
   warehouse_id    Int?
   source_rfq_id   Int?
-  currency        String               @default("IDR") @db.VarChar(10)
-  exchange_rate   Decimal?             @db.Decimal(18, 4)
-  total_estimated Decimal              @default(0) @db.Decimal(18, 2)
-  status          POStatus             @default(DRAFT)
+  currency        String    @default("IDR") @db.VarChar(10)
+  exchange_rate   Decimal?  @db.Decimal(18, 4)
+  total_estimated Decimal   @default(0) @db.Decimal(18, 2)
+  status          POStatus  @default(DRAFT)
   notes           String?
-  payment_notes   String?              @db.Text
-  created_by      String               @db.VarChar(100)
-  updated_by      String?              @db.VarChar(100)
-  approved_by     String?              @db.VarChar(100)
+  payment_notes   String?   @db.Text
+  created_by      String    @db.VarChar(100)
+  updated_by      String?   @db.VarChar(100)
+  approved_by     String?   @db.VarChar(100)
   approved_at     DateTime?
   ordered_at      DateTime?
   closed_at       DateTime?
   cancelled_at    DateTime?
-  cancelled_by    String?              @db.VarChar(100)
-  created_at      DateTime             @default(now())
-  updated_at      DateTime             @updatedAt
+  cancelled_by    String?   @db.VarChar(100)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
 
-  supplier        Supplier?            @relation(fields: [supplier_id], references: [id])
-  warehouse       Warehouse?           @relation("POWarehouse", fields: [warehouse_id], references: [id])
-  source_rfq      PurchaseRFQ?         @relation(fields: [source_rfq_id], references: [id])
-  items           PurchaseOrderItem[]
-  payment_terms   PurchasePaymentTerm[]
-  tracking        PurchaseTracking?
-  receipt_items   PurchaseReceiptItem[]
-  receipts        PurchaseReceipt[]
+  supplier         Supplier?             @relation(fields: [supplier_id], references: [id])
+  warehouse        Warehouse?            @relation("POWarehouse", fields: [warehouse_id], references: [id])
+  source_rfq       PurchaseRFQ?          @relation(fields: [source_rfq_id], references: [id])
+  items            PurchaseOrderItem[]
+  payment_terms    PurchasePaymentTerm[]
+  tracking         PurchaseTracking?
+  receipt_items    PurchaseReceiptItem[]
+  receipts         PurchaseReceipt[]
   account_payables AccountPayable[]
 
   @@index([status, po_date(sort: Desc)])
@@ -965,26 +965,26 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderItem {
-  id              Int            @id @default(autoincrement())
+  id              Int        @id @default(autoincrement())
   po_id           Int
   raw_material_id Int?
-  item_code       String         @db.VarChar(100)
-  item_name       String         @db.VarChar(255)
-  item_category   String?        @db.VarChar(100)
-  item_type       POItemType     @default(MASTER)
-  uom             String         @db.VarChar(50)
-  moq             Decimal?       @db.Decimal(18, 2)
-  unit_price      Decimal        @default(0) @db.Decimal(18, 4)
-  qty_ordered     Decimal        @db.Decimal(18, 2)
-  qty_received    Decimal        @default(0) @db.Decimal(18, 2)
-  subtotal        Decimal        @default(0) @db.Decimal(18, 2)
+  item_code       String     @db.VarChar(100)
+  item_name       String     @db.VarChar(255)
+  item_category   String?    @db.VarChar(100)
+  item_type       POItemType @default(MASTER)
+  uom             String     @db.VarChar(50)
+  moq             Decimal?   @db.Decimal(18, 2)
+  unit_price      Decimal    @default(0) @db.Decimal(18, 4)
+  qty_ordered     Decimal    @db.Decimal(18, 2)
+  qty_received    Decimal    @default(0) @db.Decimal(18, 2)
+  subtotal        Decimal    @default(0) @db.Decimal(18, 2)
   notes           String?
-  created_at      DateTime       @default(now())
-  updated_at      DateTime       @updatedAt
+  created_at      DateTime   @default(now())
+  updated_at      DateTime   @updatedAt
 
-  po              PurchaseOrder  @relation(fields: [po_id], references: [id], onDelete: Cascade)
-  raw_material    RawMaterial?   @relation(fields: [raw_material_id], references: [id])
-  receipt_items   PurchaseReceiptItem[]
+  po            PurchaseOrder         @relation(fields: [po_id], references: [id], onDelete: Cascade)
+  raw_material  RawMaterial?          @relation(fields: [raw_material_id], references: [id])
+  receipt_items PurchaseReceiptItem[]
 
   @@index([po_id])
   @@index([raw_material_id])
@@ -992,15 +992,15 @@ model PurchaseOrderItem {
 }
 
 model PurchasePaymentTerm {
-  id          Int           @id @default(autoincrement())
-  po_id       Int
-  term_seq    Int
-  percentage  Decimal       @db.Decimal(5, 2)
-  due_days    Int?
-  notes       String?
-  created_at  DateTime      @default(now())
+  id         Int      @id @default(autoincrement())
+  po_id      Int
+  term_seq   Int
+  percentage Decimal  @db.Decimal(5, 2)
+  due_days   Int?
+  notes      String?
+  created_at DateTime @default(now())
 
-  po          PurchaseOrder @relation(fields: [po_id], references: [id], onDelete: Cascade)
+  po PurchaseOrder @relation(fields: [po_id], references: [id], onDelete: Cascade)
 
   @@unique([po_id, term_seq])
   @@map("purchase_payment_terms")
@@ -1023,7 +1023,7 @@ model PurchaseTracking {
   created_at      DateTime                @default(now())
   updated_at      DateTime                @updatedAt
 
-  po              PurchaseOrder           @relation(fields: [po_id], references: [id], onDelete: Cascade)
+  po PurchaseOrder @relation(fields: [po_id], references: [id], onDelete: Cascade)
 
   @@index([order_status, updated_at(sort: Desc)])
   @@index([payment_status])
@@ -1031,27 +1031,27 @@ model PurchaseTracking {
 }
 
 model PurchaseReceipt {
-  id              Int                   @id @default(autoincrement())
-  receipt_number  String                @unique @db.VarChar(50)
-  receipt_date    DateTime              @default(now())
-  po_id           Int?
-  warehouse_id    Int
-  status          ReceiptStatus         @default(DRAFT)
-  total_qty       Decimal               @default(0) @db.Decimal(18, 2)
-  total_amount    Decimal               @default(0) @db.Decimal(18, 2)
-  notes           String?
-  posted_at       DateTime?
-  created_by      String                @db.VarChar(100)
-  updated_by      String?               @db.VarChar(100)
-  approved_by     String?               @db.VarChar(100)
-  created_at      DateTime              @default(now())
-  updated_at      DateTime              @updatedAt
+  id             Int           @id @default(autoincrement())
+  receipt_number String        @unique @db.VarChar(50)
+  receipt_date   DateTime      @default(now())
+  po_id          Int?
+  warehouse_id   Int
+  status         ReceiptStatus @default(DRAFT)
+  total_qty      Decimal       @default(0) @db.Decimal(18, 2)
+  total_amount   Decimal       @default(0) @db.Decimal(18, 2)
+  notes          String?
+  posted_at      DateTime?
+  created_by     String        @db.VarChar(100)
+  updated_by     String?       @db.VarChar(100)
+  approved_by    String?       @db.VarChar(100)
+  created_at     DateTime      @default(now())
+  updated_at     DateTime      @updatedAt
 
-  po              PurchaseOrder?        @relation(fields: [po_id], references: [id])
-  warehouse       Warehouse             @relation("ReceiptWarehouse", fields: [warehouse_id], references: [id])
-  items           PurchaseReceiptItem[]
+  po               PurchaseOrder?        @relation(fields: [po_id], references: [id])
+  warehouse        Warehouse             @relation("ReceiptWarehouse", fields: [warehouse_id], references: [id])
+  items            PurchaseReceiptItem[]
   account_payables AccountPayable[]
-  vendor_returns  VendorReturn[]
+  vendor_returns   VendorReturn[]
 
   @@index([po_id, receipt_date(sort: Desc)])
   @@index([status, receipt_date(sort: Desc)])
@@ -1060,24 +1060,24 @@ model PurchaseReceipt {
 }
 
 model PurchaseReceiptItem {
-  id              Int              @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   receipt_id      Int
   po_id           Int
   po_item_id      Int
   raw_material_id Int?
-  item_code       String           @db.VarChar(100)
-  item_name       String           @db.VarChar(255)
-  uom             String           @db.VarChar(50)
-  qty_received    Decimal          @db.Decimal(18, 2)
-  unit_price      Decimal          @db.Decimal(18, 4)
-  amount          Decimal          @db.Decimal(18, 2)
+  item_code       String   @db.VarChar(100)
+  item_name       String   @db.VarChar(255)
+  uom             String   @db.VarChar(50)
+  qty_received    Decimal  @db.Decimal(18, 2)
+  unit_price      Decimal  @db.Decimal(18, 4)
+  amount          Decimal  @db.Decimal(18, 2)
   notes           String?
-  created_at      DateTime         @default(now())
+  created_at      DateTime @default(now())
 
-  receipt         PurchaseReceipt  @relation(fields: [receipt_id], references: [id], onDelete: Cascade)
-  po              PurchaseOrder    @relation(fields: [po_id], references: [id])
-  po_item         PurchaseOrderItem @relation(fields: [po_item_id], references: [id])
-  raw_material    RawMaterial?     @relation(fields: [raw_material_id], references: [id])
+  receipt             PurchaseReceipt    @relation(fields: [receipt_id], references: [id], onDelete: Cascade)
+  po                  PurchaseOrder      @relation(fields: [po_id], references: [id])
+  po_item             PurchaseOrderItem  @relation(fields: [po_item_id], references: [id])
+  raw_material        RawMaterial?       @relation(fields: [raw_material_id], references: [id])
   vendor_return_items VendorReturnItem[]
 
   @@index([receipt_id])
@@ -1102,9 +1102,9 @@ model VendorReturn {
   created_at    DateTime           @default(now())
   updated_at    DateTime           @updatedAt
 
-  receipt       PurchaseReceipt    @relation(fields: [receipt_id], references: [id])
-  warehouse     Warehouse          @relation("VendorReturnWarehouse", fields: [warehouse_id], references: [id])
-  items         VendorReturnItem[]
+  receipt   PurchaseReceipt    @relation(fields: [receipt_id], references: [id])
+  warehouse Warehouse          @relation("VendorReturnWarehouse", fields: [warehouse_id], references: [id])
+  items     VendorReturnItem[]
 
   @@index([receipt_id])
   @@index([status, return_date(sort: Desc)])
@@ -1112,22 +1112,22 @@ model VendorReturn {
 }
 
 model VendorReturnItem {
-  id              Int                  @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   return_id       Int
   receipt_item_id Int
   raw_material_id Int?
-  item_code       String               @db.VarChar(100)
-  item_name       String               @db.VarChar(255)
-  uom             String               @db.VarChar(50)
-  qty_returned    Decimal              @db.Decimal(18, 2)
-  unit_price      Decimal              @db.Decimal(18, 4)
-  amount          Decimal              @db.Decimal(18, 2)
+  item_code       String   @db.VarChar(100)
+  item_name       String   @db.VarChar(255)
+  uom             String   @db.VarChar(50)
+  qty_returned    Decimal  @db.Decimal(18, 2)
+  unit_price      Decimal  @db.Decimal(18, 4)
+  amount          Decimal  @db.Decimal(18, 2)
   reason          String?
-  created_at      DateTime             @default(now())
+  created_at      DateTime @default(now())
 
-  return_doc      VendorReturn         @relation(fields: [return_id], references: [id], onDelete: Cascade)
-  receipt_item    PurchaseReceiptItem  @relation(fields: [receipt_item_id], references: [id])
-  raw_material    RawMaterial?         @relation(fields: [raw_material_id], references: [id])
+  return_doc   VendorReturn        @relation(fields: [return_id], references: [id], onDelete: Cascade)
+  receipt_item PurchaseReceiptItem @relation(fields: [receipt_item_id], references: [id])
+  raw_material RawMaterial?        @relation(fields: [raw_material_id], references: [id])
 
   @@index([return_id])
   @@index([receipt_item_id])
@@ -1135,27 +1135,27 @@ model VendorReturnItem {
 }
 
 model AccountPayable {
-  id               Int            @id @default(autoincrement())
-  ap_number        String         @unique @db.VarChar(50)
+  id               Int       @id @default(autoincrement())
+  ap_number        String    @unique @db.VarChar(50)
   po_id            Int
   receipt_id       Int
   supplier_id      Int?
-  supplier_name    String         @db.VarChar(150)
-  invoice_number   String?        @db.VarChar(100)
+  supplier_name    String    @db.VarChar(150)
+  invoice_number   String?   @db.VarChar(100)
   invoice_date     DateTime?
   due_date         DateTime?
-  amount           Decimal        @db.Decimal(18, 2)
-  paid_amount      Decimal        @default(0) @db.Decimal(18, 2)
-  remaining_amount Decimal        @default(0) @db.Decimal(18, 2)
-  status           APStatus       @default(UNPAID)
+  amount           Decimal   @db.Decimal(18, 2)
+  paid_amount      Decimal   @default(0) @db.Decimal(18, 2)
+  remaining_amount Decimal   @default(0) @db.Decimal(18, 2)
+  status           APStatus  @default(UNPAID)
   notes            String?
-  created_by       String         @db.VarChar(100)
-  created_at       DateTime       @default(now())
-  updated_at       DateTime       @updatedAt
+  created_by       String    @db.VarChar(100)
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
 
-  po               PurchaseOrder  @relation(fields: [po_id], references: [id])
-  receipt          PurchaseReceipt @relation(fields: [receipt_id], references: [id])
-  supplier         Supplier?      @relation(fields: [supplier_id], references: [id])
+  po       PurchaseOrder   @relation(fields: [po_id], references: [id])
+  receipt  PurchaseReceipt @relation(fields: [receipt_id], references: [id])
+  supplier Supplier?       @relation(fields: [supplier_id], references: [id])
 
   @@index([status, due_date])
   @@index([supplier_id, status])

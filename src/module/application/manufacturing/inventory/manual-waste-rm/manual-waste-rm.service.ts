@@ -1,4 +1,4 @@
-import { Prisma } from "../../../../../generated/prisma/index.js";
+import { Prisma } from "../../../../../generated/prisma/client.js";
 import prisma from "../../../../../config/prisma.js";
 import {
     CreateManualWasteRMDTO,
@@ -12,7 +12,7 @@ import {
     MovementType,
     MovementRefType,
     MovementEntityType,
-} from "../../../../../generated/prisma/index.js";
+} from "../../../../../generated/prisma/client.js";
 import { InventoryHelper } from "../../../shared/inventory.helper.js";
 
 const WASTE_INCLUDE = {

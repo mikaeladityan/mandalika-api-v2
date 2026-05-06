@@ -1,4 +1,4 @@
-import { Account, STATUS, User } from "../../generated/prisma/index.js";
+import { Account, STATUS, User } from "../../generated/prisma/client.js";
 import { LoginRequestDTO, RegisterRequestDTO } from "./auth.schema.js";
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";

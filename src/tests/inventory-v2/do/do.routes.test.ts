@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import DORoutes from "../../../module/application/inventory-v2/do/do.routes.js";
 import { DOController } from "../../../module/application/inventory-v2/do/do.controller.js";
-import { TransferStatus } from "../../../generated/prisma/index.js";
+import { TransferStatus } from "../../../generated/prisma/client.js";
 
 vi.mock("../../../module/application/inventory-v2/do/do.controller.js");
 

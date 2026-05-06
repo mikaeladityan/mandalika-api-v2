@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import ReturnRoutes from "../../../module/application/inventory-v2/return/return.routes.js";
 import { ReturnController } from "../../../module/application/inventory-v2/return/return.controller.js";
-import { ReturnStatus, TransferLocationType } from "../../../generated/prisma/index.js";
+import { ReturnStatus, TransferLocationType } from "../../../generated/prisma/client.js";
 
 vi.mock("../../../module/application/inventory-v2/return/return.controller.js");
 

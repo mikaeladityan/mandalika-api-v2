@@ -1,5 +1,5 @@
 import z from "zod";
-import { GENDER, STATUS } from "../../../generated/prisma/index.js";
+import { GENDER, STATUS } from "../../../generated/prisma/client.js";
 import { UnitResponseSchema } from "./unit/unit.schema.js";
 import { TypeResponseSchema } from "./type/type.schema.js";
 import { ResponseProductSizeSchema } from "./size/size.schema.js";

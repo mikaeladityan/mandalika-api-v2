@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TransferLocationType, TransferStatus } from "../../../generated/prisma/index.js";
+import { TransferLocationType, TransferStatus } from "../../../generated/prisma/client.js";
 
 export const CreateStockTransferItemSchema = z.object({
     product_id: z.number(),

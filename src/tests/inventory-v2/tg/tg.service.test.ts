@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TGService } from "../../../module/application/inventory-v2/tg/tg.service.js";
-import { TransferStatus, TransferLocationType, TransferPhotoStage } from "../../../generated/prisma/index.js";
+import { TransferStatus, TransferLocationType, TransferPhotoStage } from "../../../generated/prisma/client.js";
 import prisma from "../../../config/prisma.js";
 import { ReturnService } from "../../../module/application/inventory-v2/return/return.service.js";
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GoodsReceiptStatus, GoodsReceiptType } from "../../../../generated/prisma/index.js";
+import { GoodsReceiptStatus, GoodsReceiptType } from "../../../../generated/prisma/client.js";
 
 export const RequestGoodsReceiptItemSchema = z.object({
     product_id: z.coerce.number({ error: "ID Produk harus berupa angka" }),

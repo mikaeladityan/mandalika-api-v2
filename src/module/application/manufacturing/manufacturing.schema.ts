@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProductionStatus } from "../../../generated/prisma/index.js";
+import { ProductionStatus } from "../../../generated/prisma/client.js";
 
 export const RequestCreateProductionSchema = z.object({
     product_id: z.number({ error: "Produk wajib dipilih" }).int().positive("Produk wajib dipilih"),

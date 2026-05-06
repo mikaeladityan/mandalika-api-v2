@@ -1,6 +1,6 @@
 import prisma from "../../../config/prisma.js";
 import ExcelJS from "exceljs";
-import { Prisma } from "../../../generated/prisma/index.js";
+import { Prisma } from "../../../generated/prisma/client.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import {

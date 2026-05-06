@@ -4,7 +4,7 @@ import {
     ResponseRawMaterialDTO,
 } from "./rawmat.schema.js";
 import prisma from "../../../config/prisma.js";
-import { RawMaterial } from "../../../generated/prisma/index.js";
+import { RawMaterial } from "../../../generated/prisma/client.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import {
@@ -12,9 +12,9 @@ import {
     RawMatCategories,
     Supplier,
     UnitRawMaterial,
-} from "../../../generated/prisma/index.js";
+} from "../../../generated/prisma/client.js";
 import { normalizeSlug } from "../../../lib/index.js";
-import { MaterialType } from "../../../generated/prisma/index.js";
+import { MaterialType } from "../../../generated/prisma/client.js";
 import ExcelJS from "exceljs";
 
 type RawRow = {
