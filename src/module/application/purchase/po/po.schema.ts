@@ -91,3 +91,33 @@ export const QueryPOSchema = z.object({
 });
 
 export type QueryPODTO = z.infer<typeof QueryPOSchema>;
+
+export const UpdatePOTrackingSchema = z.object({
+    eta_date: z.coerce.date().optional().nullable(),
+    ship_date: z.coerce.date().optional().nullable(),
+    arrive_date: z.coerce.date().optional().nullable(),
+    tracking_number: z.string().optional().nullable(),
+    order_status: z.enum(["ORDERED", "SHIPPED", "ARRIVED", "PARTIALLY_RECEIVED", "RECEIVED", "CLOSED"]).optional(),
+    payment_status: z.enum(["UNPAID", "DP_PAID", "PARTIALLY_PAID", "PAID"]).optional(),
+    dp_paid_date: z.coerce.date().optional().nullable(),
+    dp_paid_pct: z.number().min(0).max(100).optional().nullable(),
+    final_paid_date: z.coerce.date().optional().nullable(),
+    notes: z.string().optional().nullable(),
+});
+
+export type UpdatePOTrackingDTO = z.infer<typeof UpdatePOTrackingSchema>;
+
+export const ReceiveItemSchema = z.object({
+    po_item_id: z.number().int().positive(),
+    qty_received: z.number().positive(),
+    notes: z.string().optional().nullable(),
+});
+
+export const ReceiveItemsSchema = z.object({
+    warehouse_id: z.number().int().positive(),
+    receipt_date: z.coerce.date().optional(),
+    notes: z.string().optional().nullable(),
+    items: z.array(ReceiveItemSchema).min(1, "At least one item is required"),
+});
+
+export type ReceiveItemsDTO = z.infer<typeof ReceiveItemsSchema>;

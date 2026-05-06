@@ -1,12 +1,11 @@
 import { Context } from "hono";
 import { RecomendationV2Service } from "./recomendation-v2.service.js";
 import { ApiResponse } from "../../../lib/api.response.js";
-import { 
-    QueryRecomendationV2DTO, 
-    RequestApproveWorkOrderSchema, 
+import {
+    QueryRecomendationV2DTO,
+    RequestApproveWorkOrderSchema,
     RequestSaveWorkOrderSchema,
     RequestBulkSaveHorizonSchema,
-    RequestSaveOpenPoSchema,
     RequestUpdateMoqSchema,
     RequestSaveNeedOverrideSchema,
     RequestDeleteNeedOverrideSchema,
@@ -87,13 +86,6 @@ export class RecomendationV2Controller {
         const body = await c.req.json();
         const validBody = RequestBulkSaveHorizonSchema.parse(body);
         const result = await RecomendationV2Service.bulkSaveHorizon(validBody);
-        return ApiResponse.sendSuccess(c, result, 200);
-    }
-
-    static async saveOpenPo(c: Context) {
-        const body = await c.req.json();
-        const validBody = RequestSaveOpenPoSchema.parse(body);
-        const result = await RecomendationV2Service.saveOpenPo(validBody);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 

@@ -1,6 +1,6 @@
 import { Context } from "hono";
 import { POService } from "./po.service.js";
-import { QueryPOSchema, CreatePOSchema, UpdatePOSchema, UpdatePOStatusSchema } from "./po.schema.js";
+import { QueryPOSchema, CreatePOSchema, UpdatePOSchema, UpdatePOStatusSchema, UpdatePOTrackingSchema, ReceiveItemsSchema } from "./po.schema.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
 
 export class POController {
@@ -45,6 +45,34 @@ export class POController {
         const body = await c.req.json();
         const validated = UpdatePOStatusSchema.parse(body);
         const result = await POService.updateStatus(id, validated, userId);
+        return ApiResponse.sendSuccess(c, result);
+    }
+
+    static async updateTracking(c: Context) {
+        const user = c.get("user");
+        const session = c.get("session");
+        const userId = user?.id || session?.email || "system";
+        const id = Number(c.req.param("id"));
+        const body = await c.req.json();
+        const validated = UpdatePOTrackingSchema.parse(body);
+        const result = await POService.updateTracking(id, validated, userId);
+        return ApiResponse.sendSuccess(c, result);
+    }
+
+    static async receiveItems(c: Context) {
+        const user = c.get("user");
+        const session = c.get("session");
+        const userId = user?.id || session?.email || "system";
+        const id = Number(c.req.param("id"));
+        const body = await c.req.json();
+        const validated = ReceiveItemsSchema.parse(body);
+        const result = await POService.receiveItems(id, validated, userId);
+        return ApiResponse.sendSuccess(c, result, 201);
+    }
+
+    static async listReceipts(c: Context) {
+        const id = Number(c.req.param("id"));
+        const result = await POService.listReceipts(id);
         return ApiResponse.sendSuccess(c, result);
     }
 

@@ -301,6 +301,7 @@ export class RawMaterialService {
                         'supplier_id', sm2.supplier_id,
                         'supplier_name', s2.name,
                         'supplier_country', s2.country,
+                        'supplier_source', s2.source,
                         'unit_price', sm2.unit_price::float8,
                         'min_buy', sm2.min_buy::float8,
                         'lead_time', sm2.lead_time,
@@ -403,6 +404,7 @@ export class RawMaterialService {
                             'supplier_id', sm2.supplier_id,
                             'supplier_name', s2.name,
                             'supplier_country', s2.country,
+                            'supplier_source', s2.source,
                             'unit_price', sm2.unit_price::float8,
                             'min_buy', sm2.min_buy::float8,
                             'lead_time', sm2.lead_time,
@@ -467,7 +469,7 @@ export class RawMaterialService {
         const hasVisibility = visibleCols.length > 0;
 
         const allColumns = [
-             // Additional Columns
+            // Additional Columns
             { header: "ID", key: "id", width: 10, id: "id" },
             // Mandatory Columns (Match Import Template)
             { header: "BARCODE", key: "barcode", width: 20, id: "barcode" },
@@ -477,37 +479,54 @@ export class RawMaterialService {
             { header: "SUPPLIER", key: "supplier", width: 25, id: "supplier" },
             { header: "PRICE", key: "price", width: 15, id: "price" },
             { header: "MOQ", key: "min_buy", width: 12, id: "min_buy" },
-            { header: "MIN STOCK", key: "min_stock", width: 12, id: "min_stock" },
             { header: "LEAD TIME", key: "lead_time", width: 12, id: "lead_time" },
-            { header: "LOCAL/IMPORT", key: "source", width: 15, id: "source" },
-            { header: "Tipe", key: "type", width: 15, id: "type" },
-            { header: "Dibuat", key: "created_at", width: 15, id: "created_at" },
-            { header: "Update", key: "updated_at", width: 15, id: "updated_at" },
+            { header: "UTAMA?", key: "is_preferred", width: 10, id: "is_preferred" },
+            { header: "SOURCE", key: "supplier_source", width: 15, id: "supplier_source" },
+            { header: "NEGARA", key: "supplier_country", width: 15, id: "supplier_country" },
+            { header: "MIN STOCK", key: "min_stock", width: 12, id: "min_stock" },
+            { header: "TIPE", key: "type", width: 15, id: "type" },
+            { header: "DIBUAT", key: "created_at", width: 15, id: "created_at" },
+            { header: "UPDATE", key: "updated_at", width: 15, id: "updated_at" },
         ];
 
         const filteredColumns = hasVisibility
-            ? allColumns.filter((col) => col.id === "id" || visibleCols.includes(col.id))
+            ? allColumns.filter((col) => {
+                  if (col.id === "id") return true;
+                  // If supplier_details is visible, show all supplier-related columns
+                  if (visibleCols.includes("supplier_details")) {
+                      if (["supplier", "price", "min_buy", "lead_time", "is_preferred", "supplier_source", "supplier_country"].includes(col.id)) return true;
+                  }
+                  return visibleCols.includes(col.id);
+              })
             : allColumns;
 
         sheet.columns = filteredColumns.map(({ header, key, width }) => ({ header, key, width }));
 
-        data.forEach((item, index) => {
+        data.forEach((item) => {
             const typeLabel = item.type === "FO" ? "FO" : item.type === "PCKG" ? "PCKG" : "";
-            sheet.addRow({
-                id: item.id,
-                barcode: item.barcode || "",
-                name: item.name,
-                category: item.raw_mat_category?.name || "",
-                supplier: item.supplier?.name || "",
-                unit: item.unit_raw_material.name,
-                type: typeLabel,
-                source: item.source,
-                price: item.price,
-                min_buy: item.min_buy || 0,
-                min_stock: item.min_stock || 0,
-                lead_time: item.lead_time || 0,
-                created_at: item.created_at,
-                updated_at: item.updated_at,
+            
+            // If no suppliers, still export the material info
+            const suppliers = item.suppliers && item.suppliers.length > 0 ? item.suppliers : [null];
+            
+            suppliers.forEach((sup) => {
+                sheet.addRow({
+                    id: item.id,
+                    barcode: item.barcode || "",
+                    name: item.name,
+                    category: item.raw_mat_category?.name || "",
+                    supplier: sup ? sup.supplier_name : "",
+                    unit: item.unit_raw_material.name,
+                    type: typeLabel,
+                    supplier_source: sup ? sup.supplier_source : item.source,
+                    supplier_country: sup ? sup.supplier_country : "",
+                    price: sup ? sup.unit_price : 0,
+                    min_buy: sup ? sup.min_buy || 0 : 0,
+                    min_stock: item.min_stock || 0,
+                    lead_time: sup ? sup.lead_time || 0 : 0,
+                    is_preferred: sup ? (sup.is_preferred ? "YA" : "TIDAK") : "-",
+                    created_at: item.created_at,
+                    updated_at: item.updated_at,
+                });
             });
         });
 

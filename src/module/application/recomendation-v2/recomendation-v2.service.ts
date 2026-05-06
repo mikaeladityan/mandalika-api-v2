@@ -5,7 +5,6 @@ import {
     RequestApproveWorkOrderDTO,
     RequestSaveWorkOrderDTO,
     RequestBulkSaveHorizonDTO,
-    RequestSaveOpenPoDTO,
     RequestUpdateMoqDTO,
     RequestSaveNeedOverrideDTO,
 } from "./recomendation-v2.schema.js";
@@ -117,14 +116,15 @@ export class RecomendationV2Service {
                 select: { month: true, year: true },
             }),
             prisma.$queryRaw<any[]>`
-                SELECT MIN(po.order_date) as earliest
-                FROM "raw_material_open_pos" po
-                JOIN "raw_materials" rm ON rm.id = po.raw_material_id
+                SELECT MIN(po.po_date) as earliest
+                FROM "purchase_orders" po
+                JOIN "purchase_order_items" poi ON poi.po_id = po.id
+                JOIN "raw_materials" rm ON rm.id = poi.raw_material_id
                 LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
                 LEFT JOIN "supplier_materials" sm_pref ON sm_pref.raw_material_id = rm.id AND sm_pref.is_preferred = true
                 LEFT JOIN "suppliers" s ON s.id = sm_pref.supplier_id
                 LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
-                WHERE po.status = 'OPEN'
+                WHERE po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
                   AND ${typeFilter}
                   ${searchFilter}
             `,
@@ -363,14 +363,16 @@ export class RecomendationV2Service {
                         ), 0)
                     ) AS current_stock,
 
-                    -- Open PO (Total OPEN only)
+                    -- Open PO (qty ordered minus received, statuses: SUBMITTED/APPROVED/ORDERED)
                     COALESCE((
-                        SELECT SUM(po.quantity)
-                        FROM "raw_material_open_pos" po
-                        WHERE po.raw_material_id = fm.id AND po.status = 'OPEN'
+                        SELECT SUM(poi.qty_ordered - poi.qty_received)
+                        FROM "purchase_order_items" poi
+                        JOIN "purchase_orders" po ON poi.po_id = po.id
+                        WHERE poi.raw_material_id = fm.id
+                          AND po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
                     ), 0) AS open_po,
 
-                    -- Open PO per month (OPEN only)
+                    -- Open PO per month breakdown (SUBMITTED/APPROVED/ORDERED)
                     (
                         SELECT COALESCE(json_agg(
                              json_build_object(
@@ -381,11 +383,13 @@ export class RecomendationV2Service {
                         ), '[]'::json)
                         FROM (
                             SELECT
-                                EXTRACT(MONTH FROM po.order_date)::int as m,
-                                EXTRACT(YEAR FROM po.order_date)::int as y,
-                                SUM(po.quantity) as qty
-                            FROM "raw_material_open_pos" po
-                            WHERE po.raw_material_id = fm.id AND po.status = 'OPEN'
+                                EXTRACT(MONTH FROM po.po_date)::int as m,
+                                EXTRACT(YEAR FROM po.po_date)::int as y,
+                                SUM(poi.qty_ordered - poi.qty_received) as qty
+                            FROM "purchase_order_items" poi
+                            JOIN "purchase_orders" po ON poi.po_id = po.id
+                            WHERE poi.raw_material_id = fm.id
+                              AND po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
                             GROUP BY 1, 2
                         ) p_data
                     ) AS po_data,
@@ -692,48 +696,6 @@ export class RecomendationV2Service {
         return { message: "Need override reset to system calculation" };
     }
 
-    static async saveOpenPo(body: RequestSaveOpenPoDTO) {
-        const { raw_mat_id, month, year, quantity } = body;
-        const targetPoNumber = `MANUAL-${raw_mat_id}-${year}-${month}`;
-        const orderDate = new Date(Date.UTC(year, month - 1, 1));
-
-        // Find existing manual PO for this period
-        const existing = await prisma.rawMaterialOpenPo.findFirst({
-            where: {
-                raw_material_id: raw_mat_id,
-                po_number: targetPoNumber,
-            },
-        });
-
-        if (quantity === 0 || isNaN(quantity)) {
-            if (existing) {
-                await prisma.rawMaterialOpenPo.delete({ where: { id: existing.id } });
-            }
-            return { message: "Manual Open PO removed" };
-        }
-
-        if (existing) {
-            return await prisma.rawMaterialOpenPo.update({
-                where: { id: existing.id },
-                data: {
-                    quantity,
-                    order_date: orderDate,
-                    updated_at: new Date(),
-                },
-            });
-        } else {
-            return await prisma.rawMaterialOpenPo.create({
-                data: {
-                    raw_material_id: raw_mat_id,
-                    po_number: targetPoNumber,
-                    quantity,
-                    order_date: orderDate,
-                    status: "OPEN",
-                },
-            });
-        }
-    }
-
     static async approveWorkOrder(body: RequestApproveWorkOrderDTO, userId: string) {
         return await prisma.$transaction(async (tx) => {
             const rec = await tx.materialPurchaseDraft.findUniqueOrThrow({
@@ -744,34 +706,18 @@ export class RecomendationV2Service {
                 throw new Error("Only DRAFT work orders can be approved.");
             }
 
-            // Use month/year from draft for the PO date
-            const poDate = new Date(Date.UTC(rec.year, rec.month - 1, 1));
-
-            const newPo = await tx.rawMaterialOpenPo.create({
-                data: {
-                    raw_material_id: rec.raw_mat_id,
-                    quantity: rec.quantity,
-                    status: "OPEN",
-                    order_date: poDate,
-                },
-            });
-
-            // Verify if user exists
             const userExists = await tx.user.findUnique({
                 where: { id: userId },
                 select: { id: true },
             });
 
-            const updatedRec = await tx.materialPurchaseDraft.update({
+            return await tx.materialPurchaseDraft.update({
                 where: { id: body.id },
                 data: {
                     status: "ACC",
                     pic_id: userExists ? userId : null,
-                    open_po_id: newPo.id,
                 },
             });
-
-            return updatedRec;
         });
     }
 
@@ -782,17 +728,8 @@ export class RecomendationV2Service {
 
         if (!rec) throw new Error("Work order not found.");
 
-        if (rec.status === "DRAFT") {
+        if (rec.status === "DRAFT" || rec.status === "ACC") {
             return await prisma.materialPurchaseDraft.delete({ where: { id } });
-        }
-
-        if (rec.status === "ACC") {
-            return await prisma.$transaction(async (tx) => {
-                if (rec.open_po_id) {
-                    await tx.rawMaterialOpenPo.delete({ where: { id: rec.open_po_id } });
-                }
-                return await tx.materialPurchaseDraft.delete({ where: { id } });
-            });
         }
 
         throw new Error(`Work order dengan status "${rec.status}" tidak dapat dihapus.`);
@@ -873,10 +810,11 @@ export class RecomendationV2Service {
         return await prisma.$executeRaw`
             WITH
                 po_agg AS (
-                    SELECT raw_material_id, SUM(quantity)::numeric AS total
-                    FROM "raw_material_open_pos"
-                    WHERE status = 'OPEN'
-                    GROUP BY raw_material_id
+                    SELECT poi.raw_material_id, SUM(poi.qty_ordered - poi.qty_received)::numeric AS total
+                    FROM "purchase_order_items" poi
+                    JOIN "purchase_orders" po ON poi.po_id = po.id
+                    WHERE po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
+                    GROUP BY poi.raw_material_id
                 ),
                 inv_agg AS (
                     SELECT 

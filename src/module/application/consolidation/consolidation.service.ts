@@ -1,17 +1,7 @@
 import prisma from "../../../config/prisma.js";
-import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { QueryConsolidationDTO } from "./consolidation.schema.js";
 import ExcelJS from "exceljs";
-
-function generateRFQNumber(): string {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    const rand = Math.floor(Math.random() * 9000) + 1000;
-    return `RFQ-${y}${m}${d}-${rand}`;
-}
 
 export class ConsolidationService {
     static async list(query: QueryConsolidationDTO) {
@@ -382,185 +372,28 @@ export class ConsolidationService {
 
     static async bulkUpdateStatus(ids: number[], status: any) {
         if (status === "DRAFT") {
-            return await prisma.$transaction(async (tx) => {
-                // 1. Find the drafts and their linked open POs
-                const drafts = await tx.materialPurchaseDraft.findMany({
-                    where: {
-                        id: { in: ids },
-                        status: "ACC",
-                        open_po_id: { not: null },
-                    },
-                    include: {
-                        open_po: true,
-                    },
-                });
-
-                // 2. Filter and Check: Block if already RECEIVED
-                for (const draft of drafts) {
-                    if (draft.open_po?.status === "RECEIVED") {
-                        throw new ApiError (
-                            400,
-                            `Data "${draft.id}" tidak dapat dikembalikan ke Draft karena sudah RECEIVE di Open PO.`,
-                        );
-                    }
-                }
-
-                // 3. Delete linked Open POs
-                const openPoIds = drafts
-                    .map((d) => d.open_po_id)
-                    .filter((id): id is number => id !== null);
-
-                if (openPoIds.length > 0) {
-                    await tx.rawMaterialOpenPo.deleteMany({
-                        where: {
-                            id: { in: openPoIds },
-                        },
-                    });
-                }
-
-                // 4. Reset drafts to DRAFT
-                return await tx.materialPurchaseDraft.updateMany({
-                    where: {
-                        id: { in: ids },
-                    },
-                    data: {
-                        status: "DRAFT",
-                        open_po_id: null,
-                        updated_at: new Date(),
-                    },
-                });
+            return await prisma.materialPurchaseDraft.updateMany({
+                where: { id: { in: ids } },
+                data: {
+                    status: "DRAFT",
+                    updated_at: new Date(),
+                },
             });
         }
 
         if (status === "ACC") {
-            // Logic for ACC status: Create an RFQ and Open PO for each group of drafts by supplier
-            const result = await prisma.$transaction(async (tx) => {
-                // 1. Find all drafts that are being approved and don't have an open PO yet
-                const drafts = await tx.materialPurchaseDraft.findMany({
-                    where: {
-                        id: { in: ids },
-                        open_po_id: null,
-                    },
-                    include: {
-                        raw_material: {
-                            include: {
-                                supplier_materials: {
-                                    where: { is_preferred: true },
-                                    take: 1,
-                                    include: {
-                                        supplier: { select: { id: true, name: true } },
-                                    },
-                                },
-                                unit_raw_material: { select: { name: true } },
-                            },
-                        },
-                    },
-                });
-
-                if (drafts.length === 0) return { count: 0 };
-
-                // 2. Group drafts by preferred supplier_id
-                const vendorGroups: Record<number, any[]> = {};
-                for (const draft of drafts) {
-                    const vendorId = draft.raw_material?.supplier_materials?.[0]?.supplier_id;
-                    if (!vendorId) continue;
-                    if (!vendorGroups[vendorId]) vendorGroups[vendorId] = [];
-                    vendorGroups[vendorId].push(draft);
-                }
-
-                // Pre-fetch supplier names for all vendor IDs in one query
-                const vendorIds = Object.keys(vendorGroups).map(Number);
-                const supplierRows = await tx.supplier.findMany({
-                    where: { id: { in: vendorIds } },
-                    select: { id: true, name: true },
-                });
-                const supplierNameById: Record<number, string> = Object.fromEntries(
-                    supplierRows.map(s => [s.id, s.name])
-                );
-
-                let totalProcessed = 0;
-
-                // 3. Process each supplier group
-                for (const vendorIdStr in vendorGroups) {
-                    const vendorId = Number(vendorIdStr);
-                    const vendorDrafts = vendorGroups[vendorId];
-                    if (!vendorDrafts) continue;
-
-                    // Create RFQ for this supplier
-                    const rfq = await tx.purchaseRFQ.create({
-                        data: {
-                            rfq_number: generateRFQNumber(),
-                            supplier_id: vendorId,
-                            supplier_name: supplierNameById[vendorId] || vendorDrafts[0].raw_material?.supplier_materials?.[0]?.supplier?.name || "",
-                            rfq_date: new Date(),
-                            status: "DRAFT",
-                            created_by: "system", // Or get current user
-                        },
-                    });
-
-                    // Create items for this RFQ
-                    for (const draft of vendorDrafts) {
-                        // Create Open PO record (legacy, but still used as per ERD note)
-                        const openPo = await tx.rawMaterialOpenPo.create({
-                            data: {
-                                raw_material_id: draft.raw_mat_id,
-                                quantity: draft.quantity,
-                                po_number: null,
-                                status: "OPEN",
-                            },
-                        });
-
-                        // Create RFQ Item
-                        await tx.purchaseRFQItem.create({
-                            data: {
-                                rfq_id: rfq.id,
-                                raw_material_id: draft.raw_mat_id,
-                                purchase_draft_id: draft.id,
-                                item_code: draft.raw_material?.barcode || "N/A",
-                                item_name: draft.raw_material?.name || "Unknown",
-                                uom: draft.raw_material?.unit_raw_material?.name || "UNIT",
-                                qty_requested: draft.quantity,
-                                notes: "Auto-created from Consolidation",
-                            },
-                        });
-
-                        // Link draft to Open PO and update status
-                        await tx.materialPurchaseDraft.update({
-                            where: { id: draft.id },
-                            data: {
-                                status: "ACC",
-                                open_po_id: openPo.id,
-                                updated_at: new Date(),
-                            },
-                        });
-
-                        totalProcessed++;
-                    }
-                }
-
-                // 4. Handle any remaining ids that didn't have a preferred vendor (unlikely but safe)
-                const remainingIds = drafts
-                    .filter((d) => !d.raw_material?.supplier_materials?.[0]?.supplier_id)
-                    .map((d) => d.id);
-                
-                if (remainingIds.length > 0) {
-                    await tx.materialPurchaseDraft.updateMany({
-                        where: { id: { in: remainingIds } },
-                        data: {
-                            status: "ACC",
-                            updated_at: new Date(),
-                        },
-                    });
-                    totalProcessed += remainingIds.length;
-                }
-
-                return { count: totalProcessed };
+            return await prisma.materialPurchaseDraft.updateMany({
+                where: {
+                    id: { in: ids },
+                    status: "DRAFT",
+                },
+                data: {
+                    status: "ACC",
+                    updated_at: new Date(),
+                },
             });
-
-            return result;
         }
 
-        // Handle other statuses (e.g. REJECTED)
         return await prisma.materialPurchaseDraft.updateMany({
             where: { id: { in: ids } },
             data: {

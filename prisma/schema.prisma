@@ -952,6 +952,7 @@ model PurchaseOrder {
   payment_terms   PurchasePaymentTerm[]
   tracking        PurchaseTracking?
   receipt_items   PurchaseReceiptItem[]
+  receipts        PurchaseReceipt[]
   account_payables AccountPayable[]
 
   @@index([status, po_date(sort: Desc)])
@@ -1033,6 +1034,7 @@ model PurchaseReceipt {
   id              Int                   @id @default(autoincrement())
   receipt_number  String                @unique @db.VarChar(50)
   receipt_date    DateTime              @default(now())
+  po_id           Int?
   warehouse_id    Int
   status          ReceiptStatus         @default(DRAFT)
   total_qty       Decimal               @default(0) @db.Decimal(18, 2)
@@ -1045,11 +1047,13 @@ model PurchaseReceipt {
   created_at      DateTime              @default(now())
   updated_at      DateTime              @updatedAt
 
+  po              PurchaseOrder?        @relation(fields: [po_id], references: [id])
   warehouse       Warehouse             @relation("ReceiptWarehouse", fields: [warehouse_id], references: [id])
   items           PurchaseReceiptItem[]
   account_payables AccountPayable[]
   vendor_returns  VendorReturn[]
 
+  @@index([po_id, receipt_date(sort: Desc)])
   @@index([status, receipt_date(sort: Desc)])
   @@index([warehouse_id, receipt_date(sort: Desc)])
   @@map("purchase_receipts")

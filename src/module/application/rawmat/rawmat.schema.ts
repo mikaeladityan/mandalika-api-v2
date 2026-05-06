@@ -1,5 +1,5 @@
 import z from "zod";
-import { MaterialType, STATUS } from "../../../generated/prisma/index.js";
+import { MaterialType, STATUS, RawMaterialSource } from "../../../generated/prisma/index.js";
 
 export const RequestSupplierMaterialSchema = z.object({
     supplier_id: z.number(),
@@ -37,6 +37,7 @@ export const RequestRawMaterialSchema = z.object({
 export const ResponseSupplierMaterialSchema = RequestSupplierMaterialSchema.extend({
     supplier_name: z.string(),
     supplier_country: z.string(),
+    supplier_source: z.nativeEnum(RawMaterialSource).nullable().optional(),
     status: z.enum(STATUS).default("ACTIVE"),
 });
 
