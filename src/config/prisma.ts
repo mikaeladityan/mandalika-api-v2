@@ -1,5 +1,4 @@
-import pkg from "../generated/prisma/client.js";
-const { PrismaClient } = pkg;
+import { PrismaClient } from "../generated/prisma/client.js";
 import { env } from "./env.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { dbLogger, logger } from "../lib/logger.js";
