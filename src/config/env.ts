@@ -6,7 +6,7 @@ config({ path: envPath });
 // Validator kustom untuk array string
 const array = makeValidator<string[]>((x) => {
     if (!x) return [];
-    return x.split(",").map((item) => item.trim().replace(/\/$/, ""));
+    return x.split(",").map((item) => item.trim());
 });
 
 // Validator kustom untuk number dengan default
