@@ -57,8 +57,11 @@ export class RFQController {
         const id = Number(c.req.param("id"));
         const body = await c.req.json();
         const user = c.get("user");
+        const session = c.get("session");
+        const userId = user?.id || session?.email || "system";
+        
         const valid = UpdateRFQStatusSchema.parse(body);
-        const result = await RFQService.updateStatus(id, valid, user.id);
+        const result = await RFQService.updateStatus(id, valid, userId);
         return ApiResponse.sendSuccess(c, result);
     }
 
@@ -72,8 +75,11 @@ export class RFQController {
         const id = Number(c.req.param("id"));
         const body = await c.req.json();
         const user = c.get("user");
+        const session = c.get("session");
+        const userId = user?.id || session?.email || "system";
+
         const valid = ConvertToPOSchema.parse(body);
-        const result = await RFQService.convertToPO(id, valid, user.id);
+        const result = await RFQService.convertToPO(id, valid, userId);
         return ApiResponse.sendSuccess(c, result);
     }
 }

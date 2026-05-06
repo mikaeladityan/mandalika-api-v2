@@ -447,7 +447,11 @@ export class ConsolidationService {
                                 supplier_materials: {
                                     where: { is_preferred: true },
                                     take: 1,
+                                    include: {
+                                        supplier: { select: { id: true, name: true } },
+                                    },
                                 },
+                                unit_raw_material: { select: { name: true } },
                             },
                         },
                     },
@@ -464,6 +468,16 @@ export class ConsolidationService {
                     vendorGroups[vendorId].push(draft);
                 }
 
+                // Pre-fetch supplier names for all vendor IDs in one query
+                const vendorIds = Object.keys(vendorGroups).map(Number);
+                const supplierRows = await tx.supplier.findMany({
+                    where: { id: { in: vendorIds } },
+                    select: { id: true, name: true },
+                });
+                const supplierNameById: Record<number, string> = Object.fromEntries(
+                    supplierRows.map(s => [s.id, s.name])
+                );
+
                 let totalProcessed = 0;
 
                 // 3. Process each supplier group
@@ -477,7 +491,7 @@ export class ConsolidationService {
                         data: {
                             rfq_number: generateRFQNumber(),
                             supplier_id: vendorId,
-                            supplier_name: vendorDrafts[0].raw_material?.supplier_materials?.[0]?.supplier?.name || "Unknown",
+                            supplier_name: supplierNameById[vendorId] || vendorDrafts[0].raw_material?.supplier_materials?.[0]?.supplier?.name || "",
                             rfq_date: new Date(),
                             status: "DRAFT",
                             created_by: "system", // Or get current user

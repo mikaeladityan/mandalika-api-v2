@@ -12,9 +12,9 @@ export const CreateRFQItemSchema = z.object({
     item_category: z.string().optional().nullable(),
     uom: z.string().min(1),
     qty_requested: z.number().positive(),
-    unit_price: z.number().optional().default(0),
-    moq: z.number().optional().nullable(),
-    lead_time: z.number().int().optional().nullable(),
+    unit_price: z.number().min(0).default(0),
+    moq: z.number().min(0).optional().nullable(),
+    lead_time: z.number().int().min(0).optional().nullable(),
     notes: z.string().optional().nullable(),
 });
 

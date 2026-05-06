@@ -902,6 +902,9 @@ model PurchaseRFQItem {
   item_category   String?      @db.VarChar(100)
   uom             String       @db.VarChar(50)
   qty_requested   Decimal      @db.Decimal(18, 2)
+  unit_price      Decimal      @default(0) @db.Decimal(18, 2)
+  moq             Decimal?     @db.Decimal(18, 2)
+  lead_time       Int?
   notes           String?
   created_at      DateTime     @default(now())
 
@@ -930,6 +933,7 @@ model PurchaseOrder {
   total_estimated Decimal              @default(0) @db.Decimal(18, 2)
   status          POStatus             @default(DRAFT)
   notes           String?
+  payment_notes   String?              @db.Text
   created_by      String               @db.VarChar(100)
   updated_by      String?              @db.VarChar(100)
   approved_by     String?              @db.VarChar(100)
@@ -955,6 +959,7 @@ model PurchaseOrder {
   @@index([supplier_id, po_date(sort: Desc)])
   @@index([warehouse_id])
   @@index([source_rfq_id])
+  @@index([created_at])
   @@map("purchase_orders")
 }
 
@@ -1352,7 +1357,6 @@ enum RFQStatus {
 enum POType {
   LOCAL
   IMPORT
-  FO
 }
 
 enum POStatus {

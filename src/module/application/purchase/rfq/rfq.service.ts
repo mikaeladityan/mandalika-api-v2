@@ -125,9 +125,16 @@ export class RFQService {
             }
         }
 
+        // Resolve supplier_name from master data when using an existing supplier
+        if (body.supplier_id && !body.is_new_supplier) {
+            const supplier = await prisma.supplier.findUnique({
+                where: { id: body.supplier_id },
+                select: { name: true },
+            });
+            if (supplier) body.supplier_name = supplier.name;
+        }
+
         return await prisma.$transaction(async (tx) => {
-            // Fix sequence if it's broken (Self-healing)
-            await tx.$executeRaw`SELECT setval('supplier_materials_id_seq', COALESCE((SELECT MAX(id) FROM supplier_materials), 1), true);`;
 
             let supplierId = body.supplier_id;
 
@@ -165,6 +172,9 @@ export class RFQService {
                             item_category: item.item_category || null,
                             uom: item.uom,
                             qty_requested: item.qty_requested,
+                            unit_price: item.unit_price ?? 0,
+                            moq: item.moq ?? null,
+                            lead_time: item.lead_time ?? null,
                             notes: item.notes || null,
                         })),
                     },
@@ -231,9 +241,16 @@ export class RFQService {
             throw new ApiError(400, `Cannot edit an RFQ with status ${rfq.status}.`);
         }
 
+        // Resolve supplier_name from master data when using an existing supplier
+        if (body.supplier_id && !body.supplier_name) {
+            const supplier = await prisma.supplier.findUnique({
+                where: { id: body.supplier_id },
+                select: { name: true },
+            });
+            if (supplier) body.supplier_name = supplier.name;
+        }
+
         return await prisma.$transaction(async (tx) => {
-            // Fix sequence if it's broken (Self-healing)
-            await tx.$executeRaw`SELECT setval('supplier_materials_id_seq', COALESCE((SELECT MAX(id) FROM supplier_materials), 1), true);`;
             
             // Update header
             const updated = await tx.purchaseRFQ.update({
@@ -263,6 +280,9 @@ export class RFQService {
                         item_category: item.item_category || null,
                         uom: item.uom,
                         qty_requested: item.qty_requested,
+                        unit_price: item.unit_price ?? 0,
+                        moq: item.moq ?? null,
+                        lead_time: item.lead_time ?? null,
                         notes: item.notes || null,
                     })),
                 });
@@ -362,43 +382,55 @@ export class RFQService {
             throw new ApiError(400, "This RFQ has already been converted.");
         }
 
+        const selectedItems = rfq.items.filter(item => body.item_ids.includes(item.id));
+        if (selectedItems.length === 0) {
+            throw new ApiError(400, "At least one item must be selected for PO conversion.");
+        }
+
         return await prisma.$transaction(async (tx) => {
-            // Create PO
+            const poItems = selectedItems.map(item => ({
+                raw_material_id: item.raw_material_id,
+                item_code: item.item_code,
+                item_name: item.item_name,
+                item_category: item.item_category,
+                item_type: item.raw_material_id ? ("MASTER" as const) : ("MANUAL" as const),
+                uom: item.uom,
+                moq: item.moq,
+                qty_ordered: item.qty_requested,
+                unit_price: Number(item.unit_price),
+                subtotal: Number(item.qty_requested) * Number(item.unit_price),
+            }));
+
+            const totalEstimated = poItems.reduce((sum, item) => sum + item.subtotal, 0);
+
             const po = await tx.purchaseOrder.create({
                 data: {
                     po_number: generatePONumber(),
                     po_date: new Date(),
-                    po_type: "LOCAL", // Default to LOCAL
+                    po_type: "LOCAL",
                     supplier_id: rfq.supplier_id,
                     supplier_name: rfq.supplier_name,
                     supplier_code: rfq.supplier_code,
                     is_new_supplier: rfq.is_new_supplier,
                     source_rfq_id: rfq.id,
+                    currency: "IDR",
+                    exchange_rate: 1,
+                    total_estimated: totalEstimated,
                     status: "DRAFT",
                     created_by: userId,
                     items: {
-                        create: rfq.items
-                            .filter(item => body.item_ids.includes(item.id))
-                            .map(item => ({
-                                raw_material_id: item.raw_material_id,
-                                item_code: item.item_code,
-                                item_name: item.item_name,
-                                item_category: item.item_category,
-                                uom: item.uom,
-                                qty_ordered: item.qty_requested,
-                                unit_price: 0,
-                                subtotal: 0,
-                            })),
+                        create: poItems,
                     },
                 },
+                include: { items: true },
             });
 
-            // Update RFQ status
             await tx.purchaseRFQ.update({
                 where: { id },
                 data: {
                     status: "CONVERTED",
                     converted_at: new Date(),
+                    updated_by: userId,
                 },
             });
 

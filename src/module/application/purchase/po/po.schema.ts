@@ -4,7 +4,7 @@ export const POStatusEnum = z.enum([
     "DRAFT", "SUBMITTED", "APPROVED", "ORDERED", "CLOSED", "CANCELLED",
 ]);
 
-export const POTypeEnum = z.enum(["LOCAL", "IMPORT", "FO"]);
+export const POTypeEnum = z.enum(["LOCAL", "IMPORT"]);
 export const POItemTypeEnum = z.enum(["MASTER", "MANUAL"]);
 
 export const CreatePOItemSchema = z.object({
@@ -32,10 +32,7 @@ export const CreatePOSchema = z.object({
     po_number: z.string().optional(),
     po_date: z.coerce.date().optional(),
     po_type: POTypeEnum.default("LOCAL"),
-    supplier_id: z.number().int().positive().optional().nullable(),
-    supplier_name: z.string().min(1),
-    supplier_code: z.string().optional().nullable(),
-    is_new_supplier: z.boolean().default(false),
+    supplier_id: z.number().int().positive(),
     warehouse_id: z.number().int().positive().optional().nullable(),
     source_rfq_id: z.number().int().positive().optional().nullable(),
     currency: z.string().default("IDR"),
@@ -52,9 +49,6 @@ export type CreatePODTO = z.infer<typeof CreatePOSchema>;
 export const UpdatePOSchema = z.object({
     po_date: z.coerce.date().optional(),
     po_type: POTypeEnum.optional(),
-    supplier_id: z.number().int().positive().optional().nullable(),
-    supplier_name: z.string().min(1).optional(),
-    supplier_code: z.string().optional().nullable(),
     warehouse_id: z.number().int().positive().optional().nullable(),
     currency: z.string().optional(),
     exchange_rate: z.number().optional().nullable(),

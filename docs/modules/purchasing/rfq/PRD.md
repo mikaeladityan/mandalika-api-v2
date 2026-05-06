@@ -18,26 +18,34 @@ Currently, approved recommendations from the Consolidation module directly creat
 ## 4. Functional Requirements
 
 ### 4.1. RFQ Creation
-- **Automated**: When a `MaterialPurchaseDraft` (Consolidation) is set to `APPROVED`, the system creates an RFQ record.
-- **Manual**: Users can click "+ Create RFQ" and manually add items (Raw Materials) and specify a Vendor (Supplier).
+- **Automated**: When a `MaterialPurchaseDraft` (Consolidation) is set to `APPROVED`, the system pulls the approved raw materials and creates RFQ records.
+  - Only approved items from Consolidation are pulled.
+  - Data is automatically organized per raw material.
+- **Manual**: Users can create RFQs independently without relying on Consolidation data.
+  - Useful for one-off purchases or items not tracked by the Consolidation engine.
 
-### 4.2. RFQ Management
-- **Fields**: RFQ Number, Date, Vendor, Target Location, Notes, Status.
-- **Line Items**: Raw Material, Quantity, Unit Price (Estimated/Quoted), Notes.
-- **Vendor Modes**: Support both existing Suppliers and "New Vendors" (placeholder for one-time vendors).
+### 4.2. RFQ Management - Supplier-Based Organization
+- **Primary View**: List of raw materials pulled from Consolidation.
+- **Supplier Selection & Grouping**:
+  - For each raw material, users can select existing suppliers or add new suppliers manually.
+  - Each raw material + supplier combination is tracked separately.
+  - Users can view/manage suppliers grouped by raw material.
+- **Line Item Fields**: Raw Material, Quantity, Unit Price (Quoted), Supplier, Notes, Status.
+- **Supplier Modes**: Support both existing Suppliers (fetch from master) and "New Suppliers" (manual entry).
 
-### 4.3. Workflow Statuses
-- `DRAFT`: Newly created, still editable.
-- `SENT`: Request sent to the vendor (waiting for quote).
-- `RECEIVED`: Quote received from the vendor (prices updated).
-- `APPROVED`: Quote accepted by the manager.
-- `PARTIAL_CONVERTED`: Some items from the RFQ have been converted to PO.
-- `CONVERTED`: All items from the RFQ have been successfully turned into Purchase Orders.
+### 4.3. Workflow Statuses (Per Supplier)
+- `DRAFT`: Initial state, editable.
+- `SENT`: Request sent to the supplier (optional status).
+- `RECEIVED`: Quote received from supplier (optional status).
+- `FIX`: Quotation finalized, ready for approval.
+- `APPROVED`: Quote approved by manager, ready to publish to PO.
+- `CONVERTED`: Items published to Purchase Order.
 - `CANCELLED`: RFQ discarded.
 
 ### 4.4. Conversion to PO
-- An `APPROVED` RFQ can be converted into a `RawMaterialOpenPo`.
-- The system should carry over the vendor, items, quantities, and negotiated prices.
+- An `APPROVED` RFQ (per supplier) can be published/converted into a Purchase Order.
+- The system carries over: raw materials, quantities, unit prices, supplier details.
+- This creates a link between RFQ and the resulting PO for audit trail.
 
 ## 5. Non-Functional Requirements
 - **Data Integrity**: Ensure `raw_mat_id` and `supplier_id` are valid.

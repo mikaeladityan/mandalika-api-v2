@@ -105,5 +105,35 @@ erDiagram
 
 ## 3. Rationale
 - **Traceability**: By linking `RFQItem` directly to `MaterialPurchaseDraft`, we can track exactly which recommendation led to which quotation.
-- **Flexibility**: The `vendor_id` is optional in the RFQ header to allow creating an RFQ before a vendor is finalized (though standard flow usually has one).
-- **Manual Input**: Manual items in RFQ will simply have `purchase_draft_id` as `null`.
+- **Per-Supplier Organization**: The `vendor_id` in the RFQ header identifies the supplier. Multiple RFQ records (one per supplier) can exist for the same raw material.
+  - Example: Raw Material "Steel Plate" can have RFQ records with Supplier A, Supplier B, and Supplier C.
+  - Each RFQ + Supplier combination has its own status (DRAFT, FIX, APPROVED, etc.).
+- **Flexibility**: Users can select from existing suppliers or create new supplier entries manually.
+- **Manual Input**: Manual RFQs will have `purchase_draft_id` as `null`, allowing independent PO creation without Consolidation dependency.
+
+## 4. Per-Supplier Grouping Example
+
+For a raw material pulled from Consolidation:
+```
+Raw Material: "Steel Plate" (qty: 100kg, from Consolidation)
+
+RFQ Record 1:
+  - vendor_id: 5 (Supplier A)
+  - status: APPROVED
+  - unit_price: Rp 50,000/kg
+  
+RFQ Record 2:
+  - vendor_id: 8 (Supplier B)
+  - status: DRAFT
+  - unit_price: Rp 48,000/kg
+
+RFQ Record 3:
+  - vendor_id: null (New Supplier - manual entry)
+  - supplier_name: "New Steel Vendor"
+  - status: FIX
+  - unit_price: Rp 52,000/kg
+```
+
+Users can view this as:
+- **Table View**: All RFQ items across all suppliers in one list.
+- **Per-Supplier View**: RFQ items grouped/filtered by supplier for easier comparison and management.

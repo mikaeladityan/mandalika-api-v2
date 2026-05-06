@@ -101,15 +101,18 @@ export class POService {
                 throw new ApiError(400, "Exchange rate is required for foreign currency.");
             }
 
+            // Fetch supplier details
+            const supplier = await tx.supplier.findUniqueOrThrow({ where: { id: body.supplier_id } });
+
             const po = await tx.purchaseOrder.create({
                 data: {
                     po_number: body.po_number || generatePONumber(),
                     po_date: body.po_date || new Date(),
                     po_type: body.po_type,
-                    supplier_id: body.supplier_id || null,
-                    supplier_name: body.supplier_name,
-                    supplier_code: body.supplier_code || null,
-                    is_new_supplier: body.is_new_supplier || false,
+                    supplier_id: body.supplier_id,
+                    supplier_name: supplier.name,
+                    supplier_code: supplier.slug || null,
+                    is_new_supplier: false,
                     warehouse_id: body.warehouse_id || null,
                     source_rfq_id: body.source_rfq_id || null,
                     currency: currency,
@@ -117,6 +120,7 @@ export class POService {
                     total_estimated: body.total_estimated,
                     status: "DRAFT",
                     notes: body.notes || null,
+                    payment_notes: body.payment_notes || null,
                     created_by: userId,
                     items: {
                         create: body.items.map((item) => ({
@@ -159,22 +163,22 @@ export class POService {
         }
 
         return await prisma.$transaction(async (tx) => {
+            const data: any = {
+                po_date: body.po_date || undefined,
+                po_type: body.po_type || undefined,
+                warehouse_id: body.warehouse_id !== undefined ? body.warehouse_id : undefined,
+                currency: body.currency || undefined,
+                exchange_rate: body.exchange_rate !== undefined ? body.exchange_rate : undefined,
+                total_estimated: body.total_estimated !== undefined ? body.total_estimated : undefined,
+                notes: body.notes !== undefined ? body.notes : undefined,
+                payment_notes: body.payment_notes !== undefined ? body.payment_notes : undefined,
+                updated_by: userId,
+            };
+
             // Update header
             const updated = await tx.purchaseOrder.update({
                 where: { id },
-                data: {
-                    po_date: body.po_date || undefined,
-                    po_type: body.po_type || undefined,
-                    supplier_id: body.supplier_id !== undefined ? body.supplier_id : undefined,
-                    supplier_name: body.supplier_name || undefined,
-                    supplier_code: body.supplier_code !== undefined ? body.supplier_code : undefined,
-                    warehouse_id: body.warehouse_id !== undefined ? body.warehouse_id : undefined,
-                    currency: body.currency || undefined,
-                    exchange_rate: body.exchange_rate !== undefined ? body.exchange_rate : undefined,
-                    total_estimated: body.total_estimated !== undefined ? body.total_estimated : undefined,
-                    notes: body.notes !== undefined ? body.notes : undefined,
-                    updated_by: userId,
-                },
+                data,
             });
 
             // Replace items if provided
@@ -226,26 +230,47 @@ export class POService {
             );
         }
 
-        const data: any = { status: body.status, updated_by: userId };
-        
-        if (body.status === "APPROVED") {
-            data.approved_by = userId;
-            data.approved_at = new Date();
-        }
-        if (body.status === "ORDERED") {
-            data.ordered_at = new Date();
-        }
-        if (body.status === "CLOSED") {
-            data.closed_at = new Date();
-        }
-        if (body.status === "CANCELLED") {
-            data.cancelled_at = new Date();
-            data.cancelled_by = userId;
-        }
+        return await prisma.$transaction(async (tx) => {
+            const data: any = { status: body.status, updated_by: userId };
+            
+            if (body.status === "APPROVED") {
+                data.approved_by = userId;
+                data.approved_at = new Date();
+            }
+            if (body.status === "ORDERED") {
+                data.ordered_at = new Date();
+            }
+            if (body.status === "CLOSED") {
+                data.closed_at = new Date();
+            }
+            if (body.status === "CANCELLED") {
+                data.cancelled_at = new Date();
+                data.cancelled_by = userId;
+            }
 
-        return await prisma.purchaseOrder.update({
-            where: { id },
-            data,
+            const updated = await tx.purchaseOrder.update({
+                where: { id },
+                data,
+            });
+
+            // Auto-create PurchaseTracking when ORDERED
+            if (body.status === "ORDERED") {
+                await tx.purchaseTracking.upsert({
+                    where: { po_id: id },
+                    create: {
+                        po_id: id,
+                        order_status: "ORDERED",
+                        payment_status: "UNPAID",
+                        updated_by: userId,
+                    },
+                    update: {
+                        order_status: "ORDERED",
+                        updated_by: userId,
+                    }
+                });
+            }
+
+            return updated;
         });
     }
 

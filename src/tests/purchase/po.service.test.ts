@@ -55,27 +55,33 @@ describe("POService", () => {
             const mockCreated = { ...mockPODraft, items: [] };
             const mockCreate = vi.fn().mockResolvedValue(mockCreated);
 
+            const mockSupplier = { id: 1, name: "Vendor A", slug: "VND-A" };
             // @ts-ignore
             prisma.$transaction = vi.fn().mockImplementation(async (cb) => cb({
+                supplier: { findUniqueOrThrow: vi.fn().mockResolvedValue(mockSupplier) },
                 purchaseOrder: { create: mockCreate }
             }));
 
             const result = await POService.create({
                 po_type: "LOCAL",
                 supplier_id: 1,
-                supplier_name: "Vendor A",
                 total_estimated: 1000000,
+                notes: "General notes",
+                payment_notes: "Payment notes here",
                 items: [{
                     item_code: "RM001", item_name: "RM 1", uom: "kg", qty_ordered: 50, unit_price: 20000, subtotal: 1000000,
                     item_type: "MASTER"
                 }],
-                is_new_supplier: false,
-                currency: "",
-                exchange_rate: null
+                currency: "IDR",
+                exchange_rate: 1
             }, mockUser.id);
 
             expect(result).toEqual(mockCreated);
-            expect(mockCreate).toHaveBeenCalledOnce();
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+                data: expect.objectContaining({
+                    payment_notes: "Payment notes here"
+                })
+            }));
         });
 
         it("should throw if IMPORT PO uses IDR currency", async () => {
@@ -83,13 +89,12 @@ describe("POService", () => {
                 POService.create({
                     po_type: "IMPORT",
                     currency: "IDR",
-                    supplier_name: "Global Vendor",
+                    supplier_id: 2,
                     total_estimated: 100,
                     items: [{
                         item_code: "RM001", item_name: "RM 1", uom: "kg", qty_ordered: 1, unit_price: 100, subtotal: 100,
                         item_type: "MASTER"
                     }],
-                    is_new_supplier: false,
                     exchange_rate: null
                 }, mockUser.id)
             ).rejects.toThrow(ApiError);
@@ -103,14 +108,40 @@ describe("POService", () => {
             const mockUpdate = vi.fn().mockResolvedValue(mockUpdated);
 
             // @ts-ignore
-            prisma.purchaseOrder = {
-                findUniqueOrThrow: mockFindUniqueOrThrow,
-                update: mockUpdate,
-            };
+            prisma.purchaseOrder = { findUniqueOrThrow: mockFindUniqueOrThrow };
+            // @ts-ignore
+            prisma.$transaction = vi.fn().mockImplementation(async (cb) => cb({
+                purchaseOrder: { update: mockUpdate }
+            }));
 
             const result = await POService.updateStatus(1, { status: "SUBMITTED" }, mockUser.id);
 
             expect(result.status).toBe("SUBMITTED");
+        });
+
+        it("should create PurchaseTracking when status becomes ORDERED", async () => {
+            const mockPOApproved = { ...mockPODraft, status: "APPROVED" };
+            const mockPOOrdered = { ...mockPODraft, status: "ORDERED" };
+            const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(mockPOApproved);
+            const mockUpdate = vi.fn().mockResolvedValue(mockPOOrdered);
+            const mockUpsert = vi.fn().mockResolvedValue({});
+
+            // @ts-ignore
+            prisma.purchaseOrder = { findUniqueOrThrow: mockFindUniqueOrThrow };
+            // @ts-ignore
+            prisma.$transaction = vi.fn().mockImplementation(async (cb) => cb({
+                purchaseOrder: { update: mockUpdate },
+                purchaseTracking: { upsert: mockUpsert }
+            }));
+
+            const result = await POService.updateStatus(1, { status: "ORDERED" }, mockUser.id);
+
+            expect(result.status).toBe("ORDERED");
+            expect(mockUpdate).toHaveBeenCalledOnce();
+            expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({
+                where: { po_id: 1 },
+                create: expect.objectContaining({ order_status: "ORDERED" })
+            }));
         });
     });
 });
