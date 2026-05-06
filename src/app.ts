@@ -62,15 +62,8 @@ app.use(
     cors({
         origin: (origin) => {
             if (env.isDevelopment) return origin;
-            
-            // Debugging CORS in production
-            if (env.isProduction) {
-                logger.debug("Incoming Origin:", { origin });
-                logger.debug("Allowed Origins:", { origins: corsConfig.origins });
-            }
-
             if (corsConfig.origins.includes(origin)) return origin;
-            return null;
+            return corsConfig.origins[0] || null;
         },
         credentials: true,
         allowMethods: corsConfig.methods,
