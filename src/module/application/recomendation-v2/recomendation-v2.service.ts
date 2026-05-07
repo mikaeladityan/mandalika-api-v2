@@ -26,7 +26,6 @@ export class RecomendationV2Service {
             sales_months = 4,
             forecast_months = 3,
             po_months = 3,
-            show_hidden = false,
         } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
@@ -482,7 +481,6 @@ export class RecomendationV2Service {
                 LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = fm.id
                 LEFT JOIN rm_current_sales_agg cms ON cms.raw_mat_id = fm.id
             ) AS base
-            ${show_hidden ? Prisma.empty : Prisma.sql`WHERE work_order_hidden_at IS NULL`}
             ORDER BY
                 CASE WHEN barcode = 'FO-ALK' THEN 1 ELSE 0 END ASC,
                 ${
@@ -513,12 +511,6 @@ export class RecomendationV2Service {
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
             LEFT JOIN "suppliers" s ON s.id = rm.supplier_id
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
-            ${show_hidden ? Prisma.empty : Prisma.sql`
-            LEFT JOIN "material_purchase_drafts" mpd_h
-                ON mpd_h.raw_mat_id = rm.id
-                AND mpd_h.month = ${currentMonth}
-                AND mpd_h.year = ${currentYear}
-            `}
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
               AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
@@ -528,7 +520,6 @@ export class RecomendationV2Service {
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
               )
               ${searchFilter}
-              ${show_hidden ? Prisma.empty : Prisma.sql`AND (mpd_h.hidden_at IS NULL)`}
         `;
 
         const data = rows.map((r) => {
