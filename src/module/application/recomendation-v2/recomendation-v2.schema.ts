@@ -15,6 +15,7 @@ export const QueryRecomendationV2Schema = z.object({
     visibleColumns: z.string().optional(),
     columnOrder: z.string().optional(),
     selectedIds: z.string().optional(),
+    show_hidden: z.preprocess((v) => v === "true" || v === true, z.boolean()).optional().default(false),
 });
 
 export type QueryRecomendationV2DTO = z.infer<typeof QueryRecomendationV2Schema>;
@@ -58,6 +59,13 @@ export const RequestApproveWorkOrderSchema = z.object({
 
 export type RequestApproveWorkOrderDTO = z.infer<typeof RequestApproveWorkOrderSchema>;
 
+export const RequestBulkHideSchema = z.object({
+    ids: z.array(z.number()).min(1),
+    hidden: z.boolean(),
+});
+
+export type RequestBulkHideDTO = z.infer<typeof RequestBulkHideSchema>;
+
 export const ResponseRecomendationV2Schema = z.object({
     ranking: z.number(),
     material_id: z.number(),
@@ -82,6 +90,7 @@ export const ResponseRecomendationV2Schema = z.object({
     work_order_pic_id: z.string().optional().nullable(),
     work_order_quantity: z.number().optional().nullable(),
     work_order_horizon: z.number().optional().nullable(),
+    work_order_hidden_at: z.date().optional().nullable(),
 
     sales: z.array(z.object({
         month: z.number(),

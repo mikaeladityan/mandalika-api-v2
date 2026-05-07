@@ -12,6 +12,7 @@ routes.post("/open-po", RecomendationV2Controller.saveOpenPo);
 routes.post("/need-override", RecomendationV2Controller.saveNeedOverride);
 routes.delete("/need-override", RecomendationV2Controller.deleteNeedOverride);
 routes.patch("/moq", RecomendationV2Controller.updateMoq);
+routes.patch("/hide", RecomendationV2Controller.bulkToggleHide);
 routes.delete("/:id", RecomendationV2Controller.destroyWorkOrder);
 
 export default routes;
