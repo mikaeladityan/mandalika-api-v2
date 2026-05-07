@@ -56,7 +56,7 @@ export class RecipeService {
             quantity: item.quantity,
             version: body.version,
             is_active: body.is_active,
-            use_size_calc: Number(item.quantity) < 1.0, // Auto-detect formula type
+            use_size_calc: Number(item.quantity) < 1.0,
             description: body.description || null,
         }));
 
