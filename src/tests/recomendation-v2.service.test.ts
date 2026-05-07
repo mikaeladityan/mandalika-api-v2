@@ -96,7 +96,8 @@ describe("RecomendationV2Service - Override Features", () => {
                 type: 'lokal',
                 sales_months: 3,
                 forecast_months: 3,
-                po_months: 3
+                po_months: 3,
+                show_hidden: false
             });
 
             // internal 'now' is April, so forecast periods start at month 4

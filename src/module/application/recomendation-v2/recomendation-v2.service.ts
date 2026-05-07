@@ -25,6 +25,7 @@ export class RecomendationV2Service {
             sales_months = 4,
             forecast_months = 3,
             po_months = 3,
+            show_hidden = false,
         } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
@@ -514,6 +515,7 @@ export class RecomendationV2Service {
                 LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = fm.id
                 LEFT JOIN rm_current_sales_agg cms ON cms.raw_mat_id = fm.id
             ) AS base
+            ${show_hidden ? Prisma.empty : Prisma.sql`WHERE work_order_hidden_at IS NULL`}
             ORDER BY
                 CASE WHEN barcode = 'FO-ALK' THEN 1 ELSE 0 END ASC,
                 ${
@@ -545,6 +547,12 @@ export class RecomendationV2Service {
             LEFT JOIN "supplier_materials" sm_pref ON sm_pref.raw_material_id = rm.id AND sm_pref.is_preferred = true
             LEFT JOIN "suppliers" s ON s.id = sm_pref.supplier_id
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
+            ${show_hidden ? Prisma.empty : Prisma.sql`
+            LEFT JOIN "material_purchase_drafts" mpd_h
+                ON mpd_h.raw_mat_id = rm.id
+                AND mpd_h.month = ${currentMonth}
+                AND mpd_h.year = ${currentYear}
+            `}
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
               AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
@@ -554,6 +562,7 @@ export class RecomendationV2Service {
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
               )
               ${searchFilter}
+              ${show_hidden ? Prisma.empty : Prisma.sql`AND (mpd_h.hidden_at IS NULL)`}
         `;
 
         const data = rows.map((r) => {
@@ -812,13 +821,6 @@ export class RecomendationV2Service {
 
         return await prisma.$executeRaw`
             WITH
-                po_agg AS (
-                    SELECT poi.raw_material_id, SUM(poi.qty_ordered - poi.qty_received)::numeric AS total
-                    FROM "purchase_order_items" poi
-                    JOIN "purchase_orders" po ON poi.po_id = po.id
-                    WHERE po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
-                    GROUP BY poi.raw_material_id
-                ),
                 inv_agg AS (
                     SELECT 
                         rmi.raw_material_id, 
@@ -909,11 +911,6 @@ export class RecomendationV2Service {
                 'DRAFT' AS status
             FROM "raw_materials" rm
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-            LEFT JOIN "supplier_materials" sm_pref ON sm_pref.raw_material_id = rm.id AND sm_pref.is_preferred = true
-            LEFT JOIN "suppliers" s ON s.id = sm_pref.supplier_id
-            LEFT JOIN "material_purchase_drafts" mro
-                ON mro.raw_mat_id = rm.id AND mro.month = ${month} AND mro.year = ${year}
-            LEFT JOIN po_agg po ON po.raw_material_id = rm.id
             LEFT JOIN inv_agg inv ON inv.raw_material_id = rm.id
             LEFT JOIN fc_agg fc ON fc.raw_mat_id = rm.id
             LEFT JOIN ss_agg ss ON ss.raw_mat_id = rm.id

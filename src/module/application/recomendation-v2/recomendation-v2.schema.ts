@@ -15,6 +15,7 @@ export const QueryRecomendationV2Schema = z.object({
     visibleColumns: z.string().optional(),
     columnOrder: z.string().optional(),
     selectedIds: z.string().optional(),
+    show_hidden: z.preprocess((v) => v === "true" || v === true, z.boolean()).optional().default(false),
 });
 
 export type QueryRecomendationV2DTO = z.infer<typeof QueryRecomendationV2Schema>;
