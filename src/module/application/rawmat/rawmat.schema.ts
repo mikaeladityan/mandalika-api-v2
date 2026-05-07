@@ -23,10 +23,11 @@ export const RequestRawMaterialSchema = z.object({
     price: z.number().nullable().optional(),
     min_buy: z.number().nullable().optional(),
     lead_time: z.number().int().positive().nullable().optional(),
+    type: z.enum(MaterialType).nullable().optional(),
+    source: z.enum(["LOCAL", "IMPORT"]).optional(),
     supplier_id: z.number().nullable().optional(),
 
     min_stock: z.number().nullable().optional(),
-    type: z.enum(MaterialType).nullable().optional(),
 
     raw_mat_category: z.string().optional(),
     unit: z.string(),
