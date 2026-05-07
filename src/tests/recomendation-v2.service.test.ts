@@ -90,13 +90,14 @@ describe("RecomendationV2Service - Override Features", () => {
             // @ts-ignore
             prisma.$queryRaw.mockResolvedValueOnce([{ count: 1n }]); // totalQuery (COUNT)
 
-            const result = await RecomendationV2Service.list({ 
-                page: 1, 
-                take: 10, 
+            const result = await RecomendationV2Service.list({
+                page: 1,
+                take: 10,
                 type: 'lokal',
                 sales_months: 3,
                 forecast_months: 3,
-                po_months: 3
+                po_months: 3,
+                show_hidden: false
             });
 
             // internal 'now' is April, so forecast periods start at month 4

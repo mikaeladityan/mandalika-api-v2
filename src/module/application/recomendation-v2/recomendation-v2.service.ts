@@ -7,6 +7,7 @@ import {
     RequestBulkSaveHorizonDTO,
     RequestUpdateMoqDTO,
     RequestSaveNeedOverrideDTO,
+    RequestBulkHideDTO,
 } from "./recomendation-v2.schema.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
@@ -24,6 +25,7 @@ export class RecomendationV2Service {
             sales_months = 4,
             forecast_months = 3,
             po_months = 3,
+            show_hidden = false,
         } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
@@ -471,14 +473,16 @@ export class RecomendationV2Service {
                             'status', mro_sub.status,
                             'pic_id', mro_sub.pic_id,
                             'quantity', mro_sub.quantity,
-                            'horizon', mro_sub.horizon
+                            'horizon', mro_sub.horizon,
+                            'hidden_at', mro_sub.hidden_at
                         )
                         FROM "material_purchase_drafts" mro_sub
                         WHERE mro_sub.raw_mat_id = fm.id
                           AND mro_sub.month = ${currentMonth}
                           AND mro_sub.year = ${currentYear}
                         LIMIT 1
-                    ) AS work_order_data
+                    ) AS work_order_data,
+                    mro.hidden_at AS work_order_hidden_at
 
                 FROM filtered_materials fm
                 LEFT JOIN "material_purchase_drafts" mro 
@@ -511,7 +515,8 @@ export class RecomendationV2Service {
                 LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = fm.id
                 LEFT JOIN rm_current_sales_agg cms ON cms.raw_mat_id = fm.id
             ) AS base
-            ORDER BY 
+            ${show_hidden ? Prisma.empty : Prisma.sql`WHERE work_order_hidden_at IS NULL`}
+            ORDER BY
                 CASE WHEN barcode = 'FO-ALK' THEN 1 ELSE 0 END ASC,
                 ${
                     query.sortBy
@@ -542,6 +547,12 @@ export class RecomendationV2Service {
             LEFT JOIN "supplier_materials" sm_pref ON sm_pref.raw_material_id = rm.id AND sm_pref.is_preferred = true
             LEFT JOIN "suppliers" s ON s.id = sm_pref.supplier_id
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
+            ${show_hidden ? Prisma.empty : Prisma.sql`
+            LEFT JOIN "material_purchase_drafts" mpd_h
+                ON mpd_h.raw_mat_id = rm.id
+                AND mpd_h.month = ${currentMonth}
+                AND mpd_h.year = ${currentYear}
+            `}
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
               AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
@@ -551,6 +562,7 @@ export class RecomendationV2Service {
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
               )
               ${searchFilter}
+              ${show_hidden ? Prisma.empty : Prisma.sql`AND (mpd_h.hidden_at IS NULL)`}
         `;
 
         const data = rows.map((r) => {
@@ -609,6 +621,7 @@ export class RecomendationV2Service {
                 work_order_pic_id: workOrder?.pic_id || null,
                 work_order_quantity: workOrder?.quantity ? Number(workOrder.quantity) : null,
                 work_order_horizon: horizon || null,
+                work_order_hidden_at: workOrder?.hidden_at ? new Date(workOrder.hidden_at) : null,
 
                 sales,
                 needs,
@@ -806,7 +819,6 @@ export class RecomendationV2Service {
         const bssStart = year * 12 + month;
         const bssEnd = bssEndY * 12 + bssEndM;
 
-        // Secure Bulk Upsert using CTEs to pre-compute each aggregation once per material
         return await prisma.$executeRaw`
             WITH
                 po_agg AS (
@@ -847,8 +859,8 @@ export class RecomendationV2Service {
                     GROUP BY rec.raw_mat_id
                 ),
                 ss_agg AS (
-                    SELECT 
-                        rec.raw_mat_id, 
+                    SELECT
+                        rec.raw_mat_id,
                         SUM(
                             (
                                 (SELECT COALESCE(SUM(f2.final_forecast), 0)
@@ -895,7 +907,7 @@ export class RecomendationV2Service {
                 rm.id AS raw_mat_id,
                 ${month} AS month,
                 ${year} AS year,
-                COALESCE(mro.quantity, 0) AS quantity,
+                0 AS quantity,
                 ${horizon} AS horizon,
                 COALESCE(fc.total, 0) AS total_needed,
                 COALESCE(inv.total, 0) AS current_stock,
@@ -905,7 +917,6 @@ export class RecomendationV2Service {
                 ${now} AS updated_at,
                 'DRAFT' AS status
             FROM "raw_materials" rm
-            LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
             LEFT JOIN "supplier_materials" sm_pref ON sm_pref.raw_material_id = rm.id AND sm_pref.is_preferred = true
             LEFT JOIN "suppliers" s ON s.id = sm_pref.supplier_id
@@ -924,14 +935,7 @@ export class RecomendationV2Service {
                   SELECT 1 FROM "recipes" r2
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
               )
-            ON CONFLICT (raw_mat_id, month, year) DO UPDATE SET
-                horizon = EXCLUDED.horizon,
-                quantity = CASE WHEN "material_purchase_drafts".status = 'DRAFT' THEN 0 ELSE "material_purchase_drafts".quantity END,
-                total_needed = EXCLUDED.total_needed,
-                current_stock = EXCLUDED.current_stock,
-                stock_fg_x_resep = EXCLUDED.stock_fg_x_resep,
-                safety_stock_x_resep = EXCLUDED.safety_stock_x_resep,
-                updated_at = EXCLUDED.updated_at;
+            ON CONFLICT (raw_mat_id, month, year) DO NOTHING;
         `;
     }
 
@@ -1116,6 +1120,14 @@ export class RecomendationV2Service {
         return await prisma.supplierMaterial.updateMany({
             where: { raw_material_id: material_id, is_preferred: true },
             data: { min_buy: moq },
+        });
+    }
+
+    static async bulkToggleHide(body: RequestBulkHideDTO) {
+        const { ids, hidden } = body;
+        return await prisma.materialPurchaseDraft.updateMany({
+            where: { id: { in: ids } },
+            data: { hidden_at: hidden ? new Date() : null },
         });
     }
 }

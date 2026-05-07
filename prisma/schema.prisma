@@ -473,6 +473,7 @@ model MaterialPurchaseDraft {
   safety_stock_x_resep Decimal              @default(0) @db.Decimal(18, 2)
   stock_fg_x_resep     Decimal              @default(0) @db.Decimal(18, 2)
   total_needed         Decimal              @default(0) @db.Decimal(18, 2)
+  hidden_at            DateTime?
   open_po              RawMaterialOpenPo?   @relation(fields: [open_po_id], references: [id])
   raw_material         RawMaterial          @relation(fields: [raw_mat_id], references: [id], onDelete: Cascade)
   rfq_item             PurchaseRFQItem?
