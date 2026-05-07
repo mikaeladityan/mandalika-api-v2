@@ -14,7 +14,7 @@ import {
 
 export class RecomendationV2Controller {
     static async list(c: Context) {
-        const { page, take, search, month, year, type, sales_months, forecast_months, po_months, sortBy, order, show_hidden } = c.req.query();
+        const { page, take, search, month, year, type, sales_months, forecast_months, po_months, sortBy, order } = c.req.query();
 
         const params: QueryRecomendationV2DTO = {
             page: page ? Number(page) : 1,
@@ -28,7 +28,6 @@ export class RecomendationV2Controller {
             po_months: po_months ? Number(po_months) : 3,
             sortBy,
             order: order as QueryRecomendationV2DTO["order"],
-            show_hidden: show_hidden === "true",
         };
 
         const result = await RecomendationV2Service.list(params);
@@ -60,7 +59,6 @@ export class RecomendationV2Controller {
             visibleColumns,
             columnOrder,
             selectedIds,
-            show_hidden: false,
         };
 
         const buffer = await RecomendationV2Service.export(params);
