@@ -159,7 +159,6 @@ export class RecomendationV2Service {
                     WHERE ${typeFilter}
                       AND rm.deleted_at IS NULL
                       AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
-                      AND (rm.barcode IS NULL OR (rm.barcode NOT LIKE 'KTL-%' AND rm.barcode NOT LIKE 'KTP-%' AND rm.barcode NOT LIKE 'KA-%'))
                       AND rm.name NOT ILIKE '%(DISPLAY)%'
                       AND EXISTS (
                           SELECT 1 FROM "recipes" r2
@@ -456,7 +455,6 @@ export class RecomendationV2Service {
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
               AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
-              AND (rm.barcode IS NULL OR (rm.barcode NOT LIKE 'KTL-%' AND rm.barcode NOT LIKE 'KTP-%' AND rm.barcode NOT LIKE 'KA-%'))
               AND rm.name NOT ILIKE '%(DISPLAY)%'
               AND EXISTS (
                   SELECT 1 FROM "recipes" r2
@@ -1043,103 +1041,17 @@ export class RecomendationV2Service {
         });
     }
 
-    static async listSkipped(query: Pick<QueryRecomendationV2DTO, "search" | "page" | "take" | "month" | "year">) {
-        const { search, page, take, month, year } = query;
-        const { skip, take: limit } = GetPagination(page, take);
-
-        const now = new Date();
-        const currentMonth = month ?? now.getMonth() + 1;
-        const currentYear = year ?? now.getFullYear();
-
-        const searchFilter = RecomendationV2Service.buildSearchFilter(search);
-
-        const [latestInv, totalResult] = await Promise.all([
-            prisma.rawMaterialInventory.findFirst({
-                orderBy: [{ year: "desc" }, { month: "desc" }],
-                select: { month: true, year: true },
-            }),
-            prisma.$queryRaw<{ count: number }[]>`
-                SELECT COUNT(rm.id)::int as count
-                FROM "raw_materials" rm
-                LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-                LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
-                WHERE (rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%')
-                  AND rm.deleted_at IS NULL
-                  AND (
-                    rm.barcode LIKE 'KTL-%'
-                    OR rm.barcode LIKE 'KTP-%'
-                    OR rm.barcode LIKE 'KA-%'
-                  )
-                  ${searchFilter}
-            `,
-        ]);
-
-        const { month: invMonth, year: invYear } = RecomendationV2Service.resolveInvPeriod(
-            { month: currentMonth, year: currentYear }, latestInv
-        );
-
-        const rows = await prisma.$queryRaw<any[]>`
-            SELECT
-                rm.id AS material_id,
-                rm.barcode,
-                rm.name AS material_name,
-                urm.name AS uom,
-                rm.min_buy AS moq,
-                rm.lead_time,
-                rmc.name AS category_name,
-                COALESCE((
-                    SELECT SUM(rmi.quantity)
-                    FROM "raw_material_inventories" rmi
-                    WHERE rmi.raw_material_id = rm.id
-                      AND rmi.month = ${invMonth}
-                      AND rmi.year = ${invYear}
-                ), 0) AS current_stock,
-                COALESCE((
-                    SELECT SUM(po.quantity)
-                    FROM "raw_material_open_pos" po
-                    WHERE po.raw_material_id = rm.id AND po.status = 'OPEN'
-                ), 0) AS open_po
-            FROM "raw_materials" rm
-            LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
-            LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-            WHERE (rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%')
-              AND rm.deleted_at IS NULL
-              AND (
-                rm.barcode LIKE 'KTL-%'
-                OR rm.barcode LIKE 'KTP-%'
-                OR rm.barcode LIKE 'KA-%'
-              )
-              ${searchFilter}
-            ORDER BY rm.barcode ASC, rm.name ASC
-            LIMIT ${limit} OFFSET ${skip}
-        `;
-
-        const data = rows.map((r) => ({
-            material_id: r.material_id,
-            barcode: r.barcode,
-            material_name: r.material_name,
-            uom: r.uom || "UNIT",
-            moq: Number(r.moq),
-            lead_time: r.lead_time,
-            category_name: r.category_name,
-            current_stock: Number(r.current_stock),
-            open_po: Number(r.open_po),
-        }));
-
-        return {
-            data,
-            len: Number(totalResult[0]?.count || 0),
-        };
-    }
-
     private static getTypeFilter(type?: string): Prisma.Sql {
+        const excludeTester = Prisma.sql`AND (rm.barcode IS NULL OR (rm.barcode NOT LIKE 'KTL-%' AND rm.barcode NOT LIKE 'KTP-%' AND rm.barcode NOT LIKE 'KA-%'))`;
         switch (type) {
             case "ffo":
                 return Prisma.sql`(rmc.slug ILIKE '%fragrance-oil%' OR rmc.slug ILIKE '%ffo%')`;
             case "lokal":
-                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND rm.source = 'LOCAL'`;
+                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND rm.source = 'LOCAL' ${excludeTester}`;
             case "impor":
-                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND rm.source = 'IMPORT'`;
+                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND rm.source = 'IMPORT' ${excludeTester}`;
+            case "tester":
+                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND (rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KA-%')`;
             default:
                 return Prisma.sql`1=1`;
         }
