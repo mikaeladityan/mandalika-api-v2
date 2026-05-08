@@ -12,7 +12,7 @@ import {
 } from "./recomendation-v2.schema.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../issuance/issuance.service.js";
-import ExcelJS from "exceljs";
+import * as ExcelJS from "exceljs";
 
 export class RecomendationV2Service {
     static async list(query: QueryRecomendationV2DTO) {
@@ -510,6 +510,12 @@ export class RecomendationV2Service {
             const safetyStock = isSpecial ? safetyStockRaw * sheetToKgFactor : safetyStockRaw;
             const totalNeededHorizon = isSpecial ? totalNeededHorizonRaw * sheetToKgFactor : totalNeededHorizonRaw;
 
+            // Calculate Fixed 2-Month Horizon
+            const totalNeededFix2MonthsRaw = (needs || [])
+                .slice(0, 2)
+                .reduce((sum, n) => sum + (n.override_needs ?? n.quantity ?? 0), 0);
+            const totalNeededFix2Months = isSpecial ? totalNeededFix2MonthsRaw * sheetToKgFactor : totalNeededFix2MonthsRaw;
+
             // Recalculate recommendation specifically for special paper to avoid mixed units subtraction
             let recommendationQuantity = Number(r.recommendation_quantity);
             if (isSpecial && horizon > 0) {
@@ -531,6 +537,7 @@ export class RecomendationV2Service {
                 safety_stock_x_resep: safetyStock,
                 forecast_needed: forecastNeeded,
                 total_needed_horizon: totalNeededHorizon,
+                total_needed_fix_2_months: totalNeededFix2Months,
                 recommendation_quantity: recommendationQuantity,
                 is_special_paper: isSpecial,
                 weight_kg: isSpecial ? recommendationQuantity : undefined,
