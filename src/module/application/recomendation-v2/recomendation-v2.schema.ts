@@ -9,7 +9,7 @@ export const QueryRecomendationV2Schema = z.object({
     sales_months: z.coerce.number().min(0).max(12).optional().default(3),
     forecast_months: z.coerce.number().min(0).max(12).optional().default(3),
     po_months: z.coerce.number().min(0).max(12).optional().default(3),
-    type: z.enum(["ffo", "lokal", "impor"]).optional(),
+    type: z.enum(["ffo", "lokal", "impor", "tester"]).optional(),
     sortBy: z.enum(["material_name", "barcode", "current_stock", "forecast_needed", "recommendation_quantity"]).optional(),
     order: z.enum(["asc", "desc"]).optional(),
     visibleColumns: z.string().optional(),
@@ -46,7 +46,7 @@ export const RequestBulkSaveHorizonSchema = z.object({
     month: z.coerce.number().min(1).max(12),
     year: z.coerce.number().min(2000),
     horizon: z.coerce.number().min(1).max(12).default(3),
-    type: z.enum(["ffo", "lokal", "impor"]).optional(),
+    type: z.enum(["ffo", "lokal", "impor", "tester"]).optional(),
 });
 
 export type RequestBulkSaveHorizonDTO = z.infer<typeof RequestBulkSaveHorizonSchema>;

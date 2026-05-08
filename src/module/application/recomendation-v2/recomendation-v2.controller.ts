@@ -34,20 +34,6 @@ export class RecomendationV2Controller {
         return ApiResponse.sendSuccess(c, result, 200);
     }
 
-    static async listSkipped(c: Context) {
-        const { page, take, search, month, year } = c.req.query();
-
-        const result = await RecomendationV2Service.listSkipped({
-            page: page ? Number(page) : 1,
-            take: take ? Number(take) : 25,
-            search,
-            month: month ? Number(month) : undefined,
-            year: year ? Number(year) : undefined,
-        });
-
-        return ApiResponse.sendSuccess(c, result, 200);
-    }
-
     static async bulkToggleHide(c: Context) {
         const body = await c.req.json();
         const validBody = RequestBulkHideSchema.parse(body);
