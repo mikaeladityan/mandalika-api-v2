@@ -26,7 +26,7 @@ export class RecomendationV2Controller {
             sales_months: sales_months ? Number(sales_months) : 3,
             forecast_months: forecast_months ? Number(forecast_months) : 3,
             po_months: po_months ? Number(po_months) : 3,
-            sortBy,
+            sortBy: sortBy as QueryRecomendationV2DTO["sortBy"],
             order: order as QueryRecomendationV2DTO["order"],
         };
 
@@ -73,7 +73,7 @@ export class RecomendationV2Controller {
             sales_months: sales_months ? Number(sales_months) : 3,
             forecast_months: forecast_months ? Number(forecast_months) : 3,
             po_months: po_months ? Number(po_months) : 3,
-            sortBy,
+            sortBy: sortBy as QueryRecomendationV2DTO["sortBy"],
             order: order as QueryRecomendationV2DTO["order"],
             visibleColumns,
             columnOrder,
