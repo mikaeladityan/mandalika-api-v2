@@ -2,6 +2,7 @@ import prisma from "../../../../config/prisma.js";
 import { CreateRFQDTO, UpdateRFQDTO, UpdateRFQStatusDTO, QueryRFQDTO, ConvertToPODTO } from "./rfq.schema.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
+import { generateRFQNumber, generatePONumber } from "../../../../lib/utils/generate-number.js";
 
 const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
     DRAFT: ["SUBMITTED", "CLOSED"],
@@ -12,23 +13,7 @@ const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
     CLOSED: [],
 };
 
-export function generateRFQNumber(): string {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    const rand = Math.floor(Math.random() * 9000) + 1000;
-    return `RFQ-${y}${m}${d}-${rand}`;
-}
-
-export function generatePONumber(): string {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    const rand = Math.floor(Math.random() * 9000) + 1000;
-    return `PO-${y}${m}${d}-${rand}`;
-}
+export { generateRFQNumber, generatePONumber };
 
 export class RFQService {
     static async list(query: QueryRFQDTO) {
@@ -371,7 +356,7 @@ export class RFQService {
     static async convertToPO(id: number, body: ConvertToPODTO, userId: string) {
         const rfq = await prisma.purchaseRFQ.findUniqueOrThrow({
             where: { id },
-            include: { items: true },
+            include: { items: true, supplier: { select: { source: true } } },
         });
 
         if (rfq.status !== "APPROVED") {
@@ -407,7 +392,7 @@ export class RFQService {
                 data: {
                     po_number: generatePONumber(),
                     po_date: new Date(),
-                    po_type: "LOCAL",
+                    po_type: rfq.supplier?.source === "IMPORT" ? "IMPORT" : "LOCAL",
                     supplier_id: rfq.supplier_id,
                     supplier_name: rfq.supplier_name,
                     supplier_code: rfq.supplier_code,

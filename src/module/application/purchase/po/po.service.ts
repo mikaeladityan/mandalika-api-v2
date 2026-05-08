@@ -2,16 +2,7 @@ import prisma from "../../../../config/prisma.js";
 import { CreatePODTO, UpdatePODTO, UpdatePOStatusDTO, QueryPODTO, UpdatePOTrackingDTO, ReceiveItemsDTO } from "./po.schema.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
-import { generatePONumber } from "../rfq/rfq.service.js";
-
-function generateReceiptNumber(): string {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    const rand = Math.floor(Math.random() * 9000) + 1000;
-    return `RCV-${y}${m}${d}-${rand}`;
-}
+import { generatePONumber, generateReceiptNumber } from "../../../../lib/utils/generate-number.js";
 
 const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
     DRAFT: ["SUBMITTED", "CANCELLED"],
@@ -170,6 +161,13 @@ export class POService {
 
         if (!["DRAFT", "SUBMITTED"].includes(po.status)) {
             throw new ApiError(400, `Cannot edit a PO with status ${po.status}.`);
+        }
+
+        // Validate IMPORT type always requires a foreign currency
+        const effectiveType = body.po_type ?? po.po_type;
+        const effectiveCurrency = body.currency ?? po.currency;
+        if (effectiveType === "IMPORT" && effectiveCurrency === "IDR") {
+            throw new ApiError(400, "Import PO must use foreign currency.");
         }
 
         return await prisma.$transaction(async (tx) => {

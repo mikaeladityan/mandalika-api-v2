@@ -1,13 +1,28 @@
 import { Context } from "hono";
 import {
     QueryRFQSchema,
-    CreateRFQSchema,
-    UpdateRFQSchema,
-    UpdateRFQStatusSchema,
-    ConvertToPOSchema,
+    CreateRFQDTO,
+    UpdateRFQDTO,
+    UpdateRFQStatusDTO,
+    ConvertToPODTO,
 } from "./rfq.schema.js";
 import { RFQService } from "./rfq.service.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
+import { ApiError } from "../../../../lib/errors/api.error.js";
+
+function parseId(c: Context): number {
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id) || id <= 0) {
+        throw new ApiError(400, "Invalid resource ID.");
+    }
+    return id;
+}
+
+function getUserId(c: Context): string {
+    const user = c.get("user");
+    const session = c.get("session");
+    return user?.id || session?.email || "system";
+}
 
 export class RFQController {
     static async list(c: Context) {
@@ -25,60 +40,44 @@ export class RFQController {
     }
 
     static async detail(c: Context) {
-        const id = Number(c.req.param("id"));
+        const id = parseId(c);
         const result = await RFQService.detail(id);
         return ApiResponse.sendSuccess(c, result);
     }
 
     static async create(c: Context) {
-        const body = await c.req.json();
-        const user = c.get("user");
-        const session = c.get("session");
-        const userId = user?.id || session?.email || "system";
-        
-        const valid = CreateRFQSchema.parse(body);
+        const userId = getUserId(c);
+        const valid = c.get("body") as CreateRFQDTO;
         const result = await RFQService.create(valid, userId);
         return ApiResponse.sendSuccess(c, result, 201);
     }
 
     static async update(c: Context) {
-        const id = Number(c.req.param("id"));
-        const body = await c.req.json();
-        const user = c.get("user");
-        const session = c.get("session");
-        const userId = user?.id || session?.email || "system";
-
-        const valid = UpdateRFQSchema.parse(body);
+        const id = parseId(c);
+        const userId = getUserId(c);
+        const valid = c.get("body") as UpdateRFQDTO;
         const result = await RFQService.update(id, valid, userId);
         return ApiResponse.sendSuccess(c, result);
     }
 
     static async updateStatus(c: Context) {
-        const id = Number(c.req.param("id"));
-        const body = await c.req.json();
-        const user = c.get("user");
-        const session = c.get("session");
-        const userId = user?.id || session?.email || "system";
-        
-        const valid = UpdateRFQStatusSchema.parse(body);
+        const id = parseId(c);
+        const userId = getUserId(c);
+        const valid = c.get("body") as UpdateRFQStatusDTO;
         const result = await RFQService.updateStatus(id, valid, userId);
         return ApiResponse.sendSuccess(c, result);
     }
 
     static async destroy(c: Context) {
-        const id = Number(c.req.param("id"));
+        const id = parseId(c);
         await RFQService.destroy(id);
         return ApiResponse.sendSuccess(c, { message: "RFQ deleted successfully" });
     }
 
     static async convertToPO(c: Context) {
-        const id = Number(c.req.param("id"));
-        const body = await c.req.json();
-        const user = c.get("user");
-        const session = c.get("session");
-        const userId = user?.id || session?.email || "system";
-
-        const valid = ConvertToPOSchema.parse(body);
+        const id = parseId(c);
+        const userId = getUserId(c);
+        const valid = c.get("body") as ConvertToPODTO;
         const result = await RFQService.convertToPO(id, valid, userId);
         return ApiResponse.sendSuccess(c, result);
     }

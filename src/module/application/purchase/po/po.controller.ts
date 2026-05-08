@@ -1,7 +1,22 @@
 import { Context } from "hono";
 import { POService } from "./po.service.js";
-import { QueryPOSchema, CreatePOSchema, UpdatePOSchema, UpdatePOStatusSchema, UpdatePOTrackingSchema, ReceiveItemsSchema } from "./po.schema.js";
+import { QueryPOSchema, CreatePODTO, UpdatePODTO, UpdatePOStatusDTO, UpdatePOTrackingDTO, ReceiveItemsDTO } from "./po.schema.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
+import { ApiError } from "../../../../lib/errors/api.error.js";
+
+function parseId(c: Context): number {
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id) || id <= 0) {
+        throw new ApiError(400, "Invalid resource ID.");
+    }
+    return id;
+}
+
+function getUserId(c: Context): string {
+    const user = c.get("user");
+    const session = c.get("session");
+    return user?.id || session?.email || "system";
+}
 
 export class POController {
     static async list(c: Context) {
@@ -11,73 +26,58 @@ export class POController {
     }
 
     static async detail(c: Context) {
-        const id = Number(c.req.param("id"));
+        const id = parseId(c);
         const result = await POService.detail(id);
         return ApiResponse.sendSuccess(c, result);
     }
 
     static async create(c: Context) {
-        const user = c.get("user");
-        const session = c.get("session");
-        const userId = user?.id || session?.email || "system";
-        const body = await c.req.json();
-        const validated = CreatePOSchema.parse(body);
+        const userId = getUserId(c);
+        const validated = c.get("body") as CreatePODTO;
         const result = await POService.create(validated, userId);
         return ApiResponse.sendSuccess(c, result, 201);
     }
 
     static async update(c: Context) {
-        const user = c.get("user");
-        const session = c.get("session");
-        const userId = user?.id || session?.email || "system";
-        const id = Number(c.req.param("id"));
-        const body = await c.req.json();
-        const validated = UpdatePOSchema.parse(body);
+        const userId = getUserId(c);
+        const id = parseId(c);
+        const validated = c.get("body") as UpdatePODTO;
         const result = await POService.update(id, validated, userId);
         return ApiResponse.sendSuccess(c, result);
     }
 
     static async updateStatus(c: Context) {
-        const user = c.get("user");
-        const session = c.get("session");
-        const userId = user?.id || session?.email || "system";
-        const id = Number(c.req.param("id"));
-        const body = await c.req.json();
-        const validated = UpdatePOStatusSchema.parse(body);
+        const userId = getUserId(c);
+        const id = parseId(c);
+        const validated = c.get("body") as UpdatePOStatusDTO;
         const result = await POService.updateStatus(id, validated, userId);
         return ApiResponse.sendSuccess(c, result);
     }
 
     static async updateTracking(c: Context) {
-        const user = c.get("user");
-        const session = c.get("session");
-        const userId = user?.id || session?.email || "system";
-        const id = Number(c.req.param("id"));
-        const body = await c.req.json();
-        const validated = UpdatePOTrackingSchema.parse(body);
+        const userId = getUserId(c);
+        const id = parseId(c);
+        const validated = c.get("body") as UpdatePOTrackingDTO;
         const result = await POService.updateTracking(id, validated, userId);
         return ApiResponse.sendSuccess(c, result);
     }
 
     static async receiveItems(c: Context) {
-        const user = c.get("user");
-        const session = c.get("session");
-        const userId = user?.id || session?.email || "system";
-        const id = Number(c.req.param("id"));
-        const body = await c.req.json();
-        const validated = ReceiveItemsSchema.parse(body);
+        const userId = getUserId(c);
+        const id = parseId(c);
+        const validated = c.get("body") as ReceiveItemsDTO;
         const result = await POService.receiveItems(id, validated, userId);
         return ApiResponse.sendSuccess(c, result, 201);
     }
 
     static async listReceipts(c: Context) {
-        const id = Number(c.req.param("id"));
+        const id = parseId(c);
         const result = await POService.listReceipts(id);
         return ApiResponse.sendSuccess(c, result);
     }
 
     static async destroy(c: Context) {
-        const id = Number(c.req.param("id"));
+        const id = parseId(c);
         const result = await POService.destroy(id);
         return ApiResponse.sendSuccess(c, result);
     }
