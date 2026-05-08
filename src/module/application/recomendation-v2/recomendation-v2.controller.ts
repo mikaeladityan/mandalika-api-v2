@@ -36,21 +36,16 @@ export class RecomendationV2Controller {
     }
 
     static async listSkipped(c: Context) {
-        const { page, take, search, month, year, type } = c.req.query();
+        const { page, take, search, month, year } = c.req.query();
 
-        const params: QueryRecomendationV2DTO = {
+        const result = await RecomendationV2Service.listSkipped({
             page: page ? Number(page) : 1,
             take: take ? Number(take) : 25,
             search,
             month: month ? Number(month) : undefined,
             year: year ? Number(year) : undefined,
-            type: type as QueryRecomendationV2DTO["type"],
-            sales_months: 3,
-            forecast_months: 3,
-            po_months: 3,
-        };
+        });
 
-        const result = await RecomendationV2Service.listSkipped(params);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 
