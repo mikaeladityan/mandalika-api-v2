@@ -1024,15 +1024,14 @@ export class RecomendationV2Service {
         });
     }
 
-    static async listSkipped(query: QueryRecomendationV2DTO) {
-        const { search, page, take, month, year, type } = query;
+    static async listSkipped(query: Pick<QueryRecomendationV2DTO, "search" | "page" | "take" | "month" | "year">) {
+        const { search, page, take, month, year } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
         const now = new Date();
         const currentMonth = month ?? now.getMonth() + 1;
         const currentYear = year ?? now.getFullYear();
 
-        const typeFilter = RecomendationV2Service.getTypeFilter(type);
         const searchFilter = RecomendationV2Service.buildSearchFilter(search);
 
         const [latestInv, totalResult] = await Promise.all([
@@ -1045,7 +1044,7 @@ export class RecomendationV2Service {
                 FROM "raw_materials" rm
                 LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
                 LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
-                WHERE ${typeFilter}
+                WHERE (rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%')
                   AND rm.deleted_at IS NULL
                   AND (
                     rm.barcode LIKE 'KTL-%'
@@ -1084,7 +1083,7 @@ export class RecomendationV2Service {
             FROM "raw_materials" rm
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-            WHERE ${typeFilter}
+            WHERE (rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%')
               AND rm.deleted_at IS NULL
               AND (
                 rm.barcode LIKE 'KTL-%'
