@@ -532,6 +532,27 @@ export class RecomendationV2Service {
                     : r.work_order_data;
 
             const horizon = workOrder?.horizon || 0;
+            const isSpecial = r.barcode === 'KA-0.6MM';
+            const sheetToKgFactor = 5000 / 14000;
+
+            // Base values from DB
+            const currentStock = Number(r.current_stock);
+            const openPo = Number(r.open_po);
+            const forecastNeededRaw = Number(r.forecast_needed);
+            const safetyStockRaw = Number(r.safety_stock_x_resep);
+            const totalNeededHorizonRaw = Number(r.total_forecast_horizon_dynamic);
+
+            // Converted values if special paper
+            const forecastNeeded = isSpecial ? forecastNeededRaw * sheetToKgFactor : forecastNeededRaw;
+            const safetyStock = isSpecial ? safetyStockRaw * sheetToKgFactor : safetyStockRaw;
+            const totalNeededHorizon = isSpecial ? totalNeededHorizonRaw * sheetToKgFactor : totalNeededHorizonRaw;
+
+            // Recalculate recommendation specifically for special paper to avoid mixed units subtraction
+            let recommendationQuantity = Number(r.recommendation_quantity);
+            if (isSpecial && horizon > 0) {
+                // (Total Need KG + Safety KG) - (Stock KG + PO KG)
+                recommendationQuantity = Math.max(0, (totalNeededHorizon + safetyStock) - (currentStock + openPo));
+            }
 
             return {
                 ranking: Number(r.ranking),
@@ -541,13 +562,15 @@ export class RecomendationV2Service {
                 moq: Number(r.moq),
                 lead_time: r.lead_time,
                 uom: r.uom || "UNIT",
-                current_stock: Number(r.current_stock),
-                open_po: Number(r.open_po),
+                current_stock: currentStock,
+                open_po: openPo,
                 stock_fg_x_resep: Number(r.stock_fg_x_resep),
-                safety_stock_x_resep: Number(r.safety_stock_x_resep),
-                forecast_needed: Number(r.forecast_needed),
-                total_needed_horizon: Number(r.total_forecast_horizon_dynamic),
-                recommendation_quantity: Number(r.recommendation_quantity),
+                safety_stock_x_resep: safetyStock,
+                forecast_needed: forecastNeeded,
+                total_needed_horizon: totalNeededHorizon,
+                recommendation_quantity: recommendationQuantity,
+                is_special_paper: isSpecial,
+                weight_kg: isSpecial ? recommendationQuantity : undefined,
 
                 // Work Order / Consolidation data
                 work_order_id: workOrder?.id || null,
@@ -558,7 +581,11 @@ export class RecomendationV2Service {
                 work_order_hidden_at: workOrder?.hidden_at ? new Date(workOrder.hidden_at) : null,
 
                 sales,
-                needs,
+                needs: needs.map(n => ({
+                    ...n,
+                    quantity: isSpecial ? n.quantity * sheetToKgFactor : n.quantity,
+                    override_needs: (isSpecial && n.override_needs != null) ? n.override_needs * sheetToKgFactor : n.override_needs
+                })),
                 open_pos,
             };
         });

@@ -110,6 +110,8 @@ export const ResponseRecomendationV2Schema = z.object({
         key: z.string(),
         quantity: z.number()
     })).optional(),
+    is_special_paper: z.boolean().optional(),
+    weight_kg: z.number().optional(),
 });
 
 
