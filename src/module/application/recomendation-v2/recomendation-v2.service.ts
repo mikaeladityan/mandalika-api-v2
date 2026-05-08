@@ -289,7 +289,6 @@ export class RecomendationV2Service {
                     fm.min_buy AS moq,
                     fm.lead_time AS lead_time,
                     mro.horizon AS work_order_horizon,
-<<<<<<< HEAD
 
                     -- Available Stock (On-Hand minus Booked by RELEASED production orders)
                     GREATEST(0,
@@ -319,15 +318,6 @@ export class RecomendationV2Service {
                     ) AS current_stock,
 
                     -- Open PO (qty ordered minus received, statuses: SUBMITTED/APPROVED/ORDERED)
-=======
-                    COALESCE((
-                        SELECT SUM(rmi.quantity)
-                        FROM "raw_material_inventories" rmi
-                        WHERE rmi.raw_material_id = fm.id
-                          AND rmi.month = ${invMonth}
-                          AND rmi.year = ${invYear}
-                    ), 0) AS current_stock,
->>>>>>> main
                     COALESCE((
                         SELECT SUM(poi.qty_ordered - poi.qty_received)
                         FROM "purchase_order_items" poi
@@ -335,11 +325,8 @@ export class RecomendationV2Service {
                         WHERE poi.raw_material_id = fm.id
                           AND po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
                     ), 0) AS open_po,
-<<<<<<< HEAD
 
                     -- Open PO per month breakdown (SUBMITTED/APPROVED/ORDERED)
-=======
->>>>>>> main
                     (
                         SELECT COALESCE(json_agg(
                              json_build_object(
