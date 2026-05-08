@@ -112,6 +112,7 @@ export const ResponseRecomendationV2Schema = z.object({
     })).optional(),
     is_special_paper: z.boolean().optional(),
     weight_kg: z.number().optional(),
+    total_needed_fix_2_months: z.number().optional(),
 });
 
 
