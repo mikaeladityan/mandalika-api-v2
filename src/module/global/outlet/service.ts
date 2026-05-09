@@ -39,7 +39,9 @@ export class OutletGlobalService {
                     name: true,
                     type: true,
                     inventories: {
-                        include: {
+                        select: {
+                            min_stock: true,
+                            quantity: true,
                             product: {
                                 select: {
                                     id: true,
@@ -49,11 +51,7 @@ export class OutletGlobalService {
                                 },
                             },
                         },
-                        select: {
-                            min_stock: true,
-                            quantity: true,
-                        }
-                    }
+                    },
                 },
                 orderBy: { [sortBy]: sortOrder },
                 skip,

@@ -35,7 +35,7 @@ export const QueryOutletSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),
     take: z.coerce.number().int().positive().max(100).default(25).optional(),
     search: z.string().optional(),
-    status: z.enum(["active", "deleted"]).optional(),
+    status: z.enum(["active", "deleted"]).default("active").optional(),
     type: z.enum(["RETAIL", "MARKETPLACE"]).optional(),
     warehouse_id: z.coerce.number().int().positive().optional(),
     sortBy: z.enum(["name", "code", "created_at", "updated_at"]).default("updated_at").optional(),
