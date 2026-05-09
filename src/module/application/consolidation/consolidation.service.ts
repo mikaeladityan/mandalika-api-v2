@@ -12,30 +12,7 @@ export class ConsolidationService {
         const currentMonth = month ?? now.getMonth() + 1;
         const currentYear = year ?? now.getFullYear();
 
-        const type_condition: any = {};
-        if (query.type) {
-            const ffoFilter = {
-                OR: [
-                    { slug: { contains: "fragrance-oil", mode: "insensitive" } },
-                    { slug: { contains: "ffo", mode: "insensitive" } },
-                ],
-            };
-
-            if (query.type === "ffo") {
-                type_condition.raw_mat_category = ffoFilter;
-            } else if (query.type === "lokal" || query.type === "impor") {
-                const targetSource = query.type === "lokal" ? "LOCAL" : "IMPORT";
-                type_condition.AND = [
-                    { supplier_materials: { some: { supplier: { source: targetSource } } } },
-                    {
-                        OR: [
-                            { raw_mat_categories_id: null },
-                            { raw_mat_category: { NOT: ffoFilter } },
-                        ],
-                    },
-                ];
-            }
-        }
+        const type_condition = ConsolidationService.buildTypeCondition(query.type);
 
         const query_condition: any = {
             status: { in: ["DRAFT", "ACC"] },
@@ -137,30 +114,7 @@ export class ConsolidationService {
         const currentMonth = month ?? now.getMonth() + 1;
         const currentYear = year ?? now.getFullYear();
 
-        const type_condition: any = {};
-        if (query.type) {
-            const ffoFilter = {
-                OR: [
-                    { slug: { contains: "fragrance-oil", mode: "insensitive" } },
-                    { slug: { contains: "ffo", mode: "insensitive" } },
-                ],
-            };
-
-            if (query.type === "ffo") {
-                type_condition.raw_mat_category = ffoFilter;
-            } else if (query.type === "lokal" || query.type === "impor") {
-                const targetSource = query.type === "lokal" ? "LOCAL" : "IMPORT";
-                type_condition.AND = [
-                    { supplier_materials: { some: { supplier: { source: targetSource } } } },
-                    {
-                        OR: [
-                            { raw_mat_categories_id: null },
-                            { raw_mat_category: { NOT: ffoFilter } },
-                        ],
-                    },
-                ];
-            }
-        }
+        const type_condition = ConsolidationService.buildTypeCondition(query.type);
 
         const query_condition: any = {
             status: { in: ["DRAFT", "ACC"] },
@@ -282,27 +236,25 @@ export class ConsolidationService {
             { header: "PIC", key: "pic_id", width: 15, uiId: "pic_id" },
         ];
 
-        // Filter based on visibility
         const filteredColumns = allColumns.filter((col) => {
             if (!col.uiId) return true;
             return isVisible(col.uiId);
         });
 
-        // Apply custom order if provided
         if (query.columnOrder) {
             const orderArr = query.columnOrder.split(",");
             filteredColumns.sort((a, b) => {
                 const uiIdA = a.uiId || "";
                 const uiIdB = b.uiId || "";
-                
+
                 const indexA = orderArr.indexOf(uiIdA);
                 const indexB = orderArr.indexOf(uiIdB);
-                
+
                 if (indexA !== -1 && indexB !== -1) {
                     if (indexA === indexB) return 0;
                     return indexA - indexB;
                 }
-                
+
                 if (indexA !== -1) return -1;
                 if (indexB !== -1) return 1;
                 return 0;
@@ -334,11 +286,10 @@ export class ConsolidationService {
                     : "-",
                 pic_id: item.pic_id || "System",
             };
-            
+
             sheet.addRow(rowData);
         });
 
-        // Add Grand Total row for draft items
         const totalRow = sheet.addRow({
             no: "",
             barcode: "",
@@ -357,13 +308,12 @@ export class ConsolidationService {
         });
         totalRow.font = { bold: true };
 
-        // Styling (Blue header like recommendation-v2)
         sheet.getRow(1).font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } };
         sheet.getRow(1).height = 25;
         sheet.getRow(1).fill = {
             type: "pattern",
             pattern: "solid",
-            fgColor: { argb: "FF0070C0" }, // Professional Blue
+            fgColor: { argb: "FF0070C0" },
         };
         sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
 
@@ -401,5 +351,72 @@ export class ConsolidationService {
                 updated_at: new Date(),
             },
         });
+    }
+
+    private static buildTypeCondition(type?: string): any {
+        if (!type) return {};
+
+        const ffoFilter = {
+            OR: [
+                { slug: { contains: "fragrance-oil", mode: "insensitive" } },
+                { slug: { contains: "ffo", mode: "insensitive" } },
+            ],
+        };
+
+        const notFfoCondition = {
+            OR: [
+                { raw_mat_categories_id: null },
+                { raw_mat_category: { NOT: ffoFilter } },
+            ],
+        };
+
+        const notTesterCondition = {
+            OR: [
+                { barcode: null },
+                {
+                    AND: [
+                        { NOT: { barcode: { startsWith: "KTL-" } } },
+                        { NOT: { barcode: { startsWith: "KTP-" } } },
+                        { NOT: { barcode: { startsWith: "KA-" } } },
+                    ],
+                },
+            ],
+        };
+
+        switch (type) {
+            case "ffo":
+                return { raw_mat_category: ffoFilter };
+            case "lokal":
+                return {
+                    AND: [
+                        { supplier_materials: { some: { supplier: { source: "LOCAL" } } } },
+                        notFfoCondition,
+                        notTesterCondition,
+                    ],
+                };
+            case "impor":
+                return {
+                    AND: [
+                        { supplier_materials: { some: { supplier: { source: "IMPORT" } } } },
+                        notFfoCondition,
+                        notTesterCondition,
+                    ],
+                };
+            case "tester":
+                return {
+                    AND: [
+                        notFfoCondition,
+                        {
+                            OR: [
+                                { barcode: { startsWith: "KTL-" } },
+                                { barcode: { startsWith: "KTP-" } },
+                                { barcode: { startsWith: "KA-" } },
+                            ],
+                        },
+                    ],
+                };
+            default:
+                return {};
+        }
     }
 }
