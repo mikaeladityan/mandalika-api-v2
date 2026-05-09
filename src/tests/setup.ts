@@ -600,6 +600,20 @@ vi.mock("../config/prisma.js", () => ({
                     name: "PT Supplier ABC",
                     country: "Indonesia",
                     phone: null,
+                    slug: "pt-supplier-abc",
+                    source: "LOCAL",
+                };
+            }),
+            findUniqueOrThrow: vi.fn().mockImplementation(async (args) => {
+                const { where } = args;
+                if (where.id === 999) throw new Error("Supplier not found");
+                return {
+                    id: where.id || 1,
+                    name: "PT Supplier ABC",
+                    country: "Indonesia",
+                    phone: null,
+                    slug: "pt-supplier-abc",
+                    source: "LOCAL",
                 };
             }),
             findFirst: vi.fn().mockResolvedValue(null),

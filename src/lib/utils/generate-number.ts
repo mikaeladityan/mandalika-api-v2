@@ -23,5 +23,15 @@ export function generatePONumber(): string {
 
 export function generateReceiptNumber(): string {
     const { y, m, d } = dateParts();
-    return `RCV-${y}${m}${d}-${rand4()}`;
+    return `RCV-RM-${y}${m}${d}-${rand4()}`;
+}
+
+export function generateReturnNumber(): string {
+    const { y, m, d } = dateParts();
+    return `RTN-${y}${m}${d}-${rand4()}`;
+}
+
+export function generateAPNumber(): string {
+    const { y, m, d } = dateParts();
+    return `AP-${y}${m}${d}-${rand4()}`;
 }
