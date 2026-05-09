@@ -98,6 +98,8 @@ export class RecomendationV2Service {
                 FROM "purchase_orders" po
                 JOIN "purchase_order_items" poi ON poi.po_id = po.id
                 JOIN "raw_materials" rm ON rm.id = poi.raw_material_id
+                LEFT JOIN "supplier_materials" sm ON sm.raw_material_id = rm.id AND sm.is_preferred = true
+                LEFT JOIN "suppliers" s ON s.id = sm.supplier_id
                 LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
                 LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
                 WHERE po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
@@ -150,12 +152,14 @@ export class RecomendationV2Service {
                         rm.barcode,
                         rm.name,
                         urm.name as u_name,
-                        rm.min_buy,
-                        rm.lead_time,
+                        sm.min_buy,
+                        sm.lead_time,
                         rm.raw_mat_categories_id
                     FROM "raw_materials" rm
                     LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
                     LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
+                    LEFT JOIN "supplier_materials" sm ON sm.raw_material_id = rm.id AND sm.is_preferred = true
+                    LEFT JOIN "suppliers" s ON s.id = sm.supplier_id
                     WHERE ${typeFilter}
                       AND rm.deleted_at IS NULL
                       AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
@@ -489,6 +493,8 @@ export class RecomendationV2Service {
             FROM "raw_materials" rm
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
+            LEFT JOIN "supplier_materials" sm ON sm.raw_material_id = rm.id AND sm.is_preferred = true
+            LEFT JOIN "suppliers" s ON s.id = sm.supplier_id
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
               AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
@@ -853,6 +859,8 @@ export class RecomendationV2Service {
                 'DRAFT' AS status
             FROM "raw_materials" rm
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
+            LEFT JOIN "supplier_materials" sm ON sm.raw_material_id = rm.id AND sm.is_preferred = true
+            LEFT JOIN "suppliers" s ON s.id = sm.supplier_id
             LEFT JOIN inv_agg inv ON inv.raw_material_id = rm.id
             LEFT JOIN fc_agg fc ON fc.raw_mat_id = rm.id
             LEFT JOIN ss_agg ss ON ss.raw_mat_id = rm.id
@@ -1062,9 +1070,9 @@ export class RecomendationV2Service {
             case "ffo":
                 return Prisma.sql`(rmc.slug ILIKE '%fragrance-oil%' OR rmc.slug ILIKE '%ffo%')`;
             case "lokal":
-                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND rm.source = 'LOCAL' ${excludeTester}`;
+                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND s.source = 'LOCAL' ${excludeTester}`;
             case "impor":
-                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND rm.source = 'IMPORT' ${excludeTester}`;
+                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND s.source = 'IMPORT' ${excludeTester}`;
             case "tester":
                 return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND (rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KA-%')`;
             default:
