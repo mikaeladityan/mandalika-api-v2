@@ -584,35 +584,46 @@ export class RecomendationV2Service {
             safety_stock_x_resep,
         } = body;
 
-        return await prisma.materialPurchaseDraft.upsert({
-            where: {
-                raw_mat_id_month_year: {
+        return await prisma.$transaction(async (tx) => {
+            const existing = await tx.materialPurchaseDraft.findUnique({
+                where: { raw_mat_id_month_year: { raw_mat_id, month, year } },
+                select: { status: true, open_po_id: true },
+            });
+
+            const result = await tx.materialPurchaseDraft.upsert({
+                where: { raw_mat_id_month_year: { raw_mat_id, month, year } },
+                update: {
+                    quantity,
+                    horizon,
+                    total_needed,
+                    current_stock,
+                    stock_fg_x_resep,
+                    safety_stock_x_resep,
+                    updated_at: new Date(),
+                },
+                create: {
                     raw_mat_id,
                     month,
                     year,
+                    quantity,
+                    horizon,
+                    total_needed,
+                    current_stock,
+                    stock_fg_x_resep,
+                    safety_stock_x_resep,
+                    status: "DRAFT",
                 },
-            },
-            update: {
-                quantity,
-                horizon,
-                total_needed,
-                current_stock,
-                stock_fg_x_resep,
-                safety_stock_x_resep,
-                updated_at: new Date(),
-            },
-            create: {
-                raw_mat_id,
-                month,
-                year,
-                quantity,
-                horizon,
-                total_needed,
-                current_stock,
-                stock_fg_x_resep,
-                safety_stock_x_resep,
-                status: "DRAFT",
-            },
+            });
+
+            // Sync OpenPO quantity when editing an already-approved draft
+            if (existing?.status === "ACC" && existing.open_po_id) {
+                await tx.rawMaterialOpenPo.update({
+                    where: { id: existing.open_po_id },
+                    data: { quantity },
+                });
+            }
+
+            return result;
         });
     }
 

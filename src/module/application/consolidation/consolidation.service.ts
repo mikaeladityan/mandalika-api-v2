@@ -13,29 +13,7 @@ export class ConsolidationService {
         const currentMonth = month ?? now.getMonth() + 1;
         const currentYear = year ?? now.getFullYear();
 
-        const type_condition: any = {};
-        if (query.type) {
-            const ffoFilter = {
-                OR: [
-                    { slug: { contains: "fragrance-oil", mode: "insensitive" } },
-                    { slug: { contains: "ffo", mode: "insensitive" } },
-                ],
-            };
-
-            if (query.type === "ffo") {
-                type_condition.raw_mat_category = ffoFilter;
-            } else if (query.type === "lokal" || query.type === "impor") {
-                type_condition.source = query.type === "lokal" ? "LOCAL" : "IMPORT";
-                type_condition.OR = [
-                    { raw_mat_categories_id: null },
-                    {
-                        raw_mat_category: {
-                            NOT: ffoFilter,
-                        },
-                    },
-                ];
-            }
-        }
+        const type_condition = ConsolidationService.buildTypeCondition(query.type);
 
         const query_condition: any = {
             status: { in: ["DRAFT", "ACC"] },
@@ -135,29 +113,7 @@ export class ConsolidationService {
         const currentMonth = month ?? now.getMonth() + 1;
         const currentYear = year ?? now.getFullYear();
 
-        const type_condition: any = {};
-        if (query.type) {
-            const ffoFilter = {
-                OR: [
-                    { slug: { contains: "fragrance-oil", mode: "insensitive" } },
-                    { slug: { contains: "ffo", mode: "insensitive" } },
-                ],
-            };
-
-            if (query.type === "ffo") {
-                type_condition.raw_mat_category = ffoFilter;
-            } else if (query.type === "lokal" || query.type === "impor") {
-                type_condition.source = query.type === "lokal" ? "LOCAL" : "IMPORT";
-                type_condition.OR = [
-                    { raw_mat_categories_id: null },
-                    {
-                        raw_mat_category: {
-                            NOT: ffoFilter,
-                        },
-                    },
-                ];
-            }
-        }
+        const type_condition = ConsolidationService.buildTypeCondition(query.type);
 
         const query_condition: any = {
             status: { in: ["DRAFT", "ACC"] },
@@ -464,6 +420,61 @@ export class ConsolidationService {
         });
 
         return result;
+        }
+    }
+
+    private static buildTypeCondition(type?: string): any {
+        if (!type) return {};
+
+        const ffoFilter = {
+            OR: [
+                { slug: { contains: "fragrance-oil", mode: "insensitive" } },
+                { slug: { contains: "ffo", mode: "insensitive" } },
+            ],
+        };
+
+        const notFfoCondition = {
+            OR: [
+                { raw_mat_categories_id: null },
+                { raw_mat_category: { NOT: ffoFilter } },
+            ],
+        };
+
+        const notTesterCondition = {
+            OR: [
+                { barcode: null },
+                {
+                    AND: [
+                        { NOT: { barcode: { startsWith: "KTL-" } } },
+                        { NOT: { barcode: { startsWith: "KTP-" } } },
+                        { NOT: { barcode: { startsWith: "KA-" } } },
+                    ],
+                },
+            ],
+        };
+
+        switch (type) {
+            case "ffo":
+                return { raw_mat_category: ffoFilter };
+            case "lokal":
+                return { source: "LOCAL", AND: [notFfoCondition, notTesterCondition] };
+            case "impor":
+                return { source: "IMPORT", AND: [notFfoCondition, notTesterCondition] };
+            case "tester":
+                return {
+                    AND: [
+                        notFfoCondition,
+                        {
+                            OR: [
+                                { barcode: { startsWith: "KTL-" } },
+                                { barcode: { startsWith: "KTP-" } },
+                                { barcode: { startsWith: "KA-" } },
+                            ],
+                        },
+                    ],
+                };
+            default:
+                return {};
         }
     }
 }
