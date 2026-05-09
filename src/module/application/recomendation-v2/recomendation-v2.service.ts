@@ -1076,7 +1076,7 @@ export class RecomendationV2Service {
     }
 
     private static getTypeFilter(type?: string): Prisma.Sql {
-        const excludeTester = Prisma.sql`AND (rm.barcode IS NULL OR (rm.barcode NOT LIKE 'KTL-%' AND rm.barcode NOT LIKE 'KTP-%' AND rm.barcode NOT LIKE 'KA-%'))`;
+        const excludeTester = Prisma.sql`AND (rm.barcode IS NULL OR (rm.barcode NOT LIKE 'KTL-%' AND rm.barcode NOT LIKE 'KTP-%' AND rm.barcode NOT LIKE 'KA-%' AND rm.barcode NOT LIKE 'KTB-%'))`;
         switch (type) {
             case "ffo":
                 return Prisma.sql`(rmc.slug ILIKE '%fragrance-oil%' OR rmc.slug ILIKE '%ffo%')`;
@@ -1085,7 +1085,7 @@ export class RecomendationV2Service {
             case "impor":
                 return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND s.source = 'IMPORT' ${excludeTester}`;
             case "tester":
-                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND (rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KA-%')`;
+                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND (rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KA-%' OR rm.barcode LIKE 'KTB-%')`;
             default:
                 return Prisma.sql`1=1`;
         }
