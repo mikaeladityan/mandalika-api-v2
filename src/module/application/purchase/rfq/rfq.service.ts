@@ -2,6 +2,7 @@ import prisma from "../../../../config/prisma.js";
 import { CreateRFQDTO, UpdateRFQDTO, UpdateRFQStatusDTO, QueryRFQDTO, ConvertToPODTO } from "./rfq.schema.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
+import { Prisma } from "../../../../generated/prisma/client.js";
 import { generateRFQNumber, generatePONumber } from "../../../../lib/utils/generate-number.js";
 
 const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
@@ -12,8 +13,6 @@ const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
     CONVERTED: [],
     CLOSED: [],
 };
-
-export { generateRFQNumber, generatePONumber };
 
 export class RFQService {
     static async list(query: QueryRFQDTO) {
@@ -96,7 +95,6 @@ export class RFQService {
     }
 
     static async create(body: CreateRFQDTO, userId: string) {
-        // Validation: Ensure purchase_draft_ids are not already linked
         const draftIds = body.items
             .map((i) => i.purchase_draft_id)
             .filter(Boolean) as number[];
@@ -110,7 +108,6 @@ export class RFQService {
             }
         }
 
-        // Resolve supplier_name from master data when using an existing supplier
         if (body.supplier_id && !body.is_new_supplier) {
             const supplier = await prisma.supplier.findUnique({
                 where: { id: body.supplier_id },
@@ -137,7 +134,7 @@ export class RFQService {
 
             const rfq = await tx.purchaseRFQ.create({
                 data: {
-                    rfq_number: body.rfq_number || generateRFQNumber(),
+                    rfq_number: body.rfq_number || await generateRFQNumber(tx),
                     rfq_date: body.rfq_date || new Date(),
                     supplier_id: supplierId || null,
                     supplier_name: body.supplier_name,
@@ -169,50 +166,8 @@ export class RFQService {
                 },
             });
 
-            // Link materials to the supplier (new or existing) to update sourcing catalog
             if (supplierId) {
-                const masterItems = body.items.filter((i) => i.raw_material_id);
-                if (masterItems.length > 0) {
-                    // De-duplicate items to prevent multiple upserts for the same RM in one transaction
-                    const uniqueMap = new Map();
-                    for (const item of masterItems) {
-                        uniqueMap.set(item.raw_material_id, item);
-                    }
-                    const uniqueItems = Array.from(uniqueMap.values());
-
-                    for (const item of uniqueItems) {
-                        const existingSM = await tx.supplierMaterial.findUnique({
-                            where: {
-                                supplier_id_raw_material_id: {
-                                    supplier_id: supplierId,
-                                    raw_material_id: item.raw_material_id!,
-                                },
-                            },
-                        });
-
-                        if (existingSM) {
-                            await tx.supplierMaterial.update({
-                                where: { id: existingSM.id },
-                                data: {
-                                    unit_price: item.unit_price !== undefined ? item.unit_price : undefined,
-                                    min_buy: item.moq !== undefined ? item.moq : undefined,
-                                    lead_time: item.lead_time !== undefined ? item.lead_time : undefined,
-                                },
-                            });
-                        } else {
-                            await tx.supplierMaterial.create({
-                                data: {
-                                    supplier_id: supplierId,
-                                    raw_material_id: item.raw_material_id!,
-                                    unit_price: item.unit_price || 0,
-                                    min_buy: item.moq || null,
-                                    lead_time: item.lead_time || null,
-                                    is_preferred: false,
-                                },
-                            });
-                        }
-                    }
-                }
+                await RFQService.syncSupplierMaterials(tx, supplierId, body.items);
             }
 
             return rfq;
@@ -226,7 +181,6 @@ export class RFQService {
             throw new ApiError(400, `Cannot edit an RFQ with status ${rfq.status}.`);
         }
 
-        // Resolve supplier_name from master data when using an existing supplier
         if (body.supplier_id && !body.supplier_name) {
             const supplier = await prisma.supplier.findUnique({
                 where: { id: body.supplier_id },
@@ -236,8 +190,6 @@ export class RFQService {
         }
 
         return await prisma.$transaction(async (tx) => {
-            
-            // Update header
             const updated = await tx.purchaseRFQ.update({
                 where: { id },
                 data: {
@@ -252,7 +204,6 @@ export class RFQService {
                 },
             });
 
-            // Replace items if provided
             if (body.items !== undefined) {
                 await tx.purchaseRFQItem.deleteMany({ where: { rfq_id: id } });
                 await tx.purchaseRFQItem.createMany({
@@ -272,49 +223,8 @@ export class RFQService {
                     })),
                 });
 
-                // Update supplier material catalog if supplier is known
-                const currentSupplierId = updated.supplier_id;
-                if (currentSupplierId) {
-                    const masterItems = body.items.filter((i) => i.raw_material_id);
-                    // De-duplicate items
-                    const uniqueMap = new Map();
-                    for (const item of masterItems) {
-                        uniqueMap.set(item.raw_material_id, item);
-                    }
-                    const uniqueItems = Array.from(uniqueMap.values());
-
-                    for (const item of uniqueItems) {
-                        const existingSM = await tx.supplierMaterial.findUnique({
-                            where: {
-                                supplier_id_raw_material_id: {
-                                    supplier_id: currentSupplierId,
-                                    raw_material_id: item.raw_material_id!,
-                                },
-                            },
-                        });
-
-                        if (existingSM) {
-                            await tx.supplierMaterial.update({
-                                where: { id: existingSM.id },
-                                data: {
-                                    unit_price: item.unit_price !== undefined ? item.unit_price : undefined,
-                                    min_buy: item.moq !== undefined ? item.moq : undefined,
-                                    lead_time: item.lead_time !== undefined ? item.lead_time : undefined,
-                                },
-                            });
-                        } else {
-                            await tx.supplierMaterial.create({
-                                data: {
-                                    supplier_id: currentSupplierId,
-                                    raw_material_id: item.raw_material_id!,
-                                    unit_price: item.unit_price || 0,
-                                    min_buy: item.moq || null,
-                                    lead_time: item.lead_time || null,
-                                    is_preferred: false,
-                                },
-                            });
-                        }
-                    }
+                if (updated.supplier_id) {
+                    await RFQService.syncSupplierMaterials(tx, updated.supplier_id, body.items);
                 }
             }
 
@@ -353,6 +263,42 @@ export class RFQService {
         return await prisma.purchaseRFQ.delete({ where: { id } });
     }
 
+    private static async syncSupplierMaterials(
+        tx: Prisma.TransactionClient,
+        supplierId: number,
+        items: Array<{ raw_material_id?: number | null; unit_price?: number; moq?: number | null; lead_time?: number | null }>,
+    ): Promise<void> {
+        const uniqueMap = new Map<number, (typeof items)[number]>();
+        for (const item of items) {
+            if (item.raw_material_id) uniqueMap.set(item.raw_material_id, item);
+        }
+        await Promise.all(
+            Array.from(uniqueMap.values()).map((item) =>
+                tx.supplierMaterial.upsert({
+                    where: {
+                        supplier_id_raw_material_id: {
+                            supplier_id: supplierId,
+                            raw_material_id: item.raw_material_id!,
+                        },
+                    },
+                    update: {
+                        unit_price: item.unit_price !== undefined ? item.unit_price : undefined,
+                        min_buy: item.moq !== undefined ? item.moq : undefined,
+                        lead_time: item.lead_time !== undefined ? item.lead_time : undefined,
+                    },
+                    create: {
+                        supplier_id: supplierId,
+                        raw_material_id: item.raw_material_id!,
+                        unit_price: item.unit_price || 0,
+                        min_buy: item.moq || null,
+                        lead_time: item.lead_time || null,
+                        is_preferred: false,
+                    },
+                }),
+            ),
+        );
+    }
+
     static async convertToPO(id: number, body: ConvertToPODTO, userId: string) {
         const rfq = await prisma.purchaseRFQ.findUniqueOrThrow({
             where: { id },
@@ -370,6 +316,14 @@ export class RFQService {
         const selectedItems = rfq.items.filter(item => body.item_ids.includes(item.id));
         if (selectedItems.length === 0) {
             throw new ApiError(400, "At least one item must be selected for PO conversion.");
+        }
+
+        const inferredPoType = body.po_type ?? (rfq.supplier?.source === "IMPORT" ? "IMPORT" : "LOCAL");
+        const currency = body.currency ?? "IDR";
+        const exchangeRate = body.exchange_rate ?? 1;
+
+        if (inferredPoType === "IMPORT" && currency === "IDR") {
+            throw new ApiError(400, "Import PO requires a foreign currency and a positive exchange_rate.");
         }
 
         return await prisma.$transaction(async (tx) => {
@@ -390,16 +344,17 @@ export class RFQService {
 
             const po = await tx.purchaseOrder.create({
                 data: {
-                    po_number: generatePONumber(),
+                    po_number: await generatePONumber(tx),
                     po_date: new Date(),
-                    po_type: rfq.supplier?.source === "IMPORT" ? "IMPORT" : "LOCAL",
+                    po_type: inferredPoType,
                     supplier_id: rfq.supplier_id,
                     supplier_name: rfq.supplier_name,
                     supplier_code: rfq.supplier_code,
                     is_new_supplier: rfq.is_new_supplier,
+                    warehouse_id: body.warehouse_id ?? null,
                     source_rfq_id: rfq.id,
-                    currency: "IDR",
-                    exchange_rate: 1,
+                    currency,
+                    exchange_rate: exchangeRate,
                     total_estimated: totalEstimated,
                     status: "DRAFT",
                     created_by: userId,

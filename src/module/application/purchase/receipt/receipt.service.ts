@@ -11,14 +11,22 @@ export class ReceiptService {
 
         const where: any = {};
 
+        const andConditions: any[] = [];
         if (search) {
-            where.OR = [
-                { receipt_number: { contains: search, mode: "insensitive" } },
-                { notes: { contains: search, mode: "insensitive" } },
-            ];
+            andConditions.push({
+                OR: [
+                    { receipt_number: { contains: search, mode: "insensitive" } },
+                    { notes: { contains: search, mode: "insensitive" } },
+                ],
+            });
         }
+        if (po_id) {
+            andConditions.push({
+                OR: [{ po_id }, { items: { some: { po_id } } }],
+            });
+        }
+        if (andConditions.length > 0) where.AND = andConditions;
         if (status) where.status = status;
-        if (po_id) where.po_id = po_id;
         if (warehouse_id) where.warehouse_id = warehouse_id;
 
         if (month) {
@@ -126,7 +134,7 @@ export class ReceiptService {
 
             return await tx.purchaseReceipt.create({
                 data: {
-                    receipt_number: generateReceiptNumber(),
+                    receipt_number: await generateReceiptNumber(tx),
                     receipt_date: body.receipt_date ?? new Date(),
                     warehouse_id: body.warehouse_id,
                     status: "DRAFT",
@@ -365,7 +373,7 @@ export class ReceiptService {
 
                 // 6. Create AccountPayable per PO group
                 const poAmount = poItems.reduce((sum, i) => sum + Number(i.amount), 0);
-                const apNumber = generateAPNumber();
+                const apNumber = await generateAPNumber(tx);
 
                 await tx.accountPayable.create({
                     data: {

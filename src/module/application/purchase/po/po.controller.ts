@@ -1,6 +1,6 @@
 import { Context } from "hono";
 import { POService } from "./po.service.js";
-import { QueryPOSchema, CreatePODTO, UpdatePODTO, UpdatePOStatusDTO, UpdatePOTrackingDTO, ReceiveItemsDTO } from "./po.schema.js";
+import { QueryPOSchema, QueryOpenPOSchema, CreatePODTO, UpdatePODTO, UpdatePOStatusDTO, UpdatePOTrackingDTO, ReceiveItemsDTO } from "./po.schema.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 
@@ -73,6 +73,12 @@ export class POController {
     static async listReceipts(c: Context) {
         const id = parseId(c);
         const result = await POService.listReceipts(id);
+        return ApiResponse.sendSuccess(c, result);
+    }
+
+    static async listOpenPO(c: Context) {
+        const query = QueryOpenPOSchema.parse(c.req.query());
+        const result = await POService.listOpenPO(query);
         return ApiResponse.sendSuccess(c, result);
     }
 

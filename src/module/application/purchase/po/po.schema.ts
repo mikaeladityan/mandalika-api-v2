@@ -121,3 +121,14 @@ export const ReceiveItemsSchema = z.object({
 });
 
 export type ReceiveItemsDTO = z.infer<typeof ReceiveItemsSchema>;
+
+export const QueryOpenPOSchema = z.object({
+    page: z.coerce.number().min(1).default(1),
+    take: z.coerce.number().min(1).max(500).default(50),
+    po_type: POTypeEnum.optional(),
+    supplier_id: z.coerce.number().int().positive().optional(),
+    warehouse_id: z.coerce.number().int().positive().optional(),
+    month: z.coerce.number().min(1).max(12).optional(),
+    year: z.coerce.number().min(2000).optional(),
+});
+export type QueryOpenPODTO = z.infer<typeof QueryOpenPOSchema>;

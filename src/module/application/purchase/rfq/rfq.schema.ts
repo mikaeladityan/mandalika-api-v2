@@ -76,9 +76,23 @@ export const QueryRFQSchema = z.object({
 
 export type QueryRFQDTO = z.infer<typeof QueryRFQSchema>;
 
+export const POTypeEnum = z.enum(["LOCAL", "IMPORT"]);
+
 export const ConvertToPOSchema = z.object({
     item_ids: z.array(z.number().int().positive()).min(1),
     expected_arrival: z.coerce.date().optional(),
-});
+    warehouse_id: z.number().int().positive().optional().nullable(),
+    po_type: POTypeEnum.optional(),
+    currency: z.string().optional(),
+    exchange_rate: z.number().positive().optional().nullable(),
+}).refine(
+    (data) => {
+        if (data.po_type === "IMPORT" || data.currency) {
+            return data.currency && data.currency !== "IDR" && data.exchange_rate && data.exchange_rate > 0;
+        }
+        return true;
+    },
+    { message: "Import PO requires a foreign currency and a positive exchange_rate." },
+);
 
 export type ConvertToPODTO = z.infer<typeof ConvertToPOSchema>;

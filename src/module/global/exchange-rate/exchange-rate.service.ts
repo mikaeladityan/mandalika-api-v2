@@ -1,4 +1,4 @@
-import { ApiError } from "../../../../lib/errors/api.error.js";
+import { ApiError } from "../../../lib/errors/api.error.js";
 import { ExchangeRateResponse, QueryExchangeRateDTO } from "./exchange-rate.schema.js";
 
 interface CacheEntry {

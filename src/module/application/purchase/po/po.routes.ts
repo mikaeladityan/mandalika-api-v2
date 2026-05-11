@@ -6,6 +6,7 @@ import { CreatePOSchema, UpdatePOSchema, UpdatePOStatusSchema, UpdatePOTrackingS
 const routes = new Hono();
 
 routes.get("/", POController.list);
+routes.get("/open-po", POController.listOpenPO);
 routes.get("/:id", POController.detail);
 routes.get("/:id/receipts", POController.listReceipts);
 routes.post("/", validateBody(CreatePOSchema), POController.create);

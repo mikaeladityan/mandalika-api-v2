@@ -87,37 +87,47 @@ export class VendorReturnService {
             throw new ApiError(400, `Receipt must be POSTED to create a return. Current: ${receipt.status}.`);
         }
 
-        const receiptItemIds = body.items.map((i) => i.receipt_item_id);
         const receiptItemMap = new Map(receipt.items.map((i) => [i.id, i]));
 
-        // Validate qty_returned per item
+        // Validate item IDs belong to this receipt (before entering transaction)
         for (const item of body.items) {
-            const receiptItem = receiptItemMap.get(item.receipt_item_id);
-            if (!receiptItem) {
+            if (!receiptItemMap.has(item.receipt_item_id)) {
                 throw new ApiError(400, `Receipt item ${item.receipt_item_id} not found in receipt ${body.receipt_id}.`);
-            }
-
-            // Check total already returned for this receipt item
-            const alreadyReturned = await prisma.vendorReturnItem.aggregate({
-                where: { receipt_item_id: item.receipt_item_id },
-                _sum: { qty_returned: true },
-            });
-            const totalReturned = Number(alreadyReturned._sum.qty_returned ?? 0);
-            const available = Number(receiptItem.qty_received) - totalReturned;
-
-            if (item.qty_returned > available + 0.001) {
-                throw new ApiError(
-                    400,
-                    `Item "${receiptItem.item_name}": qty_returned (${item.qty_returned}) exceeds available qty (${available.toFixed(2)}).`,
-                );
             }
         }
 
         return await prisma.$transaction(async (tx) => {
-            const returnItemsData = body.items.map((item) => {
+            // Validate qty inside transaction to prevent race conditions
+            const returnItemsData: Array<{
+                receipt_item_id: number;
+                raw_material_id: number | null;
+                item_code: string;
+                item_name: string;
+                uom: string;
+                qty_returned: number;
+                unit_price: any;
+                amount: number;
+                reason: string | null;
+            }> = [];
+
+            for (const item of body.items) {
                 const receiptItem = receiptItemMap.get(item.receipt_item_id)!;
-                const amount = item.qty_returned * Number(receiptItem.unit_price);
-                return {
+
+                const alreadyReturned = await tx.vendorReturnItem.aggregate({
+                    where: { receipt_item_id: item.receipt_item_id },
+                    _sum: { qty_returned: true },
+                });
+                const totalReturned = Number(alreadyReturned._sum.qty_returned ?? 0);
+                const available = Number(receiptItem.qty_received) - totalReturned;
+
+                if (item.qty_returned > available + 0.001) {
+                    throw new ApiError(
+                        400,
+                        `Item "${receiptItem.item_name}": qty_returned (${item.qty_returned}) exceeds available qty (${available.toFixed(2)}).`,
+                    );
+                }
+
+                returnItemsData.push({
                     receipt_item_id: item.receipt_item_id,
                     raw_material_id: receiptItem.raw_material_id ?? null,
                     item_code: receiptItem.item_code,
@@ -125,14 +135,14 @@ export class VendorReturnService {
                     uom: receiptItem.uom,
                     qty_returned: item.qty_returned,
                     unit_price: receiptItem.unit_price,
-                    amount,
+                    amount: item.qty_returned * Number(receiptItem.unit_price),
                     reason: item.reason ?? null,
-                };
-            });
+                });
+            }
 
             return await tx.vendorReturn.create({
                 data: {
-                    return_number: generateReturnNumber(),
+                    return_number: await generateReturnNumber(tx),
                     return_date: body.return_date ?? new Date(),
                     receipt_id: body.receipt_id,
                     warehouse_id: body.warehouse_id,
