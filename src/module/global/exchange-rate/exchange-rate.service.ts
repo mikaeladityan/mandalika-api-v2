@@ -33,7 +33,9 @@ export class ExchangeRateService {
             throw new ApiError(502, `Kurs IDR tidak tersedia untuk ${currency}.`);
         }
 
-        cache.set(currency, { rate, date: data.date ?? new Date().toISOString().split("T")[0], fetchedAt: Date.now() });
-        return { currency, rate, date: data.date };
+        const roundedRate = Math.round(rate);
+
+        cache.set(currency, { rate: roundedRate, date: data.date ?? new Date().toISOString().split("T")[0], fetchedAt: Date.now() });
+        return { currency, rate: roundedRate, date: data.date };
     }
 }
