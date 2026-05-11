@@ -280,13 +280,17 @@ export class RecomendationV2Service {
                     fm.min_buy AS moq,
                     fm.lead_time AS lead_time,
                     mro.horizon AS work_order_horizon,
-                    COALESCE((
-                        SELECT SUM(rmi.quantity)
-                        FROM "raw_material_inventories" rmi
-                        WHERE rmi.raw_material_id = fm.id
-                          AND rmi.month = ${invMonth}
-                          AND rmi.year = ${invYear}
-                    ), 0) AS current_stock,
+                    CASE
+                        WHEN fm.barcode LIKE 'KTP-%' OR fm.barcode LIKE 'KTB-%' OR fm.barcode LIKE 'KTL-%' OR fm.barcode LIKE 'KEM-%' OR fm.barcode LIKE 'KA-%'
+                        THEN COALESCE(sa.stock_fg_x_resep, 0)
+                        ELSE COALESCE((
+                            SELECT SUM(rmi.quantity)
+                            FROM "raw_material_inventories" rmi
+                            WHERE rmi.raw_material_id = fm.id
+                              AND rmi.month = ${invMonth}
+                              AND rmi.year = ${invYear}
+                        ), 0)
+                    END AS current_stock,
                     COALESCE((
                         SELECT SUM(po.quantity)
                         FROM "raw_material_open_pos" po
@@ -883,7 +887,11 @@ export class RecomendationV2Service {
                 0 AS quantity,
                 ${horizon} AS horizon,
                 COALESCE(fc.total, 0) AS total_needed,
-                COALESCE(inv.total, 0) AS current_stock,
+                CASE
+                    WHEN rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KTB-%' OR rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KEM-%' OR rm.barcode LIKE 'KA-%'
+                    THEN COALESCE(fg.total, 0)
+                    ELSE COALESCE(inv.total, 0)
+                END AS current_stock,
                 COALESCE(fg.total, 0) AS stock_fg_x_resep,
                 COALESCE(ss.total, 0) AS safety_stock_x_resep,
                 ${now} AS created_at,
