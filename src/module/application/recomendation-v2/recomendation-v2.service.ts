@@ -683,25 +683,83 @@ export class RecomendationV2Service {
     static async saveNeedOverride(body: RequestSaveNeedOverrideDTO) {
         const { raw_material_id, month, year, quantity } = body;
 
-        return await prisma.rawMaterialNeedOverride.upsert({
-            where: {
-                raw_material_id_month_year: {
-                    raw_material_id,
-                    month,
-                    year,
-                },
-            },
+        const material = await prisma.rawMaterial.findUnique({
+            where: { id: raw_material_id },
+            select: { barcode: true },
+        });
+
+        const isKa = material?.barcode?.startsWith("KA-") ?? false;
+
+        await prisma.rawMaterialNeedOverride.upsert({
+            where: { raw_material_id_month_year: { raw_material_id, month, year } },
             update: { quantity },
             create: { raw_material_id, month, year, quantity },
         });
+
+        let cascadeCount = 0;
+        if (isKa) {
+            const relatedIds = await RecomendationV2Service.findKaCascadedMaterials(raw_material_id);
+            cascadeCount = relatedIds.length;
+            if (relatedIds.length > 0) {
+                await Promise.all(
+                    relatedIds.map((id) =>
+                        prisma.rawMaterialNeedOverride.upsert({
+                            where: { raw_material_id_month_year: { raw_material_id: id, month, year } },
+                            update: { quantity },
+                            create: { raw_material_id: id, month, year, quantity },
+                        }),
+                    ),
+                );
+            }
+        }
+
+        return { message: "Override berhasil disimpan", cascaded: cascadeCount };
     }
 
     static async deleteNeedOverride(body: { raw_material_id: number; month: number; year: number }) {
         const { raw_material_id, month, year } = body;
-        await prisma.rawMaterialNeedOverride.deleteMany({
-            where: { raw_material_id, month, year },
+
+        const material = await prisma.rawMaterial.findUnique({
+            where: { id: raw_material_id },
+            select: { barcode: true },
         });
-        return { message: "Need override reset to system calculation" };
+
+        const isKa = material?.barcode?.startsWith("KA-") ?? false;
+        let cascadeCount = 0;
+
+        if (isKa) {
+            const relatedIds = await RecomendationV2Service.findKaCascadedMaterials(raw_material_id);
+            cascadeCount = relatedIds.length;
+            await prisma.rawMaterialNeedOverride.deleteMany({
+                where: {
+                    raw_material_id: { in: [...relatedIds, raw_material_id] },
+                    month,
+                    year,
+                },
+            });
+        } else {
+            await prisma.rawMaterialNeedOverride.deleteMany({
+                where: { raw_material_id, month, year },
+            });
+        }
+
+        return { message: "Need override reset to system calculation", cascaded: cascadeCount };
+    }
+
+    private static async findKaCascadedMaterials(raw_material_id: number): Promise<number[]> {
+        const related = await prisma.$queryRaw<{ id: number }[]>`
+            SELECT DISTINCT rm.id
+            FROM raw_materials rm
+            JOIN recipes rec1 ON rec1.raw_mat_id = rm.id AND rec1.is_active = true
+            WHERE (rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KTB-%')
+              AND EXISTS (
+                SELECT 1 FROM recipes rec2
+                WHERE rec2.product_id = rec1.product_id
+                  AND rec2.is_active = true
+                  AND rec2.raw_mat_id = ${raw_material_id}
+              )
+        `;
+        return related.map((r) => r.id);
     }
 
     static async approveWorkOrder(body: RequestApproveWorkOrderDTO, userId: string) {
