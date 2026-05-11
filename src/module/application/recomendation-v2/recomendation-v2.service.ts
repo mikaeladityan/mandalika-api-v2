@@ -259,9 +259,10 @@ export class RecomendationV2Service {
             SELECT 
                 *,
                 rank() OVER (
-                    ORDER BY 
+                    ORDER BY
+                        CASE WHEN barcode LIKE 'KA-%' THEN 0 ELSE 1 END ASC,
                         CASE WHEN barcode = 'FO-ALK' THEN 1 ELSE 0 END ASC,
-                        current_month_sales DESC, 
+                        current_month_sales DESC,
                         material_name ASC
                 ) as ranking,
                 CASE 
@@ -281,7 +282,7 @@ export class RecomendationV2Service {
                     fm.lead_time AS lead_time,
                     mro.horizon AS work_order_horizon,
                     CASE
-                        WHEN fm.barcode LIKE 'KTP-%' OR fm.barcode LIKE 'KTB-%' OR fm.barcode LIKE 'KTL-%' OR fm.barcode LIKE 'KEM-%' OR fm.barcode LIKE 'KA-%'
+                        WHEN fm.barcode LIKE 'KTP-%' OR fm.barcode LIKE 'KTB-%' OR fm.barcode LIKE 'KTL-%' OR fm.barcode LIKE 'KEM-%'
                         THEN COALESCE(sa.stock_fg_x_resep, 0)
                         ELSE COALESCE((
                             SELECT SUM(rmi.quantity)
@@ -428,6 +429,7 @@ export class RecomendationV2Service {
                 LEFT JOIN rm_current_sales_agg cms ON cms.raw_mat_id = fm.id
             ) AS base
             ORDER BY
+                CASE WHEN barcode LIKE 'KA-%' THEN 0 ELSE 1 END ASC,
                 CASE WHEN barcode = 'FO-ALK' THEN 1 ELSE 0 END ASC,
                 ${
                     query.sortBy
@@ -888,7 +890,7 @@ export class RecomendationV2Service {
                 ${horizon} AS horizon,
                 COALESCE(fc.total, 0) AS total_needed,
                 CASE
-                    WHEN rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KTB-%' OR rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KEM-%' OR rm.barcode LIKE 'KA-%'
+                    WHEN rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KTB-%' OR rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KEM-%'
                     THEN COALESCE(fg.total, 0)
                     ELSE COALESCE(inv.total, 0)
                 END AS current_stock,
