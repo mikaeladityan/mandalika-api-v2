@@ -495,8 +495,16 @@ export class RecomendationV2Service {
                     : r.work_order_data;
 
             const horizon = workOrder?.horizon || 0;
-            const isSpecial = r.barcode === 'KA-0.6MM';
-            const sheetToKgFactor = 5000 / 14000;
+            let isSpecial = false;
+            let sheetToKgFactor = 1;
+
+            if (r.barcode === 'KA-0.6MM') {
+                isSpecial = true;
+                sheetToKgFactor = 5000 / 14000;
+            } else if (r.barcode === 'KA-0.4MM') {
+                isSpecial = true;
+                sheetToKgFactor = (144 * 5000) / 2946120;
+            }
 
             // Base values from DB
             const currentStock = Number(r.current_stock);
