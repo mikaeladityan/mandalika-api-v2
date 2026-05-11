@@ -783,83 +783,77 @@ export class RecomendationV2Service {
     }
 
     /**
-     * Recalculates KA-% need (in sheets) for a period based on current KTP/KTL/KTB overrides.
+     * Recalculates KA-% need (in sheets) for a period using a single SQL query.
+     * Uses a LATERAL join to fetch the KTP/KTL/KTB override per product, avoiding Prisma.join.
      * For each product using this KA-% material:
-     *   - If that product's KTP/KTL/KTB has an override: derive effective product demand = override / ktp_recipe_qty
-     *   - Else: use final_forecast
-     * Returns the total sheets and whether any KTP override was found.
+     *   - If that product's KTP/KTL/KTB has an override: effective_demand = override / ktp_recipe_qty
+     *   - Else: effective_demand = final_forecast
+     * Returns the total sheets need and whether any KTP override contributed.
      */
     private static async recalculateKaNeedForPeriod(
         ka_material_id: number,
         month: number,
         year: number,
     ): Promise<{ need: number; hasKtpOverride: boolean }> {
-        const kaRecipes = await prisma.$queryRaw<{ product_id: number; ka_recipe_qty: number }[]>`
-            SELECT rec.product_id::int, rec.quantity::numeric AS ka_recipe_qty
-            FROM recipes rec
-            JOIN products p ON p.id = rec.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
-            WHERE rec.raw_mat_id = ${ka_material_id}
-              AND rec.is_active = true
-        `;
-
-        if (kaRecipes.length === 0) return { need: 0, hasKtpOverride: false };
-
-        const productIds = kaRecipes.map((r) => Number(r.product_id));
-
-        // Find KTP/KTL/KTB overrides for these products this period
-        const ktpOverrides = await prisma.$queryRaw<{
-            product_id: number;
-            override_qty: number;
-            ktp_recipe_qty: number;
+        const rows = await prisma.$queryRaw<{
+            ka_recipe_qty: number;
+            override_qty: number | null;
+            ktp_recipe_qty: number | null;
+            final_forecast: number | null;
         }[]>`
-            SELECT DISTINCT ON (rec.product_id)
-                rec.product_id::int,
-                o.quantity::numeric AS override_qty,
-                rec.quantity::numeric AS ktp_recipe_qty
-            FROM recipes rec
-            JOIN raw_materials rm ON rm.id = rec.raw_mat_id
-            JOIN raw_material_need_overrides o
-                ON o.raw_material_id = rec.raw_mat_id
-                AND o.month = ${month} AND o.year = ${year}
-            WHERE rec.product_id = ANY(ARRAY[${Prisma.join(productIds)}]::int[])
-              AND rec.is_active = true
-              AND (rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KTB-%')
-            ORDER BY rec.product_id, rec.raw_mat_id
+            SELECT
+                ka_rec.quantity::numeric          AS ka_recipe_qty,
+                ktp_ov.override_qty::numeric      AS override_qty,
+                ktp_ov.ktp_recipe_qty::numeric    AS ktp_recipe_qty,
+                f.final_forecast::numeric         AS final_forecast
+            FROM recipes ka_rec
+            JOIN products p
+                ON p.id = ka_rec.product_id
+                AND p.status = 'ACTIVE'
+                AND p.deleted_at IS NULL
+            LEFT JOIN LATERAL (
+                SELECT
+                    o.quantity            AS override_qty,
+                    rec.quantity          AS ktp_recipe_qty
+                FROM recipes rec
+                JOIN raw_materials rm ON rm.id = rec.raw_mat_id
+                JOIN raw_material_need_overrides o
+                    ON o.raw_material_id = rec.raw_mat_id
+                    AND o.month = ${month}
+                    AND o.year  = ${year}
+                WHERE rec.product_id = ka_rec.product_id
+                  AND rec.is_active   = true
+                  AND (
+                      rm.barcode LIKE 'KTP-%'
+                      OR rm.barcode LIKE 'KTL-%'
+                      OR rm.barcode LIKE 'KTB-%'
+                  )
+                LIMIT 1
+            ) ktp_ov ON true
+            LEFT JOIN forecasts f
+                ON f.product_id = ka_rec.product_id
+                AND f.month = ${month}
+                AND f.year  = ${year}
+            WHERE ka_rec.raw_mat_id = ${ka_material_id}
+              AND ka_rec.is_active  = true
         `;
 
-        const overrideMap = new Map<number, { override_qty: number; ktp_recipe_qty: number }>();
-        for (const o of ktpOverrides) {
-            overrideMap.set(Number(o.product_id), {
-                override_qty: Number(o.override_qty),
-                ktp_recipe_qty: Number(o.ktp_recipe_qty),
-            });
-        }
+        if (rows.length === 0) return { need: 0, hasKtpOverride: false };
 
-        const productsNeedingForecast = productIds.filter((pid) => !overrideMap.has(pid));
-        const forecastMap = new Map<number, number>();
+        let kaNeed = 0;
+        let hasKtpOverride = false;
 
-        if (productsNeedingForecast.length > 0) {
-            const forecasts = await prisma.forecast.findMany({
-                where: { product_id: { in: productsNeedingForecast }, month, year },
-                select: { product_id: true, final_forecast: true },
-            });
-            for (const f of forecasts) {
-                forecastMap.set(f.product_id, Number(f.final_forecast));
+        for (const r of rows) {
+            const kaQty = Number(r.ka_recipe_qty);
+            if (r.override_qty != null && r.ktp_recipe_qty != null && Number(r.ktp_recipe_qty) > 0) {
+                hasKtpOverride = true;
+                kaNeed += (Number(r.override_qty) / Number(r.ktp_recipe_qty)) * kaQty;
+            } else {
+                kaNeed += Number(r.final_forecast ?? 0) * kaQty;
             }
         }
 
-        let kaNeed = 0;
-        for (const r of kaRecipes) {
-            const pid = Number(r.product_id);
-            const ov = overrideMap.get(pid);
-            const effective_demand =
-                ov && ov.ktp_recipe_qty > 0
-                    ? ov.override_qty / ov.ktp_recipe_qty
-                    : (forecastMap.get(pid) ?? 0);
-            kaNeed += effective_demand * Number(r.ka_recipe_qty);
-        }
-
-        return { need: Math.round(kaNeed), hasKtpOverride: overrideMap.size > 0 };
+        return { need: Math.round(kaNeed), hasKtpOverride };
     }
 
     static async saveOpenPo(body: RequestSaveOpenPoDTO) {
