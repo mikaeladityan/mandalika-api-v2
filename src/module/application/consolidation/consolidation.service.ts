@@ -378,6 +378,7 @@ export class ConsolidationService {
                         { NOT: { barcode: { startsWith: "KTL-" } } },
                         { NOT: { barcode: { startsWith: "KTP-" } } },
                         { NOT: { barcode: { startsWith: "KA-" } } },
+                        { NOT: { barcode: { startsWith: "KTB-" } } },
                     ],
                 },
             ],
@@ -402,62 +403,6 @@ export class ConsolidationService {
                         notTesterCondition,
                     ],
                 };
-            case "tester":
-                return {
-                    AND: [
-                        notFfoCondition,
-                        {
-                            OR: [
-                                { barcode: { startsWith: "KTL-" } },
-                                { barcode: { startsWith: "KTP-" } },
-                                { barcode: { startsWith: "KA-" } },
-                            ],
-                        },
-                    ],
-                };
-            default:
-                return {};
-        }
-    }
-
-    private static buildTypeCondition(type?: string): any {
-        if (!type) return {};
-
-        const ffoFilter = {
-            OR: [
-                { slug: { contains: "fragrance-oil", mode: "insensitive" } },
-                { slug: { contains: "ffo", mode: "insensitive" } },
-            ],
-        };
-
-        const notFfoCondition = {
-            OR: [
-                { raw_mat_categories_id: null },
-                { raw_mat_category: { NOT: ffoFilter } },
-            ],
-        };
-
-        const notTesterCondition = {
-            OR: [
-                { barcode: null },
-                {
-                    AND: [
-                        { NOT: { barcode: { startsWith: "KTL-" } } },
-                        { NOT: { barcode: { startsWith: "KTP-" } } },
-                        { NOT: { barcode: { startsWith: "KA-" } } },
-                        { NOT: { barcode: { startsWith: "KTB-" } } },
-                    ],
-                },
-            ],
-        };
-
-        switch (type) {
-            case "ffo":
-                return { raw_mat_category: ffoFilter };
-            case "lokal":
-                return { source: "LOCAL", AND: [notFfoCondition, notTesterCondition] };
-            case "impor":
-                return { source: "IMPORT", AND: [notFfoCondition, notTesterCondition] };
             case "tester":
                 return {
                     AND: [
