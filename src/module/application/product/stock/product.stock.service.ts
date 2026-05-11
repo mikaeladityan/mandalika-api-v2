@@ -88,6 +88,7 @@ export class ProductStockService {
         `,
             prisma.$queryRaw<any[]>`
             SELECT 
+                p.id,
                 p.code, 
                 p.name, 
                 COALESCE(pt.name, 'Unknown') AS type, 
@@ -124,6 +125,7 @@ export class ProductStockService {
             month: month as number,
             year: year as number,
             data: productsResult.map((p) => ({
+                id: Number(p.id),
                 code: p.code,
                 name: p.name,
                 type: p.type,

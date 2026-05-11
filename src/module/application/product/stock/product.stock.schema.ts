@@ -18,6 +18,7 @@ export const RequestUpsertProductStockSchema = z.object({
 });
 
 export const ResponseProductStockSchema = z.object({
+    id: z.number(),
     code: z.string(),
     name: z.string(),
     type: z.string(),
