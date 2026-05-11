@@ -32,7 +32,8 @@ describe("RecomendationV2Service - Override Features", () => {
             const result = await RecomendationV2Service.saveNeedOverride(mockBody);
 
             expect(result).toBeDefined();
-            expect(result.quantity).toBe(1500);
+            expect(result.message).toBe("Override berhasil disimpan");
+            expect(result.cascaded).toBe(0);
             expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({
                 where: {
                     raw_material_id_month_year: {

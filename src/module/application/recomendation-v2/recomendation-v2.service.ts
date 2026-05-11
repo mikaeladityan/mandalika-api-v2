@@ -688,7 +688,9 @@ export class RecomendationV2Service {
             select: { barcode: true },
         });
 
-        const isKa = material?.barcode?.startsWith("KA-") ?? false;
+        const barcode = material?.barcode ?? "";
+        const isKa = barcode.startsWith("KA-");
+        const isKtp = barcode.startsWith("KTP-") || barcode.startsWith("KTL-") || barcode.startsWith("KTB-");
 
         await prisma.rawMaterialNeedOverride.upsert({
             where: { raw_material_id_month_year: { raw_material_id, month, year } },
@@ -697,7 +699,9 @@ export class RecomendationV2Service {
         });
 
         let cascadeCount = 0;
+
         if (isKa) {
+            // Forward cascade: KA override → set same value for all linked KTP/KTL/KTB
             const relatedIds = await RecomendationV2Service.findKaCascadedMaterials(raw_material_id);
             cascadeCount = relatedIds.length;
             if (relatedIds.length > 0) {
@@ -710,6 +714,18 @@ export class RecomendationV2Service {
                         }),
                     ),
                 );
+            }
+        } else if (isKtp) {
+            // Reverse cascade: KTP/KTL/KTB override → recalculate linked KA-%
+            const kaIds = await RecomendationV2Service.findKaParentMaterials(raw_material_id);
+            cascadeCount = kaIds.length;
+            for (const kaId of kaIds) {
+                const { need } = await RecomendationV2Service.recalculateKaNeedForPeriod(kaId, month, year);
+                await prisma.rawMaterialNeedOverride.upsert({
+                    where: { raw_material_id_month_year: { raw_material_id: kaId, month, year } },
+                    update: { quantity: need },
+                    create: { raw_material_id: kaId, month, year, quantity: need },
+                });
             }
         }
 
@@ -724,10 +740,13 @@ export class RecomendationV2Service {
             select: { barcode: true },
         });
 
-        const isKa = material?.barcode?.startsWith("KA-") ?? false;
+        const barcode = material?.barcode ?? "";
+        const isKa = barcode.startsWith("KA-");
+        const isKtp = barcode.startsWith("KTP-") || barcode.startsWith("KTL-") || barcode.startsWith("KTB-");
         let cascadeCount = 0;
 
         if (isKa) {
+            // Forward cascade reset: also delete overrides for all linked KTP/KTL/KTB
             const relatedIds = await RecomendationV2Service.findKaCascadedMaterials(raw_material_id);
             cascadeCount = relatedIds.length;
             await prisma.rawMaterialNeedOverride.deleteMany({
@@ -737,6 +756,30 @@ export class RecomendationV2Service {
                     year,
                 },
             });
+        } else if (isKtp) {
+            // Delete the KTP override first
+            await prisma.rawMaterialNeedOverride.deleteMany({
+                where: { raw_material_id, month, year },
+            });
+            // Reverse cascade reset: recalculate linked KA-% without this override
+            const kaIds = await RecomendationV2Service.findKaParentMaterials(raw_material_id);
+            cascadeCount = kaIds.length;
+            for (const kaId of kaIds) {
+                const { need, hasKtpOverride } = await RecomendationV2Service.recalculateKaNeedForPeriod(kaId, month, year);
+                if (hasKtpOverride) {
+                    // Other KTP overrides remain — update KA with new recalculated value
+                    await prisma.rawMaterialNeedOverride.upsert({
+                        where: { raw_material_id_month_year: { raw_material_id: kaId, month, year } },
+                        update: { quantity: need },
+                        create: { raw_material_id: kaId, month, year, quantity: need },
+                    });
+                } else {
+                    // No more KTP overrides — revert KA to system calculation
+                    await prisma.rawMaterialNeedOverride.deleteMany({
+                        where: { raw_material_id: kaId, month, year },
+                    });
+                }
+            }
         } else {
             await prisma.rawMaterialNeedOverride.deleteMany({
                 where: { raw_material_id, month, year },
@@ -759,7 +802,103 @@ export class RecomendationV2Service {
                   AND rec2.raw_mat_id = ${raw_material_id}
               )
         `;
-        return related.map((r) => r.id);
+        return related.map((r) => Number(r.id));
+    }
+
+    private static async findKaParentMaterials(ktp_material_id: number): Promise<number[]> {
+        const result = await prisma.$queryRaw<{ id: number }[]>`
+            SELECT DISTINCT rm.id
+            FROM raw_materials rm
+            JOIN recipes rec1 ON rec1.raw_mat_id = rm.id AND rec1.is_active = true
+            WHERE rm.barcode LIKE 'KA-%'
+              AND EXISTS (
+                SELECT 1 FROM recipes rec2
+                WHERE rec2.product_id = rec1.product_id
+                  AND rec2.is_active = true
+                  AND rec2.raw_mat_id = ${ktp_material_id}
+              )
+        `;
+        return result.map((r) => Number(r.id));
+    }
+
+    /**
+     * Recalculates KA-% need (in sheets) for a period based on current KTP/KTL/KTB overrides.
+     * For each product using this KA-% material:
+     *   - If that product's KTP/KTL/KTB has an override: derive effective product demand = override / ktp_recipe_qty
+     *   - Else: use final_forecast
+     * Returns the total sheets and whether any KTP override was found.
+     */
+    private static async recalculateKaNeedForPeriod(
+        ka_material_id: number,
+        month: number,
+        year: number,
+    ): Promise<{ need: number; hasKtpOverride: boolean }> {
+        const kaRecipes = await prisma.$queryRaw<{ product_id: number; ka_recipe_qty: number }[]>`
+            SELECT rec.product_id::int, rec.quantity::numeric AS ka_recipe_qty
+            FROM recipes rec
+            JOIN products p ON p.id = rec.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+            WHERE rec.raw_mat_id = ${ka_material_id}
+              AND rec.is_active = true
+        `;
+
+        if (kaRecipes.length === 0) return { need: 0, hasKtpOverride: false };
+
+        const productIds = kaRecipes.map((r) => Number(r.product_id));
+
+        // Find KTP/KTL/KTB overrides for these products this period
+        const ktpOverrides = await prisma.$queryRaw<{
+            product_id: number;
+            override_qty: number;
+            ktp_recipe_qty: number;
+        }[]>`
+            SELECT DISTINCT ON (rec.product_id)
+                rec.product_id::int,
+                o.quantity::numeric AS override_qty,
+                rec.quantity::numeric AS ktp_recipe_qty
+            FROM recipes rec
+            JOIN raw_materials rm ON rm.id = rec.raw_mat_id
+            JOIN raw_material_need_overrides o
+                ON o.raw_material_id = rec.raw_mat_id
+                AND o.month = ${month} AND o.year = ${year}
+            WHERE rec.product_id = ANY(ARRAY[${Prisma.join(productIds)}]::int[])
+              AND rec.is_active = true
+              AND (rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KTB-%')
+            ORDER BY rec.product_id, rec.raw_mat_id
+        `;
+
+        const overrideMap = new Map<number, { override_qty: number; ktp_recipe_qty: number }>();
+        for (const o of ktpOverrides) {
+            overrideMap.set(Number(o.product_id), {
+                override_qty: Number(o.override_qty),
+                ktp_recipe_qty: Number(o.ktp_recipe_qty),
+            });
+        }
+
+        const productsNeedingForecast = productIds.filter((pid) => !overrideMap.has(pid));
+        const forecastMap = new Map<number, number>();
+
+        if (productsNeedingForecast.length > 0) {
+            const forecasts = await prisma.forecast.findMany({
+                where: { product_id: { in: productsNeedingForecast }, month, year },
+                select: { product_id: true, final_forecast: true },
+            });
+            for (const f of forecasts) {
+                forecastMap.set(f.product_id, Number(f.final_forecast));
+            }
+        }
+
+        let kaNeed = 0;
+        for (const r of kaRecipes) {
+            const pid = Number(r.product_id);
+            const ov = overrideMap.get(pid);
+            const effective_demand =
+                ov && ov.ktp_recipe_qty > 0
+                    ? ov.override_qty / ov.ktp_recipe_qty
+                    : (forecastMap.get(pid) ?? 0);
+            kaNeed += effective_demand * Number(r.ka_recipe_qty);
+        }
+
+        return { need: Math.round(kaNeed), hasKtpOverride: overrideMap.size > 0 };
     }
 
     static async approveWorkOrder(body: RequestApproveWorkOrderDTO, userId: string) {
