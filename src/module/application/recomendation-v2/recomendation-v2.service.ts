@@ -293,41 +293,41 @@ export class RecomendationV2Service {
                     fm.min_buy AS moq,
                     fm.lead_time AS lead_time,
                     mro.horizon AS work_order_horizon,
-
-                    -- Available Stock (On-Hand minus Booked by RELEASED production orders)
-                    GREATEST(0,
-                        COALESCE((
-                            SELECT SUM(rmi.quantity)
-                            FROM (
-                                SELECT DISTINCT ON (warehouse_id) warehouse_id, year, month
-                                FROM "raw_material_inventories"
-                                WHERE raw_material_id = fm.id
-                                  AND (year * 12 + month) <= (${invYear} * 12 + ${invMonth})
-                                ORDER BY warehouse_id, year DESC, month DESC
-                            ) latest_periods
-                            JOIN "raw_material_inventories" rmi
-                                ON rmi.raw_material_id = fm.id
-                                AND rmi.warehouse_id = latest_periods.warehouse_id
-                                AND rmi.year = latest_periods.year
-                                AND rmi.month = latest_periods.month
-                        ), 0)
-                        -
-                        COALESCE((
-                            SELECT SUM(poi.quantity_planned)
-                            FROM "production_order_items" poi
-                            JOIN "production_orders" po ON poi.production_order_id = po.id
-                            WHERE poi.raw_material_id = fm.id
-                              AND po.status = 'RELEASED'
-                        ), 0)
-                    ) AS current_stock,
-
-                    -- Open PO (qty ordered minus received, statuses: SUBMITTED/APPROVED/ORDERED)
+                    CASE
+                        WHEN fm.barcode LIKE 'KTP-%' OR fm.barcode LIKE 'KTB-%' OR fm.barcode LIKE 'KTL-%' OR fm.barcode LIKE 'KEM-%' OR fm.barcode LIKE 'KA-%'
+                        THEN COALESCE(sa.stock_fg_x_resep, 0)
+                        ELSE 
+                            -- Available Stock (On-Hand minus Booked by RELEASED production orders)
+                            GREATEST(0,
+                                COALESCE((
+                                    SELECT SUM(rmi.quantity)
+                                    FROM (
+                                        SELECT DISTINCT ON (warehouse_id) warehouse_id, year, month
+                                        FROM "raw_material_inventories"
+                                        WHERE raw_material_id = fm.id
+                                          AND (year * 12 + month) <= (${invYear} * 12 + ${invMonth})
+                                        ORDER BY warehouse_id, year DESC, month DESC
+                                    ) latest_periods
+                                    JOIN "raw_material_inventories" rmi
+                                        ON rmi.raw_material_id = fm.id
+                                        AND rmi.warehouse_id = latest_periods.warehouse_id
+                                        AND rmi.year = latest_periods.year
+                                        AND rmi.month = latest_periods.month
+                                ), 0)
+                                -
+                                COALESCE((
+                                    SELECT SUM(poi.quantity_planned)
+                                    FROM "production_order_items" poi
+                                    JOIN "production_orders" po ON poi.production_order_id = po.id
+                                    WHERE poi.raw_material_id = fm.id
+                                      AND po.status = 'RELEASED'
+                                ), 0)
+                            )
+                    END AS current_stock,
                     COALESCE((
-                        SELECT SUM(poi.qty_ordered - poi.qty_received)
-                        FROM "purchase_order_items" poi
-                        JOIN "purchase_orders" po ON poi.po_id = po.id
-                        WHERE poi.raw_material_id = fm.id
-                          AND po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
+                        SELECT SUM(po.quantity)
+                        FROM "raw_material_open_pos" po
+                        WHERE po.raw_material_id = fm.id AND po.status = 'OPEN'
                     ), 0) AS open_po,
 
                     -- Open PO per month breakdown (SUBMITTED/APPROVED/ORDERED)
@@ -870,7 +870,11 @@ export class RecomendationV2Service {
                 0 AS quantity,
                 ${horizon} AS horizon,
                 COALESCE(fc.total, 0) AS total_needed,
-                COALESCE(inv.total, 0) AS current_stock,
+                CASE
+                    WHEN rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KTB-%' OR rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KEM-%' OR rm.barcode LIKE 'KA-%'
+                    THEN COALESCE(fg.total, 0)
+                    ELSE COALESCE(inv.total, 0)
+                END AS current_stock,
                 COALESCE(fg.total, 0) AS stock_fg_x_resep,
                 COALESCE(ss.total, 0) AS safety_stock_x_resep,
                 ${now} AS created_at,
