@@ -1,6 +1,6 @@
 import { Context } from "hono";
 import { ReceiptService } from "./receipt.service.js";
-import { QueryReceiptSchema, CreateReceiptDTO, UpdateReceiptDTO } from "./receipt.schema.js";
+import { QueryReceiptSchema, QueryOpenPOForReceiptSchema, CreateReceiptDTO, UpdateReceiptDTO } from "./receipt.schema.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 
@@ -13,13 +13,21 @@ function parseId(c: Context): number {
 function getUserId(c: Context): string {
     const user = c.get("user");
     const session = c.get("session");
-    return user?.id || session?.email || "system";
+    const id = user?.id || session?.email;
+    if (!id) throw new ApiError(401, "Unauthorized");
+    return id;
 }
 
 export class ReceiptController {
     static async list(c: Context) {
         const query = QueryReceiptSchema.parse(c.req.query());
         const result = await ReceiptService.list(query);
+        return ApiResponse.sendSuccess(c, result);
+    }
+
+    static async listOpenPOs(c: Context) {
+        const query = QueryOpenPOForReceiptSchema.parse(c.req.query());
+        const result = await ReceiptService.listOpenPOs(query);
         return ApiResponse.sendSuccess(c, result);
     }
 

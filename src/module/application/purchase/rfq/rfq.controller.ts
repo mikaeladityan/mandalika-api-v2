@@ -21,7 +21,9 @@ function parseId(c: Context): number {
 function getUserId(c: Context): string {
     const user = c.get("user");
     const session = c.get("session");
-    return user?.id || session?.email || "system";
+    const id = user?.id || session?.email;
+    if (!id) throw new ApiError(401, "Unauthorized");
+    return id;
 }
 
 export class RFQController {

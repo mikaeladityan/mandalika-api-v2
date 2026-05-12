@@ -1001,7 +1001,8 @@ model PurchasePaymentTerm {
   notes      String?
   created_at DateTime @default(now())
 
-  po PurchaseOrder @relation(fields: [po_id], references: [id], onDelete: Cascade)
+  po              PurchaseOrder   @relation(fields: [po_id], references: [id], onDelete: Cascade)
+  account_payable AccountPayable?
 
   @@unique([po_id, term_seq])
   @@map("purchase_payment_terms")
@@ -1139,7 +1140,9 @@ model AccountPayable {
   id               Int       @id @default(autoincrement())
   ap_number        String    @unique @db.VarChar(50)
   po_id            Int
-  receipt_id       Int
+  receipt_id       Int?
+  payment_term_id  Int?      @unique
+  ap_type          APType    @default(GOODS_RECEIPT)
   supplier_id      Int?
   supplier_name    String    @db.VarChar(150)
   invoice_number   String?   @db.VarChar(100)
@@ -1154,12 +1157,14 @@ model AccountPayable {
   created_at       DateTime  @default(now())
   updated_at       DateTime  @updatedAt
 
-  po       PurchaseOrder   @relation(fields: [po_id], references: [id])
-  receipt  PurchaseReceipt @relation(fields: [receipt_id], references: [id])
-  supplier Supplier?       @relation(fields: [supplier_id], references: [id])
+  po           PurchaseOrder        @relation(fields: [po_id], references: [id])
+  receipt      PurchaseReceipt?     @relation(fields: [receipt_id], references: [id])
+  payment_term PurchasePaymentTerm? @relation(fields: [payment_term_id], references: [id])
+  supplier     Supplier?            @relation(fields: [supplier_id], references: [id])
 
   @@index([status, due_date])
   @@index([supplier_id, status])
+  @@index([ap_type, status])
   @@index([po_id])
   @@index([receipt_id])
   @@map("account_payables")
@@ -1411,4 +1416,9 @@ enum APStatus {
   DP_PAID
   PARTIALLY_PAID
   PAID
+}
+
+enum APType {
+  DP
+  GOODS_RECEIPT
 }

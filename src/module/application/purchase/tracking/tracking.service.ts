@@ -5,58 +5,74 @@ import { ApiError } from "../../../../lib/errors/api.error.js";
 
 export class TrackingService {
     static async list(query: QueryTrackingDTO) {
-        const { page, take, search, order_status, payment_status, supplier_id, month, year, sortBy = "updated_at", order = "desc" } = query;
+        const { page, take, search, order_status, payment_status, supplier_id, month, year, sortBy = "created_at", order = "desc" } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
         const where: any = {};
-        if (order_status) where.order_status = order_status;
-        if (payment_status) where.payment_status = payment_status;
 
-        if (search || supplier_id || month || year) {
-            where.po = {};
-            if (search) {
-                where.po.OR = [
-                    { po_number: { contains: search, mode: "insensitive" } },
-                    { supplier_name: { contains: search, mode: "insensitive" } },
-                ];
-            }
-            if (supplier_id) where.po.supplier_id = supplier_id;
-            if (month) {
-                where.po.po_date = {
-                    gte: new Date(year ?? new Date().getFullYear(), month - 1, 1),
-                    lt: new Date(year ?? new Date().getFullYear(), month, 1),
-                };
-            } else if (year) {
-                where.po.po_date = {
-                    gte: new Date(year, 0, 1),
-                    lt: new Date(year + 1, 0, 1),
-                };
-            }
+        if (order_status) where.tracking = { ...where.tracking, order_status };
+        if (payment_status) where.tracking = { ...where.tracking, payment_status };
+        if (supplier_id) where.supplier_id = supplier_id;
+
+        if (search) {
+            where.OR = [
+                { po_number: { contains: search, mode: "insensitive" } },
+                { supplier_name: { contains: search, mode: "insensitive" } },
+            ];
         }
 
-        const [data, total] = await Promise.all([
-            prisma.purchaseTracking.findMany({
+        if (month) {
+            where.po_date = {
+                gte: new Date(year ?? new Date().getFullYear(), month - 1, 1),
+                lt: new Date(year ?? new Date().getFullYear(), month, 1),
+            };
+        } else if (year) {
+            where.po_date = {
+                gte: new Date(year, 0, 1),
+                lt: new Date(year + 1, 0, 1),
+            };
+        }
+
+        const [orders, total] = await Promise.all([
+            prisma.purchaseOrder.findMany({
                 where,
                 skip,
                 take: limit,
                 orderBy: { [sortBy]: order },
                 include: {
-                    po: {
-                        select: {
-                            id: true,
-                            po_number: true,
-                            po_date: true,
-                            po_type: true,
-                            supplier_name: true,
-                            supplier_id: true,
-                            total_estimated: true,
-                            status: true,
-                        },
-                    },
+                    tracking: true,
+                    supplier: { select: { id: true, name: true, country: true } },
                 },
             }),
-            prisma.purchaseTracking.count({ where }),
+            prisma.purchaseOrder.count({ where }),
         ]);
+
+        const data = orders.map(order => {
+            if (order.tracking) {
+                return {
+                    ...order.tracking,
+                    po: order
+                };
+            }
+            return {
+                id: 0, // Virtual ID since no tracking record exists yet
+                po_id: order.id,
+                order_status: "ORDERED",
+                payment_status: "UNPAID",
+                eta_date: null,
+                ship_date: null,
+                arrive_date: null,
+                dp_paid_date: null,
+                dp_paid_pct: null,
+                final_paid_date: null,
+                tracking_number: null,
+                notes: null,
+                updated_by: null,
+                created_at: order.created_at,
+                updated_at: order.updated_at,
+                po: order
+            };
+        });
 
         return { data, total };
     }

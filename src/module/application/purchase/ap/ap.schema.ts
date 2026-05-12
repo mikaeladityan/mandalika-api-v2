@@ -1,12 +1,14 @@
 import { z } from "zod";
 
 export const APStatusEnum = z.enum(["UNPAID", "DP_PAID", "PARTIALLY_PAID", "PAID"]);
+export const APTypeEnum = z.enum(["DP", "GOODS_RECEIPT"]);
 
 export const QueryAPSchema = z.object({
     page: z.coerce.number().min(1).default(1),
     take: z.coerce.number().min(1).max(200).default(50),
     search: z.string().optional(),
     status: APStatusEnum.optional(),
+    ap_type: APTypeEnum.optional(),
     supplier_id: z.coerce.number().int().positive().optional(),
     po_id: z.coerce.number().int().positive().optional(),
     receipt_id: z.coerce.number().int().positive().optional(),

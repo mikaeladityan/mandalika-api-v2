@@ -42,7 +42,15 @@ export const CreatePOSchema = z.object({
     payment_notes: z.string().optional().nullable(),
     items: z.array(CreatePOItemSchema).min(1, "At least one item is required"),
     payment_terms: z.array(CreatePOPaymentTermSchema).optional(),
-});
+}).refine(
+    (data) => {
+        if (data.po_type === "IMPORT") {
+            return data.currency && data.currency !== "IDR" && data.exchange_rate && data.exchange_rate > 0;
+        }
+        return true;
+    },
+    { message: "Import PO requires a foreign currency and a positive exchange_rate." },
+);
 
 export type CreatePODTO = z.infer<typeof CreatePOSchema>;
 
@@ -55,7 +63,6 @@ export const UpdatePOSchema = z.object({
     total_estimated: z.number().min(0).optional(),
     notes: z.string().optional().nullable(),
     payment_notes: z.string().optional().nullable(),
-    status: POStatusEnum.optional(),
     items: z.array(
         CreatePOItemSchema.extend({
             id: z.number().int().positive().optional(),
@@ -107,24 +114,10 @@ export const UpdatePOTrackingSchema = z.object({
 
 export type UpdatePOTrackingDTO = z.infer<typeof UpdatePOTrackingSchema>;
 
-export const ReceiveItemSchema = z.object({
-    po_item_id: z.number().int().positive(),
-    qty_received: z.number().positive(),
-    notes: z.string().optional().nullable(),
-});
-
-export const ReceiveItemsSchema = z.object({
-    warehouse_id: z.number().int().positive(),
-    receipt_date: z.coerce.date().optional(),
-    notes: z.string().optional().nullable(),
-    items: z.array(ReceiveItemSchema).min(1, "At least one item is required"),
-});
-
-export type ReceiveItemsDTO = z.infer<typeof ReceiveItemsSchema>;
-
 export const QueryOpenPOSchema = z.object({
     page: z.coerce.number().min(1).default(1),
     take: z.coerce.number().min(1).max(500).default(50),
+    search: z.string().optional(),
     po_type: POTypeEnum.optional(),
     supplier_id: z.coerce.number().int().positive().optional(),
     warehouse_id: z.coerce.number().int().positive().optional(),

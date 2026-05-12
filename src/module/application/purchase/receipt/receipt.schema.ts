@@ -45,3 +45,16 @@ export const QueryReceiptSchema = z.object({
 });
 
 export type QueryReceiptDTO = z.infer<typeof QueryReceiptSchema>;
+
+export const QueryOpenPOForReceiptSchema = z.object({
+    page: z.coerce.number().min(1).default(1),
+    take: z.coerce.number().min(1).max(200).default(50),
+    search: z.string().optional(),
+    supplier_id: z.coerce.number().int().positive().optional(),
+    warehouse_id: z.coerce.number().int().positive().optional(),
+    po_type: z.enum(["LOCAL", "IMPORT"]).optional(),
+    month: z.coerce.number().min(1).max(12).optional(),
+    year: z.coerce.number().min(2000).optional(),
+});
+
+export type QueryOpenPOForReceiptDTO = z.infer<typeof QueryOpenPOForReceiptSchema>;

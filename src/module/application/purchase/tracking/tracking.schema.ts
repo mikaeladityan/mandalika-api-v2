@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const QueryTrackingSchema = z.object({
     page: z.coerce.number().min(1).default(1),
-    take: z.coerce.number().min(1).max(200).default(50),
+    take: z.coerce.number().min(1).max(1000).default(50),
     search: z.string().optional(),
     order_status: z.enum(["ORDERED", "SHIPPED", "ARRIVED", "PARTIALLY_RECEIVED", "RECEIVED", "CLOSED"]).optional(),
     payment_status: z.enum(["UNPAID", "DP_PAID", "PARTIALLY_PAID", "PAID"]).optional(),

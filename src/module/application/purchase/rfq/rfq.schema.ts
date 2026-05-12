@@ -45,7 +45,6 @@ export const UpdateRFQSchema = z.object({
     supplier_category: z.string().optional().nullable(),
     location_code: z.string().optional().nullable(),
     notes: z.string().optional().nullable(),
-    status: RFQStatusEnum.optional(),
     items: z.array(
         CreateRFQItemSchema.extend({
             id: z.number().int().positive().optional(),

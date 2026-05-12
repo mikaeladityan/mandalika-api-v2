@@ -1,5 +1,5 @@
 import prisma from "../../../../config/prisma.js";
-import { CreateReceiptDTO, UpdateReceiptDTO, QueryReceiptDTO } from "./receipt.schema.js";
+import { CreateReceiptDTO, UpdateReceiptDTO, QueryReceiptDTO, QueryOpenPOForReceiptDTO } from "./receipt.schema.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { generateReceiptNumber, generateAPNumber } from "../../../../lib/utils/generate-number.js";
@@ -49,6 +49,7 @@ export class ReceiptService {
                 orderBy: { [sortBy]: order },
                 include: {
                     warehouse: { select: { id: true, name: true, code: true } },
+                    po: { select: { id: true, po_number: true, supplier_id: true, supplier_name: true } },
                     _count: { select: { items: true } },
                 },
             }),
@@ -56,6 +57,79 @@ export class ReceiptService {
         ]);
 
         return { data, total };
+    }
+
+    static async listOpenPOs(query: QueryOpenPOForReceiptDTO) {
+        const { page, take, search, supplier_id, warehouse_id, po_type, month, year } = query;
+        const { skip, take: limit } = GetPagination(page, take);
+
+        const where: any = {
+            status: { in: ["ORDERED", "SHIPPED", "ARRIVED"] },
+        };
+
+        if (search) {
+            where.OR = [
+                { po_number: { contains: search, mode: "insensitive" } },
+                { supplier_name: { contains: search, mode: "insensitive" } },
+            ];
+        }
+        if (supplier_id) where.supplier_id = supplier_id;
+        if (warehouse_id) where.warehouse_id = warehouse_id;
+        if (po_type) where.po_type = po_type;
+
+        if (month) {
+            const y = year ?? new Date().getFullYear();
+            where.po_date = {
+                gte: new Date(y, month - 1, 1),
+                lt: new Date(y, month, 1),
+            };
+        } else if (year) {
+            where.po_date = {
+                gte: new Date(year, 0, 1),
+                lt: new Date(year + 1, 0, 1),
+            };
+        }
+
+        const [data, total] = await Promise.all([
+            prisma.purchaseOrder.findMany({
+                where,
+                skip,
+                take: limit,
+                orderBy: { po_date: "desc" },
+                include: {
+                    supplier: { select: { id: true, name: true, country: true } },
+                    warehouse: { select: { id: true, name: true, code: true } },
+                    tracking: { select: { order_status: true, eta_date: true, arrive_date: true } },
+                    items: {
+                        select: {
+                            id: true,
+                            item_code: true,
+                            item_name: true,
+                            item_category: true,
+                            item_type: true,
+                            uom: true,
+                            unit_price: true,
+                            qty_ordered: true,
+                            qty_received: true,
+                            raw_material_id: true,
+                        },
+                    },
+                },
+            }),
+            prisma.purchaseOrder.count({ where }),
+        ]);
+
+        const mapped = data.map((po) => ({
+            ...po,
+            items: po.items
+                .filter((item) => Number(item.qty_ordered) - Number(item.qty_received) > 0.001)
+                .map((item) => ({
+                    ...item,
+                    open_qty: Number(item.qty_ordered) - Number(item.qty_received),
+                })),
+        }));
+
+        return { data: mapped, total };
     }
 
     static async detail(id: number) {
@@ -97,7 +171,7 @@ export class ReceiptService {
             if (poItem.po_id !== item.po_id) {
                 throw new ApiError(400, `PO item ${item.po_item_id} does not belong to PO ${item.po_id}.`);
             }
-            if (!["ORDERED", "CLOSED"].includes(poItem.po.status)) {
+            if (poItem.po.status !== "ORDERED") {
                 throw new ApiError(400, `PO ${poItem.po.id} must be in ORDERED status to receive items.`);
             }
             const openQty = Number(poItem.qty_ordered) - Number(poItem.qty_received);
@@ -108,6 +182,9 @@ export class ReceiptService {
                 );
             }
         }
+
+        const poIds = [...new Set(body.items.map((i) => i.po_id))];
+        const singlePoId = poIds.length === 1 ? poIds[0] : null;
 
         return await prisma.$transaction(async (tx) => {
             let totalQty = 0;
@@ -136,6 +213,7 @@ export class ReceiptService {
                 data: {
                     receipt_number: await generateReceiptNumber(tx),
                     receipt_date: body.receipt_date ?? new Date(),
+                    po_id: singlePoId,
                     warehouse_id: body.warehouse_id,
                     status: "DRAFT",
                     total_qty: totalQty,
@@ -161,6 +239,7 @@ export class ReceiptService {
                 const poItemIds = body.items.map((i) => i.po_item_id);
                 const poItems = await tx.purchaseOrderItem.findMany({
                     where: { id: { in: poItemIds } },
+                    include: { po: { select: { id: true, status: true } } },
                 });
                 const poItemMap = new Map(poItems.map((i) => [i.id, i]));
 
@@ -172,6 +251,9 @@ export class ReceiptService {
                     if (poItem.po_id !== item.po_id) {
                         throw new ApiError(400, `PO item ${item.po_item_id} does not belong to PO ${item.po_id}.`);
                     }
+                    if (poItem.po.status !== "ORDERED") {
+                        throw new ApiError(400, `PO ${poItem.po.id} must be in ORDERED status to receive items.`);
+                    }
                     const openQty = Number(poItem.qty_ordered) - Number(poItem.qty_received);
                     if (item.qty_received > openQty + 0.001) {
                         throw new ApiError(
@@ -180,6 +262,9 @@ export class ReceiptService {
                         );
                     }
                 }
+
+                const updatedPoIds = [...new Set(body.items.map((i) => i.po_id))];
+                const singlePoId = updatedPoIds.length === 1 ? updatedPoIds[0] : null;
 
                 await tx.purchaseReceiptItem.deleteMany({ where: { receipt_id: id } });
 
@@ -209,6 +294,7 @@ export class ReceiptService {
                 await tx.purchaseReceipt.update({
                     where: { id },
                     data: {
+                        po_id: singlePoId,
                         warehouse_id: body.warehouse_id ?? undefined,
                         receipt_date: body.receipt_date ?? undefined,
                         notes: body.notes !== undefined ? body.notes : undefined,
@@ -292,7 +378,7 @@ export class ReceiptService {
                 );
                 const hasPartial = updatedItems.some((i) => Number(i.qty_received) > 0);
 
-                if (allReceived) {
+                if (allReceived && po.status !== "CLOSED") {
                     await tx.purchaseOrder.update({
                         where: { id: poId },
                         data: { status: "CLOSED", closed_at: new Date(), updated_by: userId },

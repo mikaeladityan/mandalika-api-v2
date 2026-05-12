@@ -1,11 +1,11 @@
 import prisma from "../../../../config/prisma.js";
 import { QueryAPDTO, UpdateAPPaymentDTO } from "./ap.schema.js";
-import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
+import { GetPagination } from "../../../../lib/utils/pagination.js";
 
 export class APService {
     static async list(query: QueryAPDTO) {
-        const { page, take, search, status, supplier_id, po_id, receipt_id, month, year, sortBy = "due_date", order = "asc" } = query;
+        const { page, take, search, status, ap_type, supplier_id, po_id, receipt_id, month, year, sortBy = "due_date", order = "asc" } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
         const where: any = {};
@@ -17,6 +17,7 @@ export class APService {
             ];
         }
         if (status) where.status = status;
+        if (ap_type) where.ap_type = ap_type;
         if (supplier_id) where.supplier_id = supplier_id;
         if (po_id) where.po_id = po_id;
         if (receipt_id) where.receipt_id = receipt_id;
@@ -42,6 +43,7 @@ export class APService {
                 include: {
                     po: { select: { id: true, po_number: true, po_type: true } },
                     receipt: { select: { id: true, receipt_number: true } },
+                    payment_term: { select: { id: true, term_seq: true, percentage: true, due_days: true } },
                     supplier: { select: { id: true, name: true } },
                 },
             }),
@@ -69,6 +71,7 @@ export class APService {
                         total_amount: true,
                     },
                 },
+                payment_term: { select: { id: true, term_seq: true, percentage: true, due_days: true, notes: true } },
                 supplier: { select: { id: true, name: true, country: true } },
             },
         });
@@ -82,6 +85,9 @@ export class APService {
         }
 
         const newPaidAmount = Number(ap.paid_amount) + body.paid_amount;
+        if (newPaidAmount > Number(ap.amount) + 0.001) {
+            throw new ApiError(400, `Payment amount (${newPaidAmount.toFixed(2)}) exceeds AP total (${Number(ap.amount).toFixed(2)}).`);
+        }
         const newRemainingAmount = Math.max(0, Number(ap.amount) - newPaidAmount);
 
         // Auto-determine status if not provided
@@ -109,12 +115,23 @@ export class APService {
             },
         });
 
-        // Sync payment status to PurchaseTracking
+        // Sync payment status to PurchaseTracking using aggregate across all APs for this PO
         if (ap.po_id) {
-            const trackingPaymentStatus = newStatus === "PAID" ? "PAID"
-                : newStatus === "PARTIALLY_PAID" ? "PARTIALLY_PAID"
-                : newStatus === "DP_PAID" ? "DP_PAID"
-                : "UNPAID";
+            const allAPs = await prisma.accountPayable.findMany({
+                where: { po_id: ap.po_id },
+                select: { status: true },
+            });
+
+            let trackingPaymentStatus: string;
+            if (allAPs.every((a) => a.status === "PAID")) {
+                trackingPaymentStatus = "PAID";
+            } else if (allAPs.some((a) => a.status === "PAID" || a.status === "PARTIALLY_PAID")) {
+                trackingPaymentStatus = "PARTIALLY_PAID";
+            } else if (allAPs.some((a) => a.status === "DP_PAID")) {
+                trackingPaymentStatus = "DP_PAID";
+            } else {
+                trackingPaymentStatus = "UNPAID";
+            }
 
             await prisma.purchaseTracking.updateMany({
                 where: { po_id: ap.po_id },

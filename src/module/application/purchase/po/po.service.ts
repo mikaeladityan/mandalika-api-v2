@@ -1,9 +1,9 @@
 import prisma from "../../../../config/prisma.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
-import { CreatePODTO, UpdatePODTO, UpdatePOStatusDTO, QueryPODTO, UpdatePOTrackingDTO, QueryOpenPODTO, ReceiveItemsDTO } from "./po.schema.js";
+import { CreatePODTO, UpdatePODTO, UpdatePOStatusDTO, QueryPODTO, UpdatePOTrackingDTO, QueryOpenPODTO } from "./po.schema.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
-import { generatePONumber, generateReceiptNumber, generateAPNumber } from "../../../../lib/utils/generate-number.js";
+import { generatePONumber, generateAPNumber } from "../../../../lib/utils/generate-number.js";
 
 const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
     DRAFT: ["SUBMITTED", "CANCELLED"],
@@ -223,24 +223,28 @@ export class POService {
     }
 
     static async updateStatus(id: number, body: UpdatePOStatusDTO, userId: string) {
-        const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { id } });
+        const po = await prisma.purchaseOrder.findUniqueOrThrow({
+            where: { id },
+            include: { payment_terms: true },
+        });
         const allowed = VALID_STATUS_TRANSITIONS[po.status] ?? [];
 
         if (!allowed.includes(body.status)) {
-            throw new ApiError(400, 
+            throw new ApiError(400,
                 `Cannot transition from ${po.status} to ${body.status}. Allowed: ${allowed.join(", ") || "none"}.`,
             );
         }
 
         return await prisma.$transaction(async (tx) => {
+            const orderedAt = new Date();
             const data: any = { status: body.status, updated_by: userId };
-            
+
             if (body.status === "APPROVED") {
                 data.approved_by = userId;
                 data.approved_at = new Date();
             }
             if (body.status === "ORDERED") {
-                data.ordered_at = new Date();
+                data.ordered_at = orderedAt;
             }
             if (body.status === "CLOSED") {
                 data.closed_at = new Date();
@@ -269,6 +273,50 @@ export class POService {
                         updated_by: userId,
                     }
                 });
+
+                // Auto-create DP AP per payment term
+                if (po.payment_terms.length > 0) {
+                    for (const term of po.payment_terms) {
+                        const amount = (Number(po.total_estimated) * Number(term.percentage)) / 100;
+                        const dueDate = term.due_days != null
+                            ? new Date(orderedAt.getTime() + term.due_days * 86_400_000)
+                            : null;
+
+                        await tx.accountPayable.create({
+                            data: {
+                                ap_number: await generateAPNumber(tx),
+                                po_id: id,
+                                payment_term_id: term.id,
+                                ap_type: "DP",
+                                supplier_id: po.supplier_id ?? null,
+                                supplier_name: po.supplier_name,
+                                amount,
+                                remaining_amount: amount,
+                                due_date: dueDate,
+                                notes: term.notes ?? null,
+                                status: "UNPAID",
+                                created_by: userId,
+                            },
+                        });
+                    }
+                } else {
+                    // No payment terms: create single full-amount AP so P2P flow is not broken
+                    await tx.accountPayable.create({
+                        data: {
+                            ap_number: await generateAPNumber(tx),
+                            po_id: id,
+                            payment_term_id: null,
+                            ap_type: "DP",
+                            supplier_id: po.supplier_id ?? null,
+                            supplier_name: po.supplier_name,
+                            amount: Number(po.total_estimated),
+                            remaining_amount: Number(po.total_estimated),
+                            due_date: null,
+                            status: "UNPAID",
+                            created_by: userId,
+                        },
+                    });
+                }
             }
 
             return updated;
@@ -322,181 +370,6 @@ export class POService {
         });
     }
 
-    static async receiveItems(id: number, body: ReceiveItemsDTO, userId: string) {
-        const po = await prisma.purchaseOrder.findUniqueOrThrow({
-            where: { id },
-            include: { items: true },
-        });
-
-        if (po.status !== "ORDERED") {
-            throw new ApiError(400, `Cannot receive items for PO with status ${po.status}. PO must be ORDERED.`);
-        }
-
-        return await prisma.$transaction(async (tx) => {
-            let totalQty = 0;
-            let totalAmount = 0;
-
-            type ReceiptItemPayload = {
-                poItem: (typeof po.items)[number];
-                qty_received: number;
-                amount: number;
-                notes: string | null | undefined;
-            };
-            const receiptItemsData: ReceiptItemPayload[] = [];
-
-            for (const item of body.items) {
-                const poItem = po.items.find((i) => i.id === item.po_item_id);
-                if (!poItem) {
-                    throw new ApiError(400, `Item ID ${item.po_item_id} does not belong to PO #${id}.`);
-                }
-
-                const remaining = Number(poItem.qty_ordered) - Number(poItem.qty_received);
-                if (item.qty_received > remaining + 0.001) {
-                    throw new ApiError(
-                        400,
-                        `Item "${poItem.item_name}": qty_received (${item.qty_received}) exceeds remaining qty (${remaining.toFixed(2)}).`,
-                    );
-                }
-
-                const amount = item.qty_received * Number(poItem.unit_price);
-                totalQty += item.qty_received;
-                totalAmount += amount;
-                receiptItemsData.push({ poItem, qty_received: item.qty_received, amount, notes: item.notes });
-            }
-
-            const receiptDate = body.receipt_date || new Date();
-            const receipt = await tx.purchaseReceipt.create({
-                data: {
-                    receipt_number: await generateReceiptNumber(tx),
-                    receipt_date: receiptDate,
-                    po_id: id,
-                    warehouse_id: body.warehouse_id,
-                    status: "POSTED",
-                    total_qty: totalQty,
-                    total_amount: totalAmount,
-                    notes: body.notes || null,
-                    posted_at: new Date(),
-                    created_by: userId,
-                    items: {
-                        create: receiptItemsData.map(({ poItem, qty_received, amount, notes }) => ({
-                            po_id: id,
-                            po_item_id: poItem.id,
-                            raw_material_id: poItem.raw_material_id || null,
-                            item_code: poItem.item_code,
-                            item_name: poItem.item_name,
-                            uom: poItem.uom,
-                            qty_received,
-                            unit_price: poItem.unit_price,
-                            amount,
-                            notes: notes || null,
-                        })),
-                    },
-                },
-                include: { items: true },
-            });
-
-            for (const { poItem, qty_received } of receiptItemsData) {
-                await tx.purchaseOrderItem.update({
-                    where: { id: poItem.id },
-                    data: { qty_received: { increment: qty_received } },
-                });
-            }
-
-            const allReceived = po.items.every((i) => {
-                const received = receiptItemsData.find((r) => r.poItem.id === i.id);
-                const totalReceived = Number(i.qty_received) + (received?.qty_received ?? 0);
-                return totalReceived >= Number(i.qty_ordered) - 0.001;
-            });
-            const newOrderStatus = allReceived ? "RECEIVED" : "PARTIALLY_RECEIVED";
-
-            await tx.purchaseTracking.upsert({
-                where: { po_id: id },
-                create: {
-                    po_id: id,
-                    order_status: newOrderStatus,
-                    payment_status: "UNPAID",
-                    updated_by: userId,
-                },
-                update: { order_status: newOrderStatus, updated_by: userId },
-            });
-
-            if (allReceived) {
-                await tx.purchaseOrder.update({
-                    where: { id },
-                    data: { status: "CLOSED", closed_at: new Date(), updated_by: userId },
-                });
-            }
-
-            const inventoryItems = receiptItemsData.filter(({ poItem }) => poItem.raw_material_id);
-            const inventoryKey = (rmId: number) => ({
-                raw_material_id_warehouse_id_date_month_year: {
-                    raw_material_id: rmId,
-                    warehouse_id: body.warehouse_id,
-                    date: receiptDate.getDate(),
-                    month: receiptDate.getMonth() + 1,
-                    year: receiptDate.getFullYear(),
-                },
-            });
-
-            const existingInventories = await Promise.all(
-                inventoryItems.map(({ poItem }) =>
-                    tx.rawMaterialInventory.findUnique({ where: inventoryKey(poItem.raw_material_id!) }),
-                ),
-            );
-
-            await Promise.all(
-                inventoryItems.map(async ({ poItem, qty_received }, i) => {
-                    const qtyBefore = existingInventories[i] ? Number(existingInventories[i]!.quantity) : 0;
-                    const qtyAfter = qtyBefore + qty_received;
-                    await tx.rawMaterialInventory.upsert({
-                        where: inventoryKey(poItem.raw_material_id!),
-                        create: {
-                            raw_material_id: poItem.raw_material_id!,
-                            warehouse_id: body.warehouse_id,
-                            quantity: qtyAfter,
-                            date: receiptDate.getDate(),
-                            month: receiptDate.getMonth() + 1,
-                            year: receiptDate.getFullYear(),
-                        },
-                        update: { quantity: { increment: qty_received } },
-                    });
-                    await tx.stockMovement.create({
-                        data: {
-                            entity_type: "RAW_MATERIAL",
-                            entity_id: poItem.raw_material_id!,
-                            location_type: "WAREHOUSE",
-                            location_id: body.warehouse_id,
-                            movement_type: "IN",
-                            quantity: qty_received,
-                            qty_before: qtyBefore,
-                            qty_after: qtyAfter,
-                            reference_id: receipt.id,
-                            reference_type: "GOODS_RECEIPT",
-                            notes: null,
-                            created_by: userId,
-                        },
-                    });
-                }),
-            );
-
-            await tx.accountPayable.create({
-                data: {
-                    ap_number: await generateAPNumber(tx),
-                    po_id: id,
-                    receipt_id: receipt.id,
-                    supplier_id: po.supplier_id ?? null,
-                    supplier_name: po.supplier_name,
-                    amount: totalAmount,
-                    remaining_amount: totalAmount,
-                    status: "UNPAID",
-                    created_by: userId,
-                },
-            });
-
-            return receipt;
-        });
-    }
-
     static async listReceipts(id: number) {
         await prisma.purchaseOrder.findUniqueOrThrow({ where: { id } });
         return await prisma.purchaseReceipt.findMany({
@@ -518,14 +391,23 @@ export class POService {
     }
 
     static async listOpenPO(query: QueryOpenPODTO) {
-        const { page, take, po_type, supplier_id, warehouse_id, month, year } = query;
+        const { page, take, search, po_type, supplier_id, warehouse_id, month, year } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
         const filters: Prisma.Sql[] = [
-            Prisma.sql`po.status NOT IN ('CANCELLED', 'CLOSED')`,
+            Prisma.sql`po.status = 'ORDERED'`,
             Prisma.sql`poi.qty_received < poi.qty_ordered`,
         ];
 
+        if (search) {
+            const like = `%${search}%`;
+            filters.push(Prisma.sql`(
+                po.po_number ILIKE ${like}
+                OR po.supplier_name ILIKE ${like}
+                OR poi.item_code ILIKE ${like}
+                OR poi.item_name ILIKE ${like}
+            )`);
+        }
         if (po_type) filters.push(Prisma.sql`po.po_type = ${po_type}`);
         if (supplier_id) filters.push(Prisma.sql`po.supplier_id = ${supplier_id}`);
         if (warehouse_id) filters.push(Prisma.sql`po.warehouse_id = ${warehouse_id}`);
@@ -563,6 +445,7 @@ export class POService {
             supplier_name: string;
             supplier_id: number | null;
             warehouse_id: number | null;
+            created_by: string;
         };
 
         const [rows, countRows] = await Promise.all([
@@ -576,18 +459,19 @@ export class POService {
                         poi.item_category,
                         poi.item_type,
                         poi.uom,
-                        poi.unit_price::float   AS unit_price,
-                        poi.qty_ordered::float  AS qty_ordered,
-                        poi.qty_received::float AS qty_received,
-                        (poi.qty_ordered - poi.qty_received)::float                     AS open_qty,
-                        ((poi.qty_ordered - poi.qty_received) * poi.unit_price)::float  AS outstanding_value,
+                        poi.unit_price::float                                                            AS unit_price,
+                        poi.qty_ordered::float                                                           AS qty_ordered,
+                        poi.qty_received::float                                                          AS qty_received,
+                        (poi.qty_ordered - poi.qty_received)::float                                      AS open_qty,
+                        ((poi.qty_ordered - poi.qty_received) * poi.unit_price * COALESCE(po.exchange_rate, 1))::float AS outstanding_value,
                         po.po_number,
                         po.po_date,
                         po.po_type,
-                        po.status               AS po_status,
+                        po.status      AS po_status,
                         po.supplier_name,
                         po.supplier_id,
-                        po.warehouse_id
+                        po.warehouse_id,
+                        po.created_by
                     FROM purchase_order_items poi
                     JOIN purchase_orders po ON po.id = poi.po_id
                     WHERE ${where}

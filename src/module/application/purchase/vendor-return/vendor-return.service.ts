@@ -1,4 +1,5 @@
 import prisma from "../../../../config/prisma.js";
+import { Prisma } from "../../../../generated/prisma/client.js";
 import { CreateVendorReturnDTO, UpdateVendorReturnDTO, QueryVendorReturnDTO } from "./vendor-return.schema.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
@@ -9,7 +10,7 @@ export class VendorReturnService {
         const { page, take, search, receipt_id, warehouse_id, status, month, year, sortBy = "return_date", order = "desc" } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
-        const where: any = {};
+        const where: Prisma.VendorReturnWhereInput = {};
         if (search) {
             where.OR = [
                 { return_number: { contains: search, mode: "insensitive" } },
@@ -110,14 +111,21 @@ export class VendorReturnService {
                 reason: string | null;
             }> = [];
 
+            // Single groupBy instead of N+1 aggregate per item
+            const receiptItemIds = body.items.map((i) => i.receipt_item_id);
+            const returnedAggs = await tx.vendorReturnItem.groupBy({
+                by: ["receipt_item_id"],
+                where: { receipt_item_id: { in: receiptItemIds } },
+                _sum: { qty_returned: true },
+            });
+            const returnedMap = new Map(
+                returnedAggs.map((r) => [r.receipt_item_id, Number(r._sum.qty_returned ?? 0)])
+            );
+
             for (const item of body.items) {
                 const receiptItem = receiptItemMap.get(item.receipt_item_id)!;
 
-                const alreadyReturned = await tx.vendorReturnItem.aggregate({
-                    where: { receipt_item_id: item.receipt_item_id },
-                    _sum: { qty_returned: true },
-                });
-                const totalReturned = Number(alreadyReturned._sum.qty_returned ?? 0);
+                const totalReturned = returnedMap.get(item.receipt_item_id) ?? 0;
                 const available = Number(receiptItem.qty_received) - totalReturned;
 
                 if (item.qty_returned > available + 0.001) {
@@ -175,19 +183,27 @@ export class VendorReturnService {
                 });
                 const receiptItemMap = new Map(receipt.items.map((i) => [i.id, i]));
 
+                if (!["POSTED", "APPROVED"].includes(receipt.status)) {
+                    throw new ApiError(400, `Receipt must be POSTED to modify return items.`);
+                }
+
+                // Single groupBy instead of N+1 aggregate per item
+                const updateReceiptItemIds = body.items.map((i) => i.receipt_item_id);
+                const otherReturnAggs = await tx.vendorReturnItem.groupBy({
+                    by: ["receipt_item_id"],
+                    where: { receipt_item_id: { in: updateReceiptItemIds }, return_id: { not: id } },
+                    _sum: { qty_returned: true },
+                });
+                const otherReturnedMap = new Map(
+                    otherReturnAggs.map((r) => [r.receipt_item_id, Number(r._sum.qty_returned ?? 0)])
+                );
+
                 for (const item of body.items) {
                     const receiptItem = receiptItemMap.get(item.receipt_item_id);
                     if (!receiptItem) {
                         throw new ApiError(400, `Receipt item ${item.receipt_item_id} not found.`);
                     }
-                    const alreadyReturned = await tx.vendorReturnItem.aggregate({
-                        where: {
-                            receipt_item_id: item.receipt_item_id,
-                            return_id: { not: id },
-                        },
-                        _sum: { qty_returned: true },
-                    });
-                    const totalOtherReturns = Number(alreadyReturned._sum.qty_returned ?? 0);
+                    const totalOtherReturns = otherReturnedMap.get(item.receipt_item_id) ?? 0;
                     const available = Number(receiptItem.qty_received) - totalOtherReturns;
                     if (item.qty_returned > available + 0.001) {
                         throw new ApiError(400, `Item "${receiptItem.item_name}": qty_returned exceeds available (${available.toFixed(2)}).`);
@@ -294,7 +310,7 @@ export class VendorReturnService {
                         month: returnDate.getMonth() + 1,
                         year: returnDate.getFullYear(),
                     },
-                    update: { quantity: { decrement: Number(item.qty_returned) } },
+                    update: { quantity: qtyAfter },
                 });
 
                 await tx.stockMovement.create({
@@ -336,12 +352,10 @@ export class VendorReturnService {
                     .reduce((sum, i) => sum + Number(i.amount), 0);
 
                 if (returnTotal > 0) {
-                    const newAmount = Math.max(0, Number(ap.amount) - returnTotal);
                     const newRemaining = Math.max(0, Number(ap.remaining_amount) - returnTotal);
                     await tx.accountPayable.update({
                         where: { id: ap.id },
                         data: {
-                            amount: newAmount,
                             remaining_amount: newRemaining,
                             notes: ap.notes
                                 ? `${ap.notes} | RTN-credit: ${returnTotal}`
