@@ -1,6 +1,7 @@
 import { Context } from "hono";
 import {
     QueryRFQSchema,
+    QueryConsolidationItemsSchema,
     CreateRFQDTO,
     UpdateRFQDTO,
     UpdateRFQStatusDTO,
@@ -74,6 +75,17 @@ export class RFQController {
         const id = parseId(c);
         await RFQService.destroy(id);
         return ApiResponse.sendSuccess(c, { message: "RFQ deleted successfully" });
+    }
+
+    static async listConsolidationItems(c: Context) {
+        const query = c.req.query();
+        const validQuery = QueryConsolidationItemsSchema.parse({
+            month: query.month ? Number(query.month) : undefined,
+            year: query.year ? Number(query.year) : undefined,
+            search: query.search,
+        });
+        const result = await RFQService.listConsolidationItems(validQuery);
+        return ApiResponse.sendSuccess(c, result);
     }
 
     static async convertToPO(c: Context) {

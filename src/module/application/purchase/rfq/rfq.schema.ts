@@ -77,6 +77,13 @@ export type QueryRFQDTO = z.infer<typeof QueryRFQSchema>;
 
 export const POTypeEnum = z.enum(["LOCAL", "IMPORT"]);
 
+export const QueryConsolidationItemsSchema = z.object({
+    month: z.coerce.number().min(1).max(12).optional(),
+    year: z.coerce.number().min(2000).optional(),
+    search: z.string().optional(),
+});
+export type QueryConsolidationItemsDTO = z.infer<typeof QueryConsolidationItemsSchema>;
+
 export const ConvertToPOSchema = z.object({
     item_ids: z.array(z.number().int().positive()).min(1),
     expected_arrival: z.coerce.date().optional(),

@@ -5,6 +5,7 @@ import { CreateRFQSchema, UpdateRFQSchema, UpdateRFQStatusSchema, ConvertToPOSch
 
 const RFQRoutes = new Hono();
 
+RFQRoutes.get("/consolidation-items", RFQController.listConsolidationItems);
 RFQRoutes.get("/", RFQController.list);
 RFQRoutes.get("/:id", RFQController.detail);
 RFQRoutes.post("/", validateBody(CreateRFQSchema), RFQController.create);

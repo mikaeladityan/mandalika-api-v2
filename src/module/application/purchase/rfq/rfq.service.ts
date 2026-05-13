@@ -1,5 +1,5 @@
 import prisma from "../../../../config/prisma.js";
-import { CreateRFQDTO, UpdateRFQDTO, UpdateRFQStatusDTO, QueryRFQDTO, ConvertToPODTO } from "./rfq.schema.js";
+import { CreateRFQDTO, UpdateRFQDTO, UpdateRFQStatusDTO, QueryRFQDTO, ConvertToPODTO, QueryConsolidationItemsDTO } from "./rfq.schema.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
@@ -297,6 +297,46 @@ export class RFQService {
                 }),
             ),
         );
+    }
+
+    static async listConsolidationItems(query: QueryConsolidationItemsDTO) {
+        const { month, year, search } = query;
+
+        const where: any = {
+            status: "ACC",
+            rfq_item: null,
+        };
+
+        if (month) where.month = month;
+        if (year) where.year = year;
+        if (search) {
+            where.raw_material = {
+                OR: [
+                    { name: { contains: search, mode: "insensitive" } },
+                    { barcode: { contains: search, mode: "insensitive" } },
+                ],
+            };
+        }
+
+        return prisma.materialPurchaseDraft.findMany({
+            where,
+            include: {
+                raw_material: {
+                    include: {
+                        unit_raw_material: { select: { name: true } },
+                        raw_mat_category: { select: { name: true } },
+                        supplier_materials: {
+                            where: { is_preferred: true },
+                            include: {
+                                supplier: { select: { id: true, name: true, source: true } },
+                            },
+                            take: 1,
+                        },
+                    },
+                },
+            },
+            orderBy: [{ year: "asc" }, { month: "asc" }, { raw_mat_id: "asc" }],
+        });
     }
 
     static async convertToPO(id: number, body: ConvertToPODTO, userId: string) {
