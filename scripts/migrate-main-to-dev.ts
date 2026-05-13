@@ -2,11 +2,16 @@
  * MIGRATION SCRIPT: main → dev schema
  *
  * CARA PAKAI:
- *   1. Pastikan dev schema sudah di-apply ke production DB:
+ *   1. Pastikan dev schema sudah di-apply ke DB:
  *      npx prisma db push --force-reset
  *
- *   2. Jalankan script ini:
- *      cd api && npx tsx scripts/migrate-main-to-dev.ts
+ *   2. Jalankan script ini (ada 2 cara):
+ *
+ *      # Cara A: argument langsung
+ *      npx tsx scripts/migrate-main-to-dev.ts /path/to/backup.sql
+ *
+ *      # Cara B: env var
+ *      BACKUP_FILE=/path/to/backup.sql npx tsx scripts/migrate-main-to-dev.ts
  *
  * YANG DILAKUKAN:
  *   - Parse backup file (main schema)
@@ -29,10 +34,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 config({ path: path.resolve(__dirname, "../.env") });
 
 // ── CONFIG ──────────────────────────────────────────────────────────────────
-const BACKUP_FILE = path.resolve(__dirname, "../../backup_production_20260513_105509.sql");
+// Priority: CLI arg > BACKUP_FILE env var > default relative path
+const BACKUP_FILE =
+    process.argv[2] ??
+    process.env.BACKUP_FILE ??
+    path.resolve(__dirname, "../../backup_production_20260513_105509.sql");
 
 if (!process.env.DATABASE_URL) {
     console.error("❌ DATABASE_URL tidak ditemukan di .env");
+    process.exit(1);
+}
+
+if (!fs.existsSync(BACKUP_FILE)) {
+    console.error(`❌ Backup file tidak ditemukan: ${BACKUP_FILE}`);
+    console.error("   Gunakan: npx tsx scripts/migrate-main-to-dev.ts /path/to/backup.sql");
     process.exit(1);
 }
 
