@@ -2,6 +2,7 @@ import prisma from "../../../../config/prisma.js";
 import { QueryAPDTO, UpdateAPPaymentDTO } from "./ap.schema.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
+import { POTrackingPaymentStatus } from "../../../../generated/prisma/enums.js";
 
 export class APService {
     static async list(query: QueryAPDTO) {
@@ -122,7 +123,7 @@ export class APService {
                 select: { status: true },
             });
 
-            let trackingPaymentStatus: string;
+            let trackingPaymentStatus: POTrackingPaymentStatus;
             if (allAPs.every((a) => a.status === "PAID")) {
                 trackingPaymentStatus = "PAID";
             } else if (allAPs.some((a) => a.status === "PAID" || a.status === "PARTIALLY_PAID")) {
