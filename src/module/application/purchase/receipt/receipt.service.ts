@@ -2,7 +2,8 @@ import prisma from "../../../../config/prisma.js";
 import { CreateReceiptDTO, UpdateReceiptDTO, QueryReceiptDTO, QueryOpenPOForReceiptDTO } from "./receipt.schema.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
-import { generateReceiptNumber, generateAPNumber } from "../../../../lib/utils/generate-number.js";
+import { generateReceiptNumber } from "../../../../lib/utils/generate-number.js";
+import { FinanceAPService } from "../../finance/ap/ap.service.js";
 
 export class ReceiptService {
     static async list(query: QueryReceiptDTO) {
@@ -352,7 +353,7 @@ export class ReceiptService {
                 data: { status: "POSTED", posted_at: new Date(), updated_by: userId },
             });
 
-            // Group items by po_id for AP creation
+            // Group items by po_id for inventory & tracking updates
             const itemsByPo = new Map<number, typeof receipt.items>();
             for (const item of receipt.items) {
                 if (!itemsByPo.has(item.po_id)) itemsByPo.set(item.po_id, []);
@@ -457,24 +458,10 @@ export class ReceiptService {
                     });
                 }
 
-                // 6. Create AccountPayable per PO group
-                const poAmount = poItems.reduce((sum, i) => sum + Number(i.amount), 0);
-                const apNumber = await generateAPNumber(tx);
-
-                await tx.accountPayable.create({
-                    data: {
-                        ap_number: apNumber,
-                        po_id: poId,
-                        receipt_id: id,
-                        supplier_id: po.supplier_id ?? null,
-                        supplier_name: po.supplier_name,
-                        amount: poAmount,
-                        remaining_amount: poAmount,
-                        status: "UNPAID",
-                        created_by: userId,
-                    },
-                });
             }
+
+            // 6. Create AccountPayable records via Finance service (handles all POs, idempotent)
+            await FinanceAPService.createFromReceipt(id, userId, tx);
 
             return await tx.purchaseReceipt.findUniqueOrThrow({
                 where: { id },

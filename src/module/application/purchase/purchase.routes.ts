@@ -4,8 +4,6 @@ import PORoutes from "./po/po.routes.js";
 import ReceiptRoutes from "./receipt/receipt.routes.js";
 import TrackingRoutes from "./tracking/tracking.routes.js";
 import VendorReturnRoutes from "./vendor-return/vendor-return.routes.js";
-import APRoutes from "./ap/ap.routes.js";
-
 const PurchaseRoutes = new Hono();
 
 PurchaseRoutes.route("/rfq", RFQRoutes);
@@ -13,6 +11,5 @@ PurchaseRoutes.route("/po", PORoutes);
 PurchaseRoutes.route("/receipt", ReceiptRoutes);
 PurchaseRoutes.route("/tracking", TrackingRoutes);
 PurchaseRoutes.route("/vendor-return", VendorReturnRoutes);
-PurchaseRoutes.route("/ap", APRoutes);
 
 export default PurchaseRoutes;

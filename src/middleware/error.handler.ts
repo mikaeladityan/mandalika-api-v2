@@ -85,6 +85,11 @@ export const errorHandler = (err: Error, c: Context) => {
         );
     }
 
+    // Handle Prisma P2025 (record not found)
+    if ("code" in err && (err as any).code === "P2025") {
+        return c.json({ success: false, error: "NotFound", message: "Record not found.", requestId }, 404);
+    }
+
     // Default error response
     return c.json(
         {

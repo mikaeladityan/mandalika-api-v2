@@ -1137,27 +1137,30 @@ model VendorReturnItem {
 }
 
 model AccountPayable {
-  id               Int       @id @default(autoincrement())
-  ap_number        String    @unique @db.VarChar(50)
-  po_id            Int
-  receipt_id       Int?
-  payment_term_id  Int?      @unique
-  ap_type          APType    @default(GOODS_RECEIPT)
-  supplier_id      Int?
-  supplier_name    String    @db.VarChar(150)
-  invoice_number   String?   @db.VarChar(100)
-  invoice_date     DateTime?
-  due_date         DateTime?
-  amount           Decimal   @db.Decimal(18, 2)
-  paid_amount      Decimal   @default(0) @db.Decimal(18, 2)
-  remaining_amount Decimal   @default(0) @db.Decimal(18, 2)
-  status           APStatus  @default(UNPAID)
-  notes            String?
-  created_by       String    @db.VarChar(100)
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
+  id                   Int            @id @default(autoincrement())
+  ap_number            String         @unique @db.VarChar(50)
+  po_id                Int?
+  receipt_id           Int?
+  payment_term_id      Int?           @unique
+  ap_type              APType         @default(GOODS_RECEIPT)
+  supplier_id          Int?
+  supplier_name        String         @db.VarChar(150)
+  invoice_number       String?        @db.VarChar(100)
+  invoice_date         DateTime?
+  due_date             DateTime?
+  amount               Decimal        @db.Decimal(18, 2)
+  paid_amount          Decimal        @default(0) @db.Decimal(18, 2)
+  balance              Decimal        @default(0) @db.Decimal(18, 2)
+  status               APStatus       @default(UNPAID)
+  last_paid_date       DateTime?
+  last_payment_method  PaymentMethod?
+  notes                String?
+  created_by           String         @db.VarChar(100)
+  updated_by           String?        @db.VarChar(100)
+  created_at           DateTime       @default(now())
+  updated_at           DateTime       @updatedAt
 
-  po           PurchaseOrder        @relation(fields: [po_id], references: [id])
+  po           PurchaseOrder?       @relation(fields: [po_id], references: [id])
   receipt      PurchaseReceipt?     @relation(fields: [receipt_id], references: [id])
   payment_term PurchasePaymentTerm? @relation(fields: [payment_term_id], references: [id])
   supplier     Supplier?            @relation(fields: [supplier_id], references: [id])
@@ -1167,7 +1170,83 @@ model AccountPayable {
   @@index([ap_type, status])
   @@index([po_id])
   @@index([receipt_id])
+  @@index([created_at])
   @@map("account_payables")
+}
+
+// ============================================================
+// FINANCE MODULE — Models Baru (Fase 6)
+// ============================================================
+
+model AccountReceivable {
+  id                Int            @id @default(autoincrement())
+  ar_number         String         @unique @db.VarChar(50)
+  partner_type      ARPartnerType  @default(CUSTOMER)
+  partner_id        Int?
+  partner_name      String         @db.VarChar(150)
+  source_doc        String         @db.VarChar(50)
+  amount            Decimal        @db.Decimal(18, 2)
+  received_amount   Decimal        @default(0) @db.Decimal(18, 2)
+  balance           Decimal        @default(0) @db.Decimal(18, 2)
+  status            ARStatus       @default(OPEN)
+  due_date          DateTime?
+  last_receipt_date DateTime?
+  notes             String?
+  created_by        String         @db.VarChar(100)
+  updated_by        String?        @db.VarChar(100)
+  created_at        DateTime       @default(now())
+  updated_at        DateTime       @updatedAt
+
+  @@index([status, due_date])
+  @@index([partner_id, status])
+  @@index([source_doc])
+  @@index([created_at])
+  @@map("account_receivables")
+}
+
+model CashEntry {
+  id             Int             @id @default(autoincrement())
+  cash_number    String          @unique @db.VarChar(50)
+  cash_date      DateTime        @default(now())
+  type           CashEntryType
+  source         String          @db.VarChar(150)
+  reference      String?         @db.VarChar(100)
+  amount         Decimal         @db.Decimal(18, 2)
+  payment_method PaymentMethod?
+  bank_account   String?         @db.VarChar(100)
+  status         CashEntryStatus @default(DRAFT)
+  posted_at      DateTime?
+  notes          String?
+  created_by     String          @db.VarChar(100)
+  updated_by     String?         @db.VarChar(100)
+  created_at     DateTime        @default(now())
+  updated_at     DateTime        @updatedAt
+
+  @@index([status, cash_date(sort: Desc)])
+  @@index([type, status])
+  @@index([reference])
+  @@map("cash_entries")
+}
+
+model JournalEntry {
+  id             Int           @id @default(autoincrement())
+  journal_number String        @unique @db.VarChar(50)
+  journal_date   DateTime      @default(now())
+  source         String        @db.VarChar(100)
+  desc           String        @db.VarChar(500)
+  debit          Decimal       @db.Decimal(18, 2)
+  credit         Decimal       @db.Decimal(18, 2)
+  status         JournalStatus @default(DRAFT)
+  posted_at      DateTime?
+  notes          String?
+  created_by     String        @db.VarChar(100)
+  updated_by     String?       @db.VarChar(100)
+  created_at     DateTime      @default(now())
+  updated_at     DateTime      @updatedAt
+
+  @@index([status, journal_date(sort: Desc)])
+  @@index([source])
+  @@map("journal_entries")
 }
 
 enum IssuanceType {
@@ -1421,4 +1500,41 @@ enum APStatus {
 enum APType {
   DP
   GOODS_RECEIPT
+  TERM
+  FULL
+}
+
+enum ARStatus {
+  OPEN
+  PARTIAL
+  CLOSED
+}
+
+enum ARPartnerType {
+  OUTLET
+  RESELLER
+  CUSTOMER
+  EXTERNAL
+}
+
+enum CashEntryType {
+  RECEIPT
+  PAYMENT
+  CREDIT
+}
+
+enum CashEntryStatus {
+  DRAFT
+  POSTED
+}
+
+enum JournalStatus {
+  DRAFT
+  POSTED
+}
+
+enum PaymentMethod {
+  TRANSFER
+  CASH
+  GIRO
 }

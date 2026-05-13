@@ -118,7 +118,7 @@ describe("ReceiptService", () => {
             };
             // @ts-ignore
             prisma.$transaction = vi.fn().mockImplementation(async (cb) => cb({
-                purchaseReceipt: { create: vi.fn().mockResolvedValue(mockCreated) },
+                purchaseReceipt: { create: vi.fn().mockResolvedValue(mockCreated), count: vi.fn().mockResolvedValue(0) },
             }));
 
             const result = await ReceiptService.create(
@@ -210,14 +210,21 @@ describe("ReceiptService", () => {
                         { ...mockPOItem, qty_received: 50 },
                     ]),
                 },
-                purchaseOrder: { update: vi.fn().mockResolvedValue({}) },
+                purchaseOrder: {
+                    update: vi.fn().mockResolvedValue({}),
+                    findUnique: vi.fn().mockResolvedValue({ id: 1, supplier_id: 1, supplier_name: "PT Supplier ABC" }),
+                },
                 purchaseTracking: { upsert: vi.fn().mockResolvedValue({}) },
                 rawMaterialInventory: {
                     findUnique: vi.fn().mockResolvedValue({ quantity: 200 }),
                     upsert: vi.fn().mockResolvedValue({ id: 1, quantity: 250 }),
                 },
                 stockMovement: { create: vi.fn().mockResolvedValue({ id: 1 }) },
-                accountPayable: { create: vi.fn().mockResolvedValue({ id: 1, ap_number: "AP-001" }) },
+                accountPayable: {
+                    create: vi.fn().mockResolvedValue({ id: 1, ap_number: "AP-001" }),
+                    findFirst: vi.fn().mockResolvedValue(null),
+                    count: vi.fn().mockResolvedValue(0),
+                },
             };
             // @ts-ignore
             prisma.$transaction = vi.fn().mockImplementation(async (cb) => cb(mockTx));

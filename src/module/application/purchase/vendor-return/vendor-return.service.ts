@@ -352,11 +352,11 @@ export class VendorReturnService {
                     .reduce((sum, i) => sum + Number(i.amount), 0);
 
                 if (returnTotal > 0) {
-                    const newRemaining = Math.max(0, Number(ap.remaining_amount) - returnTotal);
+                    const newRemaining = Math.max(0, Number(ap.balance) - returnTotal);
                     await tx.accountPayable.update({
                         where: { id: ap.id },
                         data: {
-                            remaining_amount: newRemaining,
+                            balance: newRemaining,
                             notes: ap.notes
                                 ? `${ap.notes} | RTN-credit: ${returnTotal}`
                                 : `RTN-credit: ${returnTotal}`,

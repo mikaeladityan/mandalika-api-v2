@@ -8,6 +8,9 @@ export interface DocNumberClient {
     purchaseReceipt: CountableModel;
     vendorReturn: CountableModel;
     accountPayable: CountableModel;
+    accountReceivable: CountableModel;
+    cashEntry: CountableModel;
+    journalEntry: CountableModel;
 }
 
 function getDateStr(): string {
@@ -46,4 +49,19 @@ export async function generateReturnNumber(db: DocNumberClient): Promise<string>
 export async function generateAPNumber(db: DocNumberClient): Promise<string> {
     const prefix = `AP-${getDateStr()}-`;
     return `${prefix}${await nextSeq(db.accountPayable, "ap_number", prefix)}`;
+}
+
+export async function generateARNumber(db: DocNumberClient): Promise<string> {
+    const prefix = `AR-${getDateStr()}-`;
+    return `${prefix}${await nextSeq(db.accountReceivable, "ar_number", prefix)}`;
+}
+
+export async function generateCashNumber(db: DocNumberClient): Promise<string> {
+    const prefix = `CB-${getDateStr()}-`;
+    return `${prefix}${await nextSeq(db.cashEntry, "cash_number", prefix)}`;
+}
+
+export async function generateJournalNumber(db: DocNumberClient): Promise<string> {
+    const prefix = `JV-${getDateStr()}-`;
+    return `${prefix}${await nextSeq(db.journalEntry, "journal_number", prefix)}`;
 }

@@ -1,6 +1,6 @@
 import { Context } from "hono";
-import { APService } from "./ap.service.js";
-import { QueryAPSchema, UpdateAPPaymentDTO } from "./ap.schema.js";
+import { FinanceAPService } from "./ap.service.js";
+import { QueryAPSchema, PayAPSchema } from "./ap.schema.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 
@@ -10,23 +10,24 @@ function parseId(c: Context): number {
     return id;
 }
 
-export class APController {
+export class FinanceAPController {
     static async list(c: Context) {
         const query = QueryAPSchema.parse(c.req.query());
-        const result = await APService.list(query);
+        const result = await FinanceAPService.list(query);
         return ApiResponse.sendSuccess(c, result);
     }
 
     static async detail(c: Context) {
         const id = parseId(c);
-        const result = await APService.detail(id);
+        const result = await FinanceAPService.detail(id);
         return ApiResponse.sendSuccess(c, result);
     }
 
-    static async updatePayment(c: Context) {
+    static async recordPayment(c: Context) {
         const id = parseId(c);
-        const valid = c.get("body") as UpdateAPPaymentDTO;
-        const result = await APService.updatePayment(id, valid);
+        const dto = c.get("body") as ReturnType<typeof PayAPSchema.parse>;
+        const userId = c.get("userId") as string;
+        const result = await FinanceAPService.recordPayment(id, dto, userId);
         return ApiResponse.sendSuccess(c, result);
     }
 }
