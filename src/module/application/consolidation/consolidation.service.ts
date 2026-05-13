@@ -341,16 +341,15 @@ export class ConsolidationService {
                 );
             }
 
-            // For editable RFQs (DRAFT/SUBMITTED/REVIEWED): nullify the draft link
+            // For editable RFQs (DRAFT/SUBMITTED/REVIEWED): delete the linked RFQ items
             const editableLinkedIds = linkedItems
                 .filter((i) => ["DRAFT", "SUBMITTED", "REVIEWED"].includes(i.rfq.status))
                 .map((i) => i.id);
 
             return await prisma.$transaction(async (tx) => {
                 if (editableLinkedIds.length > 0) {
-                    await tx.purchaseRFQItem.updateMany({
+                    await tx.purchaseRFQItem.deleteMany({
                         where: { id: { in: editableLinkedIds } },
-                        data: { purchase_draft_id: null },
                     });
                 }
                 return tx.materialPurchaseDraft.updateMany({
