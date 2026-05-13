@@ -42,7 +42,7 @@ function buildPONumber(index: number): string {
     const d = String(now.getDate()).padStart(2, "0");
     const h = String(now.getHours()).padStart(2, "0");
     const min = String(now.getMinutes()).padStart(2, "0");
-    return `MOPO-${y}${m}${d}-${h}${min}-${String(index).padStart(3, "0")}`;
+    return `MPO-${y}${m}${d}-${h}${min}-${String(index).padStart(3, "0")}`;
 }
 
 function groupBySupplier(records: OpenPoWithRelations[]) {
@@ -165,11 +165,13 @@ async function main() {
         process.exit(1);
     }
 
+    // Tutup semua record lama di raw_material_open_pos
+    const closed = await prisma.rawMaterialOpenPo.updateMany({
+        where: { status: "OPEN" },
+        data: { status: "MIGRATED" },
+    });
+    console.log(`✅ ${closed.count} record lama ditutup (status → MIGRATED)\n`);
     console.log("✅ Migrasi selesai.\n");
-    console.log(
-        "⚠️  Catatan: record lama di raw_material_open_pos BELUM dihapus.\n" +
-        "   Hapus setelah Fase 2 (schema migration) selesai dan data diverifikasi.",
-    );
 }
 
 main()

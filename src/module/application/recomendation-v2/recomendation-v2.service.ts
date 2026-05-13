@@ -325,11 +325,21 @@ export class RecomendationV2Service {
                                 ), 0)
                             )
                     END AS current_stock,
-                    COALESCE((
-                        SELECT SUM(po.quantity)
-                        FROM "raw_material_open_pos" po
-                        WHERE po.raw_material_id = fm.id AND po.status = 'OPEN'
-                    ), 0) AS open_po,
+                    (
+                        COALESCE((
+                            SELECT SUM(po.quantity)
+                            FROM "raw_material_open_pos" po
+                            WHERE po.raw_material_id = fm.id AND po.status = 'OPEN'
+                        ), 0)
+                        +
+                        COALESCE((
+                            SELECT SUM(poi.qty_ordered - poi.qty_received)
+                            FROM "purchase_order_items" poi
+                            JOIN "purchase_orders" po ON poi.po_id = po.id
+                            WHERE poi.raw_material_id = fm.id
+                              AND po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
+                        ), 0)
+                    ) AS open_po,
 
                     -- Open PO per month breakdown (SUBMITTED/APPROVED/ORDERED)
                     (
