@@ -1,6 +1,7 @@
 import prisma from "../../../config/prisma.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { QueryConsolidationDTO } from "./consolidation.schema.js";
+import { ApiError } from "../../../lib/errors/api.error.js";
 import ExcelJS from "exceljs";
 
 export class ConsolidationService {
@@ -322,12 +323,40 @@ export class ConsolidationService {
 
     static async bulkUpdateStatus(ids: number[], status: any) {
         if (status === "DRAFT") {
-            return await prisma.materialPurchaseDraft.updateMany({
-                where: { id: { in: ids } },
-                data: {
-                    status: "DRAFT",
-                    updated_at: new Date(),
-                },
+            // Check if any draft is linked to an RFQ in an advanced state
+            const linkedItems = await prisma.purchaseRFQItem.findMany({
+                where: { purchase_draft_id: { in: ids } },
+                include: { rfq: { select: { id: true, rfq_number: true, status: true } } },
+            });
+
+            const blocked = linkedItems.filter((i) =>
+                i.rfq.status === "APPROVED" || i.rfq.status === "CONVERTED",
+            );
+
+            if (blocked.length > 0) {
+                const nums = blocked.map((i) => i.rfq.rfq_number).join(", ");
+                throw new ApiError(
+                    400,
+                    `Tidak dapat rollback: item sudah terikat ke RFQ ${nums} yang berstatus ${blocked[0]!.rfq.status}. Batalkan atau tutup RFQ tersebut terlebih dahulu.`,
+                );
+            }
+
+            // For editable RFQs (DRAFT/SUBMITTED/REVIEWED): nullify the draft link
+            const editableLinkedIds = linkedItems
+                .filter((i) => ["DRAFT", "SUBMITTED", "REVIEWED"].includes(i.rfq.status))
+                .map((i) => i.id);
+
+            return await prisma.$transaction(async (tx) => {
+                if (editableLinkedIds.length > 0) {
+                    await tx.purchaseRFQItem.updateMany({
+                        where: { id: { in: editableLinkedIds } },
+                        data: { purchase_draft_id: null },
+                    });
+                }
+                return tx.materialPurchaseDraft.updateMany({
+                    where: { id: { in: ids } },
+                    data: { status: "DRAFT", updated_at: new Date() },
+                });
             });
         }
 
