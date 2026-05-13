@@ -85,7 +85,7 @@ export type UpdatePOStatusDTO = z.infer<typeof UpdatePOStatusSchema>;
 
 export const QueryPOSchema = z.object({
     page: z.coerce.number().min(1).default(1),
-    take: z.coerce.number().min(1).max(500).default(50),
+    take: z.coerce.number().min(1).max(2000).default(50),
     search: z.string().optional(),
     status: POStatusEnum.optional(),
     po_type: POTypeEnum.optional(),
@@ -116,7 +116,7 @@ export type UpdatePOTrackingDTO = z.infer<typeof UpdatePOTrackingSchema>;
 
 export const QueryOpenPOSchema = z.object({
     page: z.coerce.number().min(1).default(1),
-    take: z.coerce.number().min(1).max(500).default(50),
+    take: z.coerce.number().min(1).max(2000).default(50),
     search: z.string().optional(),
     po_type: POTypeEnum.optional(),
     supplier_id: z.coerce.number().int().positive().optional(),
