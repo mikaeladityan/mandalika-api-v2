@@ -304,7 +304,7 @@ export class RFQService {
 
         const where: any = {
             status: "ACC",
-            rfq_item: null,
+            rfq_item: { is: null },
         };
 
         if (month) where.month = month;
