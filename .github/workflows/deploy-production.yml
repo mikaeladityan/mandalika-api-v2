@@ -1,0 +1,54 @@
+name: 🚀 Deploy API to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-production:
+    name: Deploy to Production VPS
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: 🔔 Notify deploy start
+        run: echo "Deploying main branch to production..."
+
+      - name: 🚀 Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script_stop: true
+          script: |
+            set -e
+            echo "📂 Navigating to production directory..."
+            cd /var/www/api-erp
+
+            echo "🔄 Pulling latest production code..."
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+
+            echo "📦 Installing dependencies..."
+            npm ci --omit=dev
+
+            echo "🗃️ Running Prisma migrations..."
+            npx prisma generate
+            npx prisma migrate deploy
+
+            echo "🔨 Building application..."
+            npm run build
+
+            echo "♻️ Restarting application..."
+            if command -v pm2 &> /dev/null; then
+              pm2 restart mandalika-api-production --update-env 2>/dev/null || \
+              pm2 start dist/src/server.js --name mandalika-api-production
+            else
+              echo "⚠️ PM2 not found. Please restart the application manually."
+            fi
+
+            echo "✅ Production deployment complete!"

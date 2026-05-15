@@ -1,0 +1,56 @@
+name: 🚀 Deploy API to Staging
+
+on:
+  push:
+    branches:
+      - staging
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging VPS
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: 🔔 Notify deploy start
+        run: echo "Deploying staging branch to VPS..."
+
+      - name: 🚀 Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script_stop: true
+          script: |
+            set -e
+            echo "📂 Navigating to staging directory..."
+            cd /var/www/test-mandalika
+
+            echo "🔄 Pulling latest staging code..."
+            git fetch origin staging
+            git checkout staging
+            git reset --hard origin/staging
+
+            echo "📦 Installing dependencies..."
+            npm ci --omit=dev
+
+            echo "🗃️ Running Prisma migrations..."
+            npx prisma generate
+            npx prisma migrate deploy
+
+            echo "🔨 Building application..."
+            npm run build
+
+            echo "♻️ Restarting application..."
+            # Restart menggunakan PM2 (jika sudah setup)
+            if command -v pm2 &> /dev/null; then
+              pm2 restart mandalika-api-staging --update-env 2>/dev/null || \
+              pm2 start dist/src/server.js --name mandalika-api-staging
+            else
+              echo "⚠️ PM2 not found. Please restart the application manually."
+              echo "   Or install PM2: npm install -g pm2"
+            fi
+
+            echo "✅ Staging deployment complete!"
