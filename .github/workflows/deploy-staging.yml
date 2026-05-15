@@ -12,7 +12,7 @@ concurrency:
 jobs:
     deploy-staging:
         name: Deploy to Staging VPS
-        runs-on: ubuntu-latest
+        runs-on: self-hosted
         environment: staging
 
         steps:
