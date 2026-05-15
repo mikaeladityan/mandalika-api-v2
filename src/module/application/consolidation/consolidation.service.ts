@@ -207,7 +207,14 @@ export class ConsolidationService {
         const { data } = await this.list({ ...query, take: 1000000, page: 1 });
 
         // Filter: Include DRAFT and ACC items
-        const draftItems = data.filter((item) => ["DRAFT", "ACC"].includes(item.status));
+        let draftItems = data.filter((item) => ["DRAFT", "ACC"].includes(item.status));
+
+        if (query.selectedIds) {
+            const ids = query.selectedIds.split(",").map(Number).filter(Boolean);
+            if (ids.length > 0) {
+                draftItems = draftItems.filter((item) => ids.includes(item.recommendation_id));
+            }
+        }
         const supplierName = (draftItems.length > 0 && query.supplier_id) ? draftItems[0]?.supplier_name : "";
 
         const workbook = new ExcelJS.Workbook();

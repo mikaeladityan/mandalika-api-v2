@@ -8,10 +8,18 @@ import {
     RequestUpdateMoqDTO,
     RequestSaveNeedOverrideDTO,
     RequestBulkHideDTO,
+    QueryOpenPoCellDTO,
+    RequestCreateOpenPoCellDTO,
+    RequestUpdateOpenPoCellQtyDTO,
 } from "./recomendation-v2.schema.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 import * as ExcelJS from "exceljs";
+import { ApiError } from "../../../lib/errors/api.error.js";
+import { generatePONumber } from "../../../lib/utils/generate-number.js";
+
+const EDITABLE_PO_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "ORDERED"] as const;
+type EditablePOStatus = typeof EDITABLE_PO_STATUSES[number];
 
 export class RecomendationV2Service {
     static async list(query: QueryRecomendationV2DTO) {
@@ -632,6 +640,289 @@ export class RecomendationV2Service {
                 po_periods: poPeriods,
             },
         };
+    }
+
+    static async listOpenPoCell(query: QueryOpenPoCellDTO) {
+        const { raw_mat_id, month, year } = query;
+
+        type ModernRow = {
+            item_id: number;
+            po_id: number;
+            po_number: string;
+            po_status: string;
+            supplier_id: number | null;
+            supplier_name: string;
+            qty_ordered: number;
+            qty_received: number;
+            open_qty: number;
+            unit_price: number;
+            uom: string;
+            po_date: Date;
+        };
+
+        const modernRows = await prisma.$queryRaw<ModernRow[]>`
+            SELECT
+                poi.id                                       AS item_id,
+                poi.po_id                                    AS po_id,
+                po.po_number                                 AS po_number,
+                po.status::text                              AS po_status,
+                po.supplier_id                               AS supplier_id,
+                po.supplier_name                             AS supplier_name,
+                poi.qty_ordered::float                       AS qty_ordered,
+                poi.qty_received::float                      AS qty_received,
+                (poi.qty_ordered - poi.qty_received)::float  AS open_qty,
+                poi.unit_price::float                        AS unit_price,
+                poi.uom                                      AS uom,
+                po.po_date                                   AS po_date
+            FROM purchase_order_items poi
+            JOIN purchase_orders po ON po.id = poi.po_id
+            WHERE poi.raw_material_id = ${raw_mat_id}
+              AND po.status::text IN ('DRAFT','SUBMITTED','APPROVED','ORDERED')
+              AND poi.qty_received < poi.qty_ordered
+              AND EXTRACT(MONTH FROM po.po_date AT TIME ZONE 'Asia/Jakarta') = ${month}
+              AND EXTRACT(YEAR  FROM po.po_date AT TIME ZONE 'Asia/Jakarta') = ${year}
+            ORDER BY po.po_date DESC, po.po_number ASC
+        `;
+
+        const now = new Date();
+        const isCurrentMonth = month === now.getMonth() + 1 && year === now.getFullYear();
+        let legacyRows: Array<{ item_id: number; quantity: number; po_date: Date }> = [];
+        if (isCurrentMonth) {
+            try {
+                legacyRows = await prisma.$queryRaw<typeof legacyRows>`
+                    SELECT
+                        rmop.id              AS item_id,
+                        rmop.quantity::float AS quantity,
+                        rmop.created_at      AS po_date
+                    FROM raw_material_open_pos rmop
+                    WHERE rmop.raw_material_id = ${raw_mat_id}
+                      AND rmop.status = 'OPEN'
+                `;
+            } catch {
+                legacyRows = [];
+            }
+        }
+
+        return {
+            items: modernRows.map((r) => ({
+                item_id: Number(r.item_id),
+                po_id: Number(r.po_id),
+                po_number: r.po_number,
+                po_status: r.po_status as "DRAFT" | "SUBMITTED" | "APPROVED" | "ORDERED",
+                supplier_id: r.supplier_id ? Number(r.supplier_id) : null,
+                supplier_name: r.supplier_name,
+                qty_ordered: Number(r.qty_ordered),
+                qty_received: Number(r.qty_received),
+                open_qty: Number(r.open_qty),
+                unit_price: Number(r.unit_price),
+                uom: r.uom,
+                po_date: r.po_date.toISOString(),
+                is_legacy: false,
+            })),
+            legacy: legacyRows.map((r) => ({
+                item_id: Number(r.item_id),
+                po_id: 0,
+                po_number: `LEGACY-${r.item_id}`,
+                po_status: "ORDERED" as const,
+                supplier_id: null,
+                supplier_name: "Legacy entry",
+                qty_ordered: Number(r.quantity),
+                qty_received: 0,
+                open_qty: Number(r.quantity),
+                unit_price: 0,
+                uom: "UNIT",
+                po_date: new Date(r.po_date).toISOString(),
+                is_legacy: true,
+            })),
+            legacy_count: legacyRows.length,
+        };
+    }
+
+    static async createOpenPoCell(body: RequestCreateOpenPoCellDTO, userId: string) {
+        const { raw_mat_id, month, year, quantity, supplier_id } = body;
+
+        return await prisma.$transaction(async (tx) => {
+            const rm = await tx.rawMaterial.findUnique({
+                where: { id: raw_mat_id },
+                include: {
+                    unit_raw_material: { select: { name: true } },
+                    raw_mat_category: { select: { name: true } },
+                    supplier_materials: {
+                        select: { min_buy: true },
+                        take: 1,
+                        orderBy: { is_preferred: "desc" },
+                    },
+                },
+            });
+            if (!rm) throw new ApiError(404, "Raw material tidak ditemukan");
+
+            const resolved = await this.resolveSupplierAndPrice(tx, raw_mat_id, supplier_id);
+
+            const today = new Date();
+            const datePrefix = `PO-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}-`;
+            const maxRows = await tx.$queryRaw<{ max_seq: number | null }[]>`
+                SELECT MAX(CAST(SUBSTRING(po_number FROM ${datePrefix.length + 1}) AS INTEGER)) AS max_seq
+                FROM purchase_orders
+                WHERE po_number LIKE ${datePrefix + "%"}
+            `;
+            const nextSeq = Number(maxRows[0]?.max_seq ?? 0) + 1;
+            const poNumber = `${datePrefix}${String(nextSeq).padStart(3, "0")}`;
+            const poDate = new Date(Date.UTC(year, month - 1, 1));
+            const unitPrice = resolved.unit_price;
+            const subtotal = quantity * unitPrice;
+
+            const moq = rm.supplier_materials[0]?.min_buy ?? null;
+
+            const po = await tx.purchaseOrder.create({
+                data: {
+                    po_number: poNumber,
+                    po_date: poDate,
+                    po_type: "LOCAL",
+                    supplier_id: resolved.supplier_id,
+                    supplier_name: resolved.supplier_name,
+                    currency: "IDR",
+                    exchange_rate: 1,
+                    total_estimated: subtotal,
+                    status: "ORDERED",
+                    approved_by: userId,
+                    approved_at: new Date(),
+                    ordered_at: new Date(),
+                    created_by: userId,
+                    items: {
+                        create: {
+                            raw_material_id: rm.id,
+                            item_code: rm.barcode || `RM-${rm.id}`,
+                            item_name: rm.name,
+                            item_category: rm.raw_mat_category?.name ?? null,
+                            item_type: "MASTER",
+                            uom: rm.unit_raw_material?.name || "UNIT",
+                            moq,
+                            unit_price: unitPrice,
+                            qty_ordered: quantity,
+                            subtotal,
+                        },
+                    },
+                },
+                include: { items: true },
+            });
+
+            const item = po.items[0];
+            if (!item) throw new ApiError(500, "Gagal membuat PO item");
+            return {
+                item_id: item.id,
+                po_id: po.id,
+                po_number: po.po_number,
+                po_status: po.status as "ORDERED",
+                supplier_id: po.supplier_id,
+                supplier_name: po.supplier_name,
+                qty_ordered: Number(item.qty_ordered),
+                qty_received: Number(item.qty_received),
+                open_qty: Number(item.qty_ordered) - Number(item.qty_received),
+                unit_price: Number(item.unit_price),
+                uom: item.uom,
+                po_date: po.po_date.toISOString(),
+                is_legacy: false,
+            };
+        });
+    }
+
+    static async updateOpenPoCellQty(itemId: number, body: RequestUpdateOpenPoCellQtyDTO) {
+        const { quantity } = body;
+
+        return await prisma.$transaction(async (tx) => {
+            const item = await tx.purchaseOrderItem.findUnique({
+                where: { id: itemId },
+                include: { po: { select: { id: true, status: true } } },
+            });
+            if (!item) throw new ApiError(404, "PO item tidak ditemukan");
+            if (!EDITABLE_PO_STATUSES.includes(item.po.status as EditablePOStatus)) {
+                throw new ApiError(403, `Status PO ${item.po.status} tidak bisa diubah dari sini`);
+            }
+            if (quantity < Number(item.qty_received)) {
+                throw new ApiError(
+                    422,
+                    `Min qty = ${Number(item.qty_received)} (sudah diterima)`,
+                );
+            }
+
+            // Row lock parent header to serialize concurrent edits
+            await tx.$queryRaw`SELECT id FROM purchase_orders WHERE id = ${item.po.id} FOR UPDATE`;
+
+            const newSubtotal = quantity * Number(item.unit_price);
+            const updated = await tx.purchaseOrderItem.update({
+                where: { id: itemId },
+                data: { qty_ordered: quantity, subtotal: newSubtotal },
+            });
+
+            const agg = await tx.purchaseOrderItem.aggregate({
+                where: { po_id: item.po.id },
+                _sum: { subtotal: true },
+            });
+            await tx.purchaseOrder.update({
+                where: { id: item.po.id },
+                data: { total_estimated: Number(agg._sum.subtotal ?? 0) },
+            });
+
+            return {
+                item_id: updated.id,
+                po_id: item.po.id,
+                qty_ordered: Number(updated.qty_ordered),
+                qty_received: Number(updated.qty_received),
+                open_qty: Number(updated.qty_ordered) - Number(updated.qty_received),
+                unit_price: Number(updated.unit_price),
+                subtotal: Number(updated.subtotal),
+            };
+        });
+    }
+
+    static async deleteOpenPoCellItem(itemId: number) {
+        return await prisma.$transaction(async (tx) => {
+            const item = await tx.purchaseOrderItem.findUnique({
+                where: { id: itemId },
+                include: { po: { select: { id: true, status: true } } },
+            });
+            if (!item) throw new ApiError(404, "PO item tidak ditemukan");
+            if (!EDITABLE_PO_STATUSES.includes(item.po.status as EditablePOStatus)) {
+                throw new ApiError(403, `Status PO ${item.po.status} tidak bisa dihapus dari sini`);
+            }
+            if (Number(item.qty_received) > 0) {
+                throw new ApiError(422, "Tidak bisa hapus, PO sudah ada GR");
+            }
+
+            await tx.$queryRaw`SELECT id FROM purchase_orders WHERE id = ${item.po.id} FOR UPDATE`;
+            await tx.purchaseOrderItem.delete({ where: { id: itemId } });
+
+            const remaining = await tx.purchaseOrderItem.count({ where: { po_id: item.po.id } });
+            if (remaining === 0) {
+                await tx.purchaseOrder.delete({ where: { id: item.po.id } });
+                return { deleted: true, header_deleted: true };
+            }
+
+            const agg = await tx.purchaseOrderItem.aggregate({
+                where: { po_id: item.po.id },
+                _sum: { subtotal: true },
+            });
+            await tx.purchaseOrder.update({
+                where: { id: item.po.id },
+                data: { total_estimated: Number(agg._sum.subtotal ?? 0) },
+            });
+            return { deleted: true, header_deleted: false };
+        });
+    }
+
+    static async listSuppliersForMaterial(rawMatId: number) {
+        const rows = await prisma.supplierMaterial.findMany({
+            where: { raw_material_id: rawMatId, status: "ACTIVE" },
+            orderBy: [{ is_preferred: "desc" }, { unit_price: "asc" }],
+            include: { supplier: { select: { id: true, name: true, country: true } } },
+        });
+        return rows.map((r) => ({
+            supplier_id: r.supplier_id,
+            supplier_name: r.supplier.name,
+            country: r.supplier.country,
+            unit_price: Number(r.unit_price),
+            is_preferred: r.is_preferred,
+        }));
     }
 
     static async saveWorkOrder(body: RequestSaveWorkOrderDTO) {
@@ -1310,5 +1601,48 @@ export class RecomendationV2Service {
         return (current.year * 12 + current.month) > (latest.year * 12 + latest.month)
             ? { month: latest.month, year: latest.year }
             : current;
+    }
+
+    private static async resolveSupplierAndPrice(
+        tx: Prisma.TransactionClient,
+        rawMatId: number,
+        overrideSupplierId?: number,
+    ): Promise<{ supplier_id: number; supplier_name: string; unit_price: number }> {
+        let supplierId = overrideSupplierId;
+
+        if (!supplierId) {
+            const preferred = await tx.supplierMaterial.findFirst({
+                where: { raw_material_id: rawMatId, is_preferred: true, status: "ACTIVE" },
+                select: { supplier_id: true, unit_price: true },
+            });
+            if (!preferred) {
+                throw new ApiError(422, "Material ini tidak punya preferred supplier — pilih manual");
+            }
+            supplierId = preferred.supplier_id;
+        }
+
+        const supplier = await tx.supplier.findUnique({
+            where: { id: supplierId },
+            select: { id: true, name: true },
+        });
+        if (!supplier) throw new ApiError(422, "Supplier tidak ditemukan");
+
+        const supplierMaterial = await tx.supplierMaterial.findFirst({
+            where: { supplier_id: supplierId, raw_material_id: rawMatId, status: "ACTIVE" },
+            select: { unit_price: true },
+        });
+
+        let unitPrice = supplierMaterial ? Number(supplierMaterial.unit_price) : 0;
+
+        if (unitPrice === 0) {
+            const lastItem = await tx.purchaseOrderItem.findFirst({
+                where: { raw_material_id: rawMatId, po: { supplier_id: supplierId } },
+                orderBy: { po: { po_date: "desc" } },
+                select: { unit_price: true },
+            });
+            if (lastItem) unitPrice = Number(lastItem.unit_price);
+        }
+
+        return { supplier_id: supplier.id, supplier_name: supplier.name, unit_price: unitPrice };
     }
 }
