@@ -25,6 +25,9 @@ jobs:
           command_timeout: 10m
           script: |
             set -e
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
             echo "📂 Navigating to production directory..."
             cd /var/www/api-erp
 
