@@ -33,15 +33,6 @@ export const RequestSaveWorkOrderSchema = z.object({
 
 export type RequestSaveWorkOrderDTO = z.infer<typeof RequestSaveWorkOrderSchema>;
 
-export const RequestSaveOpenPoSchema = z.object({
-    raw_mat_id: z.coerce.number(),
-    month: z.coerce.number().min(1).max(12),
-    year: z.coerce.number().min(2000),
-    quantity: z.coerce.number().min(0),
-});
-
-export type RequestSaveOpenPoDTO = z.infer<typeof RequestSaveOpenPoSchema>;
-
 export const RequestBulkSaveHorizonSchema = z.object({
     month: z.coerce.number().min(1).max(12),
     year: z.coerce.number().min(2000),
@@ -141,3 +132,41 @@ export const RequestDeleteNeedOverrideSchema = z.object({
 });
 
 export type RequestDeleteNeedOverrideDTO = z.infer<typeof RequestDeleteNeedOverrideSchema>;
+
+export const QueryOpenPoCellSchema = z.object({
+    raw_mat_id: z.coerce.number().int().positive(),
+    month: z.coerce.number().min(1).max(12),
+    year: z.coerce.number().min(2000),
+});
+export type QueryOpenPoCellDTO = z.infer<typeof QueryOpenPoCellSchema>;
+
+export const RequestCreateOpenPoCellSchema = z.object({
+    raw_mat_id: z.coerce.number().int().positive(),
+    month: z.coerce.number().min(1).max(12),
+    year: z.coerce.number().min(2000),
+    quantity: z.coerce.number().positive(),
+    supplier_id: z.coerce.number().int().positive().optional(),
+});
+export type RequestCreateOpenPoCellDTO = z.infer<typeof RequestCreateOpenPoCellSchema>;
+
+export const RequestUpdateOpenPoCellQtySchema = z.object({
+    quantity: z.coerce.number().positive(),
+});
+export type RequestUpdateOpenPoCellQtyDTO = z.infer<typeof RequestUpdateOpenPoCellQtySchema>;
+
+export const OpenPoCellItemResponseSchema = z.object({
+    item_id: z.number(),
+    po_id: z.number(),
+    po_number: z.string(),
+    po_status: z.enum(["DRAFT", "SUBMITTED", "APPROVED", "ORDERED"]),
+    supplier_id: z.number().nullable(),
+    supplier_name: z.string(),
+    qty_ordered: z.number(),
+    qty_received: z.number(),
+    open_qty: z.number(),
+    unit_price: z.number(),
+    uom: z.string(),
+    po_date: z.string(),
+    is_legacy: z.boolean(),
+});
+export type OpenPoCellItemResponseDTO = z.infer<typeof OpenPoCellItemResponseSchema>;

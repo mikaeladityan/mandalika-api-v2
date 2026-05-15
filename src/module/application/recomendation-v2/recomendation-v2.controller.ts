@@ -1,6 +1,7 @@
 import { Context } from "hono";
 import { RecomendationV2Service } from "./recomendation-v2.service.js";
 import { ApiResponse } from "../../../lib/api.response.js";
+import { ApiError } from "../../../lib/errors/api.error.js";
 import {
     QueryRecomendationV2DTO,
     RequestApproveWorkOrderSchema,
@@ -10,6 +11,9 @@ import {
     RequestSaveNeedOverrideSchema,
     RequestDeleteNeedOverrideSchema,
     RequestBulkHideSchema,
+    QueryOpenPoCellSchema,
+    RequestCreateOpenPoCellSchema,
+    RequestUpdateOpenPoCellQtySchema,
 } from "./recomendation-v2.schema.js";
 
 export class RecomendationV2Controller {
@@ -115,6 +119,43 @@ export class RecomendationV2Controller {
         const body = await c.req.json();
         const validBody = RequestDeleteNeedOverrideSchema.parse(body);
         const result = await RecomendationV2Service.deleteNeedOverride(validBody);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async listOpenPoCell(c: Context) {
+        const query = QueryOpenPoCellSchema.parse(c.req.query());
+        const result = await RecomendationV2Service.listOpenPoCell(query);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async createOpenPoCell(c: Context) {
+        const body = await c.req.json();
+        const validBody = RequestCreateOpenPoCellSchema.parse(body);
+        const userId = c.get("user")?.id || "system";
+        const result = await RecomendationV2Service.createOpenPoCell(validBody, userId);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async updateOpenPoCellQty(c: Context) {
+        const id = Number(c.req.param("itemId"));
+        const body = await c.req.json();
+        const validBody = RequestUpdateOpenPoCellQtySchema.parse(body);
+        const result = await RecomendationV2Service.updateOpenPoCellQty(id, validBody);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async deleteOpenPoCellItem(c: Context) {
+        const id = Number(c.req.param("itemId"));
+        const result = await RecomendationV2Service.deleteOpenPoCellItem(id);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async listSuppliersForMaterial(c: Context) {
+        const rawMatId = Number(c.req.query("raw_mat_id"));
+        if (!rawMatId || Number.isNaN(rawMatId)) {
+            throw new ApiError(400, "raw_mat_id required");
+        }
+        const result = await RecomendationV2Service.listSuppliersForMaterial(rawMatId);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 }
