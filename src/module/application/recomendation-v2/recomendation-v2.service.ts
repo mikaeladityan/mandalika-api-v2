@@ -679,8 +679,8 @@ export class RecomendationV2Service {
             WHERE poi.raw_material_id = ${raw_mat_id}
               AND po.status::text IN ('DRAFT','SUBMITTED','APPROVED','ORDERED')
               AND poi.qty_received < poi.qty_ordered
-              AND EXTRACT(MONTH FROM po.po_date AT TIME ZONE 'Asia/Jakarta') = ${month}
-              AND EXTRACT(YEAR  FROM po.po_date AT TIME ZONE 'Asia/Jakarta') = ${year}
+              AND EXTRACT(MONTH FROM po.po_date) = ${month}
+              AND EXTRACT(YEAR  FROM po.po_date) = ${year}
             ORDER BY po.po_date DESC, po.po_number ASC
         `;
 
