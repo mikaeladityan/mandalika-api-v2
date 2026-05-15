@@ -962,8 +962,11 @@ export class ForecastService {
     static async get(
         query: QueryForecastDTO,
     ): Promise<{ data: ResponseForecastDTO[]; len: number }> {
-        const now = new Date();
-        const monthsWindow = ForecastService.resolveHorizonMonths(now, query.horizon ?? 12);
+        const baseDate =
+            query.start_month && query.start_year
+                ? new Date(Date.UTC(query.start_year, query.start_month - 1, 1))
+                : new Date();
+        const monthsWindow = ForecastService.resolveHorizonMonths(baseDate, query.horizon ?? 12);
 
         const page = query.page ?? 1;
         const take = query.take ?? 25;
