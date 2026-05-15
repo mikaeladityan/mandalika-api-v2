@@ -5,14 +5,10 @@ on:
         branches:
             - staging
 
-concurrency:
-    group: deploy-staging-${{ github.ref }}
-    cancel-in-progress: true
-
 jobs:
     deploy-staging:
         name: Deploy to Staging VPS
-        runs-on: self-hosted
+        runs-on: ubuntu-latest
         environment: staging
 
         steps:
@@ -26,11 +22,9 @@ jobs:
                   username: ${{ secrets.VPS_USERNAME }}
                   key: ${{ secrets.VPS_SSH_KEY }}
                   port: ${{ secrets.VPS_PORT }}
-                  command_timeout: 20m
-                  envs: CI
+                  command_timeout: 10m
                   script: |
-                      set -ex
-                      export CI=true
+                      set -e
                       export NVM_DIR="$HOME/.nvm"
                       [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
@@ -38,26 +32,22 @@ jobs:
                       cd /var/www/test-mandalika
 
                       echo "🔄 Pulling latest staging code..."
-                      git fetch origin staging
-                      git reset --hard origin/staging
+                      git pull origin staging
 
                       echo "📦 Installing dependencies..."
-                      npm ci --no-audit --no-fund
+                      npm ci
 
-                      echo "🗃️ Pushing Prisma schema (non-interactive)..."
-                      npx --yes prisma db push --accept-data-loss --skip-generate
-                      npx --yes prisma generate
+                      echo "🗃️ Pushing Prisma schema..."
+                      npx prisma db push
+                      npx prisma generate
 
                       echo "🔨 Building application..."
                       npm run build
 
                       echo "🧹 Pruning dev dependencies..."
-                      npm prune --omit=dev
+                      npm prune --production
 
-                      echo "♻️ Reloading application..."
-                      pm2 reload test-api --update-env || pm2 start npm --name test-api -- run start
-
-                      echo "💾 Persisting pm2 process list..."
-                      pm2 save
+                      echo "♻️ Restarting application..."
+                      pm2 restart test-api
 
                       echo "✅ Staging deployment complete!"
