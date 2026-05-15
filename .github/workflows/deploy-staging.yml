@@ -35,7 +35,7 @@ jobs:
             git pull origin staging
 
             echo "📦 Installing dependencies..."
-            npm ci --production
+            npm ci
 
             echo "🗃️ Pushing Prisma schema..."
             npx prisma db push
@@ -43,6 +43,9 @@ jobs:
 
             echo "🔨 Building application..."
             npm run build
+
+            echo "🧹 Pruning dev dependencies..."
+            npm prune --production
 
             echo "♻️ Restarting application..."
             pm2 restart api-test
