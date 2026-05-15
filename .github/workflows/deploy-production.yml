@@ -1,53 +1,59 @@
 name: 🚀 Deploy API to Production
 
 on:
-  push:
-    branches:
-      - main
+    push:
+        branches:
+            - main
 
 jobs:
-  deploy-production:
-    name: Deploy to Production VPS
-    runs-on: ubuntu-latest
-    environment: production
+    deploy-production:
+        name: Deploy to Production VPS
+        runs-on: ubuntu-latest
+        environment: production
 
-    steps:
-      - name: 🔔 Notify deploy start
-        run: echo "Deploying main branch to production..."
+        steps:
+            - name: 🔔 Notify deploy start
+              run: echo "Deploying main branch to production..."
 
-      - name: 🚀 Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT }}
-          command_timeout: 10m
-          script: |
-            set -e
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+            - name: 🚀 Deploy via SSH
+              uses: appleboy/ssh-action@v1
+              with:
+                  host: ${{ secrets.VPS_HOST }}
+                  username: ${{ secrets.VPS_USERNAME }}
+                  key: ${{ secrets.VPS_SSH_KEY }}
+                  port: ${{ secrets.VPS_PORT }}
+                  command_timeout: 20m
+                  envs: CI
+                  script: |
+                      set -ex
+                      export CI=true
+                      export NVM_DIR="$HOME/.nvm"
+                      [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-            echo "📂 Navigating to production directory..."
-            cd /var/www/api-erp
+                      echo "📂 Navigating to production directory..."
+                      cd /var/www/api-erp
 
-            echo "🔄 Pulling latest production code..."
-            git pull origin main
+                      echo "🔄 Pulling latest production code..."
+                      git fetch origin main
+                      git reset --hard origin/main
 
-            echo "📦 Installing dependencies..."
-            npm ci
+                      echo "📦 Installing dependencies..."
+                      npm ci --no-audit --no-fund
 
-            echo "🗃️ Pushing Prisma schema..."
-            npx prisma db push
-            npx prisma generate
+                      echo "🗃️ Pushing Prisma schema (non-interactive)..."
+                      npx --yes prisma db push --accept-data-loss --skip-generate
+                      npx --yes prisma generate
 
-            echo "🔨 Building application..."
-            npm run build
+                      echo "🔨 Building application..."
+                      npm run build
 
-            echo "🧹 Pruning dev dependencies..."
-            npm prune --production
+                      echo "🧹 Pruning dev dependencies..."
+                      npm prune --omit=dev
 
-            echo "♻️ Restarting application..."
-            pm2 restart api-erp
+                      echo "♻️ Reloading application..."
+                      pm2 reload api-erp --update-env || pm2 start npm --name api-erp -- run start
 
-            echo "✅ Production deployment complete!"
+                      echo "💾 Persisting pm2 process list..."
+                      pm2 save
+
+                      echo "✅ Production deployment complete!"
