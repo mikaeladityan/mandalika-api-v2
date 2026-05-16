@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend Query & Mutation"
+  short_description: "TanStack Query and Service logic patterns"
+  default_prompt: "Use this skill when implementing or reviewing frontend services, query and mutation call sites, conditional queries, or cache invalidation."

@@ -4,33 +4,31 @@ import type { Context } from "hono";
 import { setCookie } from "hono/cookie";
 
 export async function setSessionLogin(c: Context, token: string, remember: boolean, data: any) {
+    const sessionTTL = remember ? 7 * 86400 : env.SESSION_TTL;
+
     setCookie(c, env.SESSION_COOKIE_NAME, token, {
         httpOnly: true,
         secure: env.isProduction,
         sameSite: "Lax",
-        maxAge: remember ? 7 * 86400 : env.SESSION_TTL,
+        maxAge: sessionTTL,
         path: "/",
+        domain: env.isProduction && env.COOKIE_DOMAIN ? env.COOKIE_DOMAIN : undefined,
     });
 
-    // Siapkan session data persis seperti sebelumnya
     const sessionData: Record<string, any> = {};
-
     for (const [key, value] of Object.entries(data)) {
         if (value === undefined || value === null) continue;
-        sessionData[key] = value; // tidak stringify manual
+        sessionData[key] = value;
     }
-
-    // Tambahkan timestamp
     sessionData.createdAt = Date.now();
     sessionData.lastActivity = Date.now();
 
-    // Simpan sebagai JSON string, BUKAN HASH
     const sessionKey = `session:${token}`;
+    await redisClient.set(sessionKey, JSON.stringify(sessionData), "EX", sessionTTL);
 
-    await redisClient.set(
-        sessionKey,
-        JSON.stringify(sessionData),
-        "EX",
-        remember ? 7 * 86400 : env.SESSION_TTL
-    );
+    // Maintain per-user session index for O(1) active session lookup
+    if (data.email) {
+        await redisClient.sadd(`sessions:${data.email}`, token);
+        await redisClient.expire(`sessions:${data.email}`, sessionTTL);
+    }
 }

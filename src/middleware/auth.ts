@@ -10,49 +10,50 @@ import { ContentfulStatusCode } from "hono/utils/http-status";
 
 const CACHE_TTL = 300; // 5 menit
 
+interface SessionData {
+    email?: string;
+    role?: ROLE;
+    user?: Record<string, unknown>;
+    employee?: { permissions?: string[] };
+    ip?: string;
+    userAgent?: string;
+    createdAt?: number;
+    lastActivity?: number;
+    [key: string]: unknown;
+}
+
 export const authMiddleware = async (c: Context, next: Next) => {
     try {
         // Headless support: allow Authorization header as fallback for non-browser clients
-        const sessionId = getCookie(c, env.SESSION_COOKIE_NAME) || c.req.header("Authorization")?.replace("Bearer ", "");
+        const sessionId =
+            getCookie(c, env.SESSION_COOKIE_NAME) ||
+            c.req.header("Authorization")?.replace("Bearer ", "");
 
         if (!sessionId) {
             throw new ApiError(401, "Unauthorized, please login to access our system");
         }
 
-        let sessionData: Record<string, any> | null = null;
+        let sessionData: SessionData | null = null;
         const now = Date.now();
         const sessionKey = `session:${sessionId}`;
 
         const cached = sessionCache.get(sessionId);
         if (cached && cached.expiry > now) {
-            sessionData = cached.data;
+            sessionData = cached.data as SessionData;
         } else {
-            const type = await redisClient.type(sessionKey);
-
-            if (type === "hash") {
-                sessionData = await redisClient.hgetall(sessionKey);
-
-                if (sessionData.user && typeof sessionData.user === "string") {
-                    try {
-                        sessionData.user = JSON.parse(sessionData.user);
-                    } catch (e) {
-                        logger.error("Error parsing user data in session", { error: (e as Error).message });
-                    }
-                }
-            } else if (type === "string") {
-                // Backward compatibility: sessions stored as JSON string before hash migration
-                const raw = await redisClient.get(sessionKey);
-                if (raw) {
-                    try {
-                        sessionData = JSON.parse(raw);
-                    } catch {
-                        await redisClient.del(sessionKey);
-                        throw new ApiError(500, "Corrupted session data");
-                    }
-                }
-            } else {
+            const raw = await redisClient.get(sessionKey);
+            if (!raw) {
+                sessionCache.delete(sessionId);
                 deleteCookie(c, env.SESSION_COOKIE_NAME);
                 throw new ApiError(401, "Unauthorized, please login to access our system");
+            }
+
+            try {
+                sessionData = JSON.parse(raw) as SessionData;
+            } catch {
+                await redisClient.del(sessionKey);
+                sessionCache.delete(sessionId);
+                throw new ApiError(401, "Unauthorized: invalid session");
             }
 
             if (!sessionData || Object.keys(sessionData).length === 0) {
@@ -72,8 +73,7 @@ export const authMiddleware = async (c: Context, next: Next) => {
         c.set("permissions", sessionData?.employee?.permissions || []);
         c.set("sessionId", sessionId);
 
-        // 6. Background task: Extend TTL (sliding session)
-        // Jangan await agar tidak block request
+        // Sliding session: extend TTL in background (non-blocking)
         extendSessionTTL(sessionKey).catch((err) =>
             logger.error("Failed to extend session TTL", { error: (err as Error).message })
         );
@@ -86,11 +86,12 @@ export const authMiddleware = async (c: Context, next: Next) => {
                 err.statusCode as ContentfulStatusCode
             );
         }
-        return c.json({ success: false, message: (err as Error).message }, 401);
+        // Mask internal error details; log original server-side for diagnostics
+        logger.error("authMiddleware unexpected error", { error: (err as Error).message });
+        return c.json({ success: false, message: "Unauthorized" }, 401);
     }
 };
 
-// Helper function untuk extend TTL secara background
 async function extendSessionTTL(sessionKey: string) {
     try {
         const ttl = env.SESSION_TTL;
@@ -98,11 +99,14 @@ async function extendSessionTTL(sessionKey: string) {
             await redisClient.expire(sessionKey, ttl);
         }
     } catch (error) {
-        logger.error("Failed to extend session TTL", { sessionKey, error: (error as Error).message });
+        logger.error("Failed to extend session TTL", {
+            sessionKey,
+            error: (error as Error).message,
+        });
     }
 }
 
-// Periodic cleanup cache
+// Periodic cleanup of expired in-memory cache entries
 setInterval(() => {
     const now = Date.now();
     sessionCache.forEach((value, key) => {
@@ -117,7 +121,6 @@ export const roleMiddleware = (allowedRoles?: ROLE[]) => {
         const userRole = c.get("role") as ROLE;
         if (!userRole) throw new ApiError(401, "Unauthorized");
 
-        // Jika allowedRoles tidak di-pass atau kosong → izinkan semua role authenticated
         if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(userRole)) {
             throw new ApiError(403, "Forbidden: insufficient role");
         }

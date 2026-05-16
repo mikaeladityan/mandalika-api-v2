@@ -11,7 +11,8 @@ import { setSessionLogin } from "../../lib/auth.js";
 import { deleteCookie, getCookie } from "hono/cookie";
 import { env } from "../../config/env.js";
 import { redisClient } from "../../config/redis.js";
-const MAX_DEVICES = 5; // Contoh: maks 5 device
+import { MAX_DEVICES } from "../../lib/constants.js";
+
 export class AuthController {
     static async register(c: Context) {
         const body = c.get("body");
@@ -27,19 +28,27 @@ export class AuthController {
         if (activeSessions.length >= MAX_DEVICES) {
             throw new ApiError(429, `Maksimal ${MAX_DEVICES} device aktif`);
         }
+
+        // Rotate CSRF: invalidate any pre-login CSRF token bound to the prior
+        // anonymous session ID to prevent session fixation. Client must re-fetch
+        // /csrf after a successful login.
+        const priorSessionId = getCookie(c, env.SESSION_COOKIE_NAME);
+        if (priorSessionId) {
+            await redisClient.del(`csrf:${priorSessionId}`);
+        }
+        deleteCookie(c, env.CSRF_COOKIE_NAME);
+
         const sessionToken = generateHexToken();
         const info = getConnInfo(c);
         const ip = info.remote.address;
         const userAgent = c.req.header("User-Agent");
 
-        if (account) {
-            const data: CreateLoggingActivityDTO = {
-                activity: "CREATE",
-                description: `Login: ${account.email}-${ip}-${userAgent}`,
-                email: account.email,
-            };
-            await CreateLogger(data);
-        }
+        const logData: CreateLoggingActivityDTO = {
+            activity: "CREATE",
+            description: `Login: ${account.email}-${ip}-${userAgent}`,
+            email: account.email,
+        };
+        await CreateLogger(logData);
 
         await setSessionLogin(c, sessionToken, remember, { ip, userAgent, ...account });
         return ApiResponse.sendSuccess(c, {}, 201);
@@ -52,9 +61,26 @@ export class AuthController {
     }
 
     static async logout(c: Context) {
-        const sessionId = getCookie(c, env.SESSION_COOKIE_NAME) || c.req.header("Authorization")?.replace("Bearer ", "");
+        const sessionId =
+            getCookie(c, env.SESSION_COOKIE_NAME) ||
+            c.req.header("Authorization")?.replace("Bearer ", "");
 
         if (sessionId) {
+            // Read session to get email before deleting, so we can remove from index
+            const raw = await redisClient.get(`session:${sessionId}`);
+            if (raw) {
+                try {
+                    const sessionData = JSON.parse(raw);
+                    if (sessionData.email) {
+                        redisClient
+                            .srem(`sessions:${sessionData.email}`, sessionId)
+                            .catch(() => {});
+                    }
+                } catch {
+                    // session corrupt, skip index cleanup
+                }
+            }
+
             await redisClient.del(`session:${sessionId}`);
             await redisClient.del(`csrf:${sessionId}`);
         }
@@ -62,6 +88,6 @@ export class AuthController {
         deleteCookie(c, env.CSRF_COOKIE_NAME);
         deleteCookie(c, env.SESSION_COOKIE_NAME);
 
-        return ApiResponse.sendSuccess(c, {}, 201);
+        return ApiResponse.sendSuccess(c, {}, 200);
     }
 }
