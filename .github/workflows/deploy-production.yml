@@ -32,8 +32,7 @@ jobs:
                       cd /var/www/api-erp
 
                       echo "🔄 Syncing to origin/main (hard reset)..."
-                      git fetch origin main
-                      git reset --hard origin/main
+                      git pull origin main
                       git clean -fd
 
                       echo "📦 Installing dependencies..."
