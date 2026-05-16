@@ -21,6 +21,8 @@ export const QueryForecastSchema = z.object({
     is_others: z.coerce.boolean().optional(),
     type_id: z.coerce.number().optional(),
     size_id: z.coerce.number().optional(),
+    start_month: z.coerce.number().int().min(1).max(12).optional(),
+    start_year: z.coerce.number().int().min(2000).max(2100).optional(),
 });
 
 // ─── Finalize ──────────────────────────────────────────────────────────────────
@@ -84,6 +86,11 @@ export type ResponseForecastDTO = {
     distribution_percentage: number | null;
     safety_percentage: number | null;
     current_stock: number;
+    stock_by_warehouse: Array<{
+        warehouse_id: number;
+        warehouse_name: string;
+        stock: number;
+    }>;
     need_produce: number;
     monthly_data: Array<{
         month: number;

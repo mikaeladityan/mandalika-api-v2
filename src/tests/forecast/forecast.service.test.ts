@@ -29,7 +29,6 @@ describe("ForecastService", () => {
     describe("get", () => {
         it("should return forecast list with correct len", async () => {
             (prisma.product.count as any).mockResolvedValue(1);
-            // mock raw sql result
             (prisma.$queryRaw as any).mockResolvedValue([
                 {
                     id: 1,
@@ -39,8 +38,16 @@ describe("ForecastService", () => {
                     size: 110,
                     product_type_name: "EDP",
                     unit_name: "pcs",
-                    forecasts_data: [],
+                    distribution_percentage: null,
+                    safety_percentage: null,
+                    forecasts_data: "[]",
                     safety_stock_data: null,
+                    historical_sales_data: "[]",
+                    stock_by_warehouse_data: JSON.stringify([
+                        { warehouse_id: 10, warehouse_name: "GFG-SBY", stock: 250 },
+                        { warehouse_id: 11, warehouse_name: "GFG-JKT", stock: 0 },
+                    ]),
+                    current_stock: 250,
                 },
             ]);
 
@@ -52,6 +59,42 @@ describe("ForecastService", () => {
             expect(result.len).toBe(1);
             expect(result.data).toHaveLength(1);
             expect(result.data[0]!.product_code).toBe("P001");
+
+            const wh = result.data[0]!.stock_by_warehouse;
+            expect(wh).toHaveLength(2);
+            expect(wh[0]).toEqual({
+                warehouse_id: 10,
+                warehouse_name: "GFG-SBY",
+                stock: 250,
+            });
+            expect(wh[1]!.stock).toBe(0);
+        });
+
+        it("should default stock_by_warehouse to [] when raw is null", async () => {
+            (prisma.product.count as any).mockResolvedValue(1);
+            (prisma.$queryRaw as any).mockResolvedValue([
+                {
+                    id: 2,
+                    code: "P002",
+                    name: "Product 2",
+                    z_value: 1.65,
+                    size: 110,
+                    product_type_name: "EDP",
+                    unit_name: "pcs",
+                    distribution_percentage: null,
+                    safety_percentage: null,
+                    forecasts_data: "[]",
+                    safety_stock_data: null,
+                    historical_sales_data: "[]",
+                    stock_by_warehouse_data: null,
+                    current_stock: 0,
+                },
+            ]);
+            // @ts-ignore
+            prisma.forecastPercentage.findMany.mockResolvedValue([]);
+
+            const result = await ForecastService.get({ page: 1, take: 25 });
+            expect(result.data[0]!.stock_by_warehouse).toEqual([]);
         });
     });
 

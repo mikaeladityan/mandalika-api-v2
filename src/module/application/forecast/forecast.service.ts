@@ -963,7 +963,10 @@ export class ForecastService {
         query: QueryForecastDTO,
     ): Promise<{ data: ResponseForecastDTO[]; len: number }> {
         const now = new Date();
-        const monthsWindow = ForecastService.resolveHorizonMonths(now, query.horizon ?? 12);
+        const monthsWindow = ForecastService.resolveHorizonMonths(now, query.horizon ?? 12, {
+            month: query.start_month,
+            year: query.start_year,
+        });
 
         const page = query.page ?? 1;
         const take = query.take ?? 25;
@@ -1064,6 +1067,7 @@ export class ForecastService {
                 forecasts_data: string | null;
                 safety_stock_data: string | null;
                 historical_sales_data: string | null;
+                stock_by_warehouse_data: string | null;
                 current_stock: number | null;
             }[]
         >`
@@ -1139,7 +1143,26 @@ export class ForecastService {
                         ORDER BY created_at DESC
                         LIMIT 1
                     ) ss
-                ) AS "safety_stock_data"
+                ) AS "safety_stock_data",
+
+                (
+                    SELECT COALESCE(json_agg(
+                        json_build_object(
+                            'warehouse_id',   w.id,
+                            'warehouse_name', w.name,
+                            'stock',          COALESCE(stk.qty, 0)::float8
+                        ) ORDER BY w.name ASC
+                    ), '[]'::json)
+                    FROM "warehouses" w
+                    LEFT JOIN (
+                        SELECT warehouse_id, SUM(quantity)::float8 AS qty
+                        FROM product_inventories
+                        WHERE product_id = p.id
+                          AND month = ${startMonth} AND year = ${startYear}
+                        GROUP BY warehouse_id
+                    ) stk ON stk.warehouse_id = w.id
+                    WHERE w.type = 'FINISH_GOODS' AND w.deleted_at IS NULL
+                ) AS "stock_by_warehouse_data"
 
             FROM "products" p
             LEFT JOIN "product_types"     pt ON pt.id = p.type_id
@@ -1217,10 +1240,23 @@ export class ForecastService {
                     : (p.forecasts_data ?? []);
 
             const rawHistorical: { month: number; year: number; quantity: number }[] =
-                typeof p.historical_sales_data === "string" 
-                    ? JSON.parse(p.historical_sales_data) 
+                typeof p.historical_sales_data === "string"
+                    ? JSON.parse(p.historical_sales_data)
                     : (p.historical_sales_data ?? []);
-            
+
+            const stock_by_warehouse: ResponseForecastDTO["stock_by_warehouse"] = (() => {
+                const raw =
+                    typeof p.stock_by_warehouse_data === "string"
+                        ? JSON.parse(p.stock_by_warehouse_data)
+                        : (p.stock_by_warehouse_data ?? []);
+                if (!Array.isArray(raw)) return [];
+                return raw.map((w: any) => ({
+                    warehouse_id: Number(w.warehouse_id),
+                    warehouse_name: String(w.warehouse_name ?? ""),
+                    stock: Number(w.stock ?? 0),
+                }));
+            })();
+
             const historicalByKey = new Map<string, { month: number; year: number; quantity: number }>(
                 rawHistorical.map((h) => [`${h.year}-${h.month}`, h])
             );
@@ -1315,6 +1351,7 @@ export class ForecastService {
                     ? Number((Number(p.safety_percentage) * 100).toFixed(2))
                     : (query.is_others ? 25 : 0),
                 current_stock: currentStock,
+                stock_by_warehouse,
                 need_produce: needProduce,
                 historical_sales,
                 monthly_data,
@@ -1324,15 +1361,23 @@ export class ForecastService {
 
         return { data, len };
     }
-    private static resolveHorizonMonths(now: Date, horizon: number) {
-        const startYear = now.getUTCFullYear();
-        const startMonth = now.getUTCMonth() + 1;
+    private static resolveHorizonMonths(
+        now: Date,
+        horizon: number,
+        startOverride?: { month?: number; year?: number },
+    ) {
+        const startYear = startOverride?.year ?? now.getUTCFullYear();
+        const startMonth = startOverride?.month ?? now.getUTCMonth() + 1;
+        const todayYear = now.getUTCFullYear();
+        const todayMonth = now.getUTCMonth() + 1;
         return Array.from({ length: horizon }, (_, i) => {
             const d = new Date(Date.UTC(startYear, startMonth - 1 + i, 1));
+            const y = d.getUTCFullYear();
+            const m = d.getUTCMonth() + 1;
             return {
-                year: d.getUTCFullYear(),
-                month: d.getUTCMonth() + 1,
-                is_current_month: i === 0,
+                year: y,
+                month: m,
+                is_current_month: y === todayYear && m === todayMonth,
             };
         });
     }
