@@ -31,8 +31,9 @@ jobs:
                       echo "📂 Navigating to production directory..."
                       cd /var/www/api-erp
 
-                      echo "🔄 Pulling latest production code..."
+                      echo "🔄 Syncing to origin/main (hard reset)..."
                       git pull origin main
+                      git clean -fd
 
                       echo "📦 Installing dependencies..."
                       npm ci

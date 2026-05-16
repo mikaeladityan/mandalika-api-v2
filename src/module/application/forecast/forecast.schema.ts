@@ -86,6 +86,11 @@ export type ResponseForecastDTO = {
     distribution_percentage: number | null;
     safety_percentage: number | null;
     current_stock: number;
+    stock_by_warehouse: Array<{
+        warehouse_id: number;
+        warehouse_name: string;
+        stock: number;
+    }>;
     need_produce: number;
     monthly_data: Array<{
         month: number;
