@@ -25,7 +25,7 @@ export class AuthService {
     static async register(body: RegisterRequestDTO) {
         const { email, password, first_name, last_name } = body;
         const findEmail = await this.findEmail(email);
-        if (findEmail) throw new ApiError(400, "Email telah digunakan");
+        if (findEmail) throw new ApiError(409, "Email telah digunakan");
 
         const hashedPassword = await this.hashPassword(password);
 
@@ -85,18 +85,10 @@ export class AuthService {
     // Helper Method
     private static async findEmail(
         email: string,
-    ): Promise<{ email: string; password: string; status: STATUS } | null> {
-        const find = await prisma.account.findUnique({
-            where: {
-                email,
-            },
-            select: {
-                email: true,
-                password: true,
-                status: true,
-            },
+    ): Promise<{ email: string; status: STATUS } | null> {
+        return prisma.account.findUnique({
+            where: { email },
+            select: { email: true, status: true },
         });
-
-        return find;
     }
 }

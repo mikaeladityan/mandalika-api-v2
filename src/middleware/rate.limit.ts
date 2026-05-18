@@ -6,6 +6,7 @@ import { logger } from "../lib/logger.js";
 import { env } from "../config/env.js";
 import { redisClient } from "../config/redis.js";
 import prisma from "../config/prisma.js";
+import { getConnInfo } from "@hono/node-server/conninfo";
 
 interface RateLimiterConfig {
     maxRequests?: number; // Maksimum request per window
@@ -213,21 +214,36 @@ interface ClientIdentifier {
 }
 
 /**
- * Extract client identifier dengan proper IP detection
+ * Extract client identifier dengan proper IP detection.
+ * Uses actual TCP connection IP as ground truth; only trusts forwarded headers
+ * in production where a reverse proxy is expected to set them.
  */
 function getClientIdentifier(c: Context): ClientIdentifier {
     const headers = c.req.raw.headers;
 
-    // Priority order untuk IP detection
-    const ipSources = [
-        headers.get("cf-connecting-ip"), // Cloudflare
-        headers.get("x-forwarded-for")?.split(",")[0]?.trim(), // Load balancer
-        headers.get("x-real-ip"), // Nginx
-        headers.get("x-client-ip"), // Custom header
-        c.req.header("host")?.includes("localhost") ? "127.0.0.1" : null, // Local dev
-    ];
+    // Actual TCP connection IP — cannot be spoofed by the client
+    let connIp: string | undefined;
+    try {
+        connIp = getConnInfo(c).remote.address ?? undefined;
+    } catch {
+        // getConnInfo may throw outside node-server adapter
+    }
 
-    const ip = ipSources.find((ip) => ip && ip !== "unknown") || "unknown";
+    let ip: string;
+
+    if (env.isProduction && connIp) {
+        // In production behind a trusted reverse proxy, forwarded headers are set
+        // by the proxy (not the client) so we can trust them for real client IP.
+        const forwarded =
+            headers.get("cf-connecting-ip") ||
+            headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+            headers.get("x-real-ip");
+        ip = forwarded || connIp;
+    } else {
+        // Development or no proxy: use actual connection IP to prevent spoofing
+        ip = connIp || "unknown";
+    }
+
     const userAgent = c.req.header("user-agent") || "unknown";
 
     // Sanitize untuk key yang aman di Redis
@@ -323,11 +339,30 @@ async function logWithDeduplication(
 // UTILITY FUNCTIONS (For Admin/Monitoring)
 // ============================================================================
 
+const SCAN_BATCH = 500;
+
+async function scanMatching(pattern: string): Promise<string[]> {
+    const all: string[] = [];
+    let cursor = "0";
+    do {
+        const [next, keys] = await redisClient.scan(
+            cursor,
+            "MATCH",
+            pattern,
+            "COUNT",
+            SCAN_BATCH
+        );
+        cursor = next;
+        all.push(...keys);
+    } while (cursor !== "0");
+    return all;
+}
+
 /**
  * Get rate limit stats untuk monitoring
  */
 export async function getRateLimitStats() {
-    const keys = await redisClient.keys("ratelimit:*");
+    const keys = await scanMatching("ratelimit:*");
 
     const stats = {
         totalKeys: keys.length,
@@ -360,7 +395,7 @@ export async function resetRateLimit(identifier: string): Promise<void> {
     ];
 
     for (const pattern of patterns) {
-        const keys = await redisClient.keys(pattern);
+        const keys = await scanMatching(pattern);
         if (keys.length > 0) {
             await redisClient.del(...keys);
         }
@@ -380,15 +415,13 @@ export async function getBlockedIPs(): Promise<
     const blocked: Array<{ identifier: string; type: "permanent" | "temporary"; expiry?: string }> =
         [];
 
-    // Permanent blocks
-    const permKeys = await redisClient.keys("ratelimit:perm:*");
+    const permKeys = await scanMatching("ratelimit:perm:*");
     for (const key of permKeys) {
         const identifier = key.replace("ratelimit:perm:", "");
         blocked.push({ identifier, type: "permanent" });
     }
 
-    // Temporary blocks
-    const tempKeys = await redisClient.keys("ratelimit:temp:*");
+    const tempKeys = await scanMatching("ratelimit:temp:*");
     for (const key of tempKeys) {
         const identifier = key.replace("ratelimit:temp:", "");
         const expiry = await redisClient.get(key);

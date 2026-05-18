@@ -67,6 +67,7 @@ vi.mock("../config/prisma.js", () => ({
             findMany: vi.fn().mockResolvedValue([]),
             count: vi.fn().mockResolvedValue(1),
             deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         productType: {
             findUnique: vi.fn().mockImplementation(async (args) => {

@@ -35,22 +35,26 @@ async function fetchOpenPOs() {
     });
 }
 
-function buildPONumber(index: number): string {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    const h = String(now.getHours()).padStart(2, "0");
-    const min = String(now.getMinutes()).padStart(2, "0");
-    return `MPO-${y}${m}${d}-${h}${min}-${String(index).padStart(3, "0")}`;
+function buildPONumber(refDate: Date, index: number): string {
+    const y = refDate.getFullYear();
+    const m = String(refDate.getMonth() + 1).padStart(2, "0");
+    const d = String(refDate.getDate()).padStart(2, "0");
+    return `MPO-${y}${m}${d}-${String(index).padStart(3, "0")}`;
 }
 
-function groupBySupplier(records: OpenPoWithRelations[]) {
-    const groups = new Map<string | number, OpenPoWithRelations[]>();
+function monthKey(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    return `${y}-${m}`;
+}
+
+function groupBySupplierAndMonth(records: OpenPoWithRelations[]) {
+    const groups = new Map<string, OpenPoWithRelations[]>();
 
     for (const record of records) {
         const supplier = record.raw_material?.supplier_materials?.[0]?.supplier;
-        const key = supplier?.id ?? "NO_SUPPLIER";
+        const supplierKey = supplier?.id ?? "NO_SUPPLIER";
+        const key = `${supplierKey}|${monthKey(record.order_date)}`;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key)!.push(record);
     }
@@ -71,16 +75,16 @@ async function main() {
     console.log(`Ditemukan ${totalOpen} record OPEN untuk dimigrasi.\n`);
 
     const openPOs = await fetchOpenPOs();
-    const groups = groupBySupplier(openPOs);
+    const groups = groupBySupplierAndMonth(openPOs);
 
-    console.log(`Dikelompokkan menjadi ${groups.size} supplier group.\n`);
+    console.log(`Dikelompokkan menjadi ${groups.size} group (supplier × bulan).\n`);
 
     let poIndex = 1;
     let createdPOs = 0;
     let createdItems = 0;
     const errors: string[] = [];
 
-    for (const [supplierKey, items] of groups.entries()) {
+    for (const items of groups.values()) {
         if (items.length === 0) continue;
 
         const preferredSMFirst = items[0]!.raw_material?.supplier_materials?.[0];
@@ -88,13 +92,14 @@ async function main() {
 
         const supplierName = supplier?.name ?? "Unknown Supplier";
         const poType: "LOCAL" | "IMPORT" = supplier?.source === "IMPORT" ? "IMPORT" : "LOCAL";
-        const poNumber = buildPONumber(poIndex++);
 
         const firstDate = items[0]!.order_date;
         const earliestDate = items.reduce(
             (min, item) => (item.order_date < min ? item.order_date : min),
             firstDate,
         );
+
+        const poNumber = buildPONumber(earliestDate, poIndex++);
 
         const itemsData = items.map((item) => {
             const sm = item.raw_material?.supplier_materials?.[0];
