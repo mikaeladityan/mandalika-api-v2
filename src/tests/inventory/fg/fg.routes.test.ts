@@ -44,75 +44,6 @@ describe("FGRoutes", () => {
         vi.mocked(redisClient.get).mockImplementation(defaultRedisGet);
     });
 
-    describe("GET /lookup", () => {
-        it("returns 200 + data dari DB saat cache miss, lalu set ke Redis", async () => {
-            vi.mocked(prisma.product.findMany).mockResolvedValueOnce([
-                {
-                    id: 1,
-                    code: "FG_001",
-                    name: "FG One",
-                    gender: "UNISEX",
-                    size: { size: 100 },
-                    unit: { name: "ml" },
-                    product_type: { name: "Parfum" },
-                } as never,
-            ]);
-
-            const res = await app.request(`${FG_BASE}/lookup`, { method: "GET" });
-            const body = await res.json();
-
-            expect(res.status).toBe(200);
-            expect(body.status).toBe("success");
-            expect(redisClient.set).toHaveBeenCalledWith(
-                "fg:lookup",
-                expect.any(String),
-                "EX",
-                3600,
-            );
-        });
-
-        it("returns 200 dari cache hit tanpa hit DB", async () => {
-            const cachedPayload = JSON.stringify([
-                {
-                    id: 1,
-                    code: "FG_CACHED",
-                    name: "From Cache",
-                    gender: "UNISEX",
-                    size: "100ml",
-                    unit: "ml",
-                    product_type: "Parfum",
-                },
-            ]);
-            vi.mocked(redisClient.get).mockImplementation(async (key: RedisKeyArg) => {
-                const k = keyToString(key);
-                if (k.startsWith("session:")) return VALID_SESSION;
-                if (k === "fg:lookup") return cachedPayload;
-                return null;
-            });
-
-            const res = await app.request(`${FG_BASE}/lookup`, { method: "GET" });
-
-            expect(res.status).toBe(200);
-            expect(prisma.product.findMany).not.toHaveBeenCalled();
-        });
-
-        it("fallback ke DB saat cache payload korup (schema drift)", async () => {
-            vi.mocked(redisClient.get).mockImplementation(async (key: RedisKeyArg) => {
-                const k = keyToString(key);
-                if (k.startsWith("session:")) return VALID_SESSION;
-                if (key === "fg:lookup") return JSON.stringify([{ broken: "shape" }]);
-                return null;
-            });
-            vi.mocked(prisma.product.findMany).mockResolvedValueOnce([]);
-
-            const res = await app.request(`${FG_BASE}/lookup`, { method: "GET" });
-
-            expect(res.status).toBe(200);
-            expect(redisClient.del).toHaveBeenCalledWith("fg:lookup");
-            expect(prisma.product.findMany).toHaveBeenCalled();
-        });
-    });
-
     describe("GET /", () => {
         it("returns 200 dengan list FG", async () => {
             vi.mocked(prisma.product.findMany).mockResolvedValueOnce([]);
@@ -136,7 +67,6 @@ describe("FGRoutes", () => {
                 distribution_percentage: "0.5",
                 safety_percentage: "0.1",
                 product_type: { id: 1, name: "Parfum", slug: "parfum" },
-                unit: { id: 1, name: "ml", slug: "ml" },
                 size: { id: 1, size: 100 },
                 product_inventories: [],
                 recipes: [],
@@ -189,12 +119,11 @@ describe("FGRoutes", () => {
     });
 
     describe("PUT /:id", () => {
-        it("returns 201 saat update sukses", async () => {
+        it("returns 200 saat update sukses", async () => {
             vi.mocked(prisma.product.findUnique).mockResolvedValueOnce({
                 id: 1,
                 code: "FG_001",
                 type_id: 1,
-                unit_id: 1,
                 size_id: 1,
             } as never);
 
@@ -204,19 +133,19 @@ describe("FGRoutes", () => {
                 body: JSON.stringify({ name: "Updated Name" }),
             });
 
-            expect(res.status).toBe(201);
+            expect(res.status).toBe(200);
         });
     });
 
     describe("PATCH /status/:id", () => {
-        it("returns 201 saat status valid", async () => {
+        it("returns 200 saat status valid", async () => {
             vi.mocked(prisma.product.findUnique).mockResolvedValueOnce({ id: 1 } as never);
 
             const res = await app.request(`${FG_BASE}/status/1?status=ACTIVE`, {
                 method: "PATCH",
             });
 
-            expect(res.status).toBe(201);
+            expect(res.status).toBe(200);
         });
 
         it("returns 400 saat status query invalid", async () => {

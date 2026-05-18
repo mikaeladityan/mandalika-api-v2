@@ -13,7 +13,6 @@ export const RequestFGSchema = z.object({
     z_value: z.number().default(1.65),
     lead_time: z.number().int().min(1).default(14),
     review_period: z.number().int().min(1).default(30),
-    unit: z.string().nullable().optional(),
     product_type: z.string().nullable().optional(),
     distribution_percentage: z.coerce.number().min(0).default(0).optional(),
     safety_percentage: z.coerce.number().min(0).default(0).optional(),
@@ -24,7 +23,6 @@ export const ResponseFGSchema = RequestFGSchema.extend({
     id: z.number(),
     gender: z.enum(GENDER).default("UNISEX"),
     size: z.string("Ukuran tidak boleh kosong"),
-    unit: z.string().nullable().optional(),
     product_type: z.string().nullable().optional(),
     created_at: z.date(),
     updated_at: z.date(),
@@ -65,19 +63,7 @@ export const StatusParamFGSchema = z.object({
     status: z.enum(STATUS),
 });
 
-export const FGLookupItemSchema = z.object({
-    id: z.number(),
-    code: z.string(),
-    name: z.string(),
-    gender: z.enum(GENDER),
-    size: z.string(),
-    unit: z.string().nullable(),
-    product_type: z.string().nullable(),
-});
-export const FGLookupSchema = z.array(FGLookupItemSchema);
-
 export type RequestFGDTO = z.infer<typeof RequestFGSchema>;
 export type ResponseFGDTO = z.infer<typeof ResponseFGSchema>;
 export type QueryFGDTO = z.infer<typeof QueryFGSchema>;
 export type BulkStatusFGDTO = z.infer<typeof BulkStatusFGSchema>;
-export type FGLookupDTO = z.infer<typeof FGLookupItemSchema>;

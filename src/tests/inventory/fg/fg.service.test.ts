@@ -15,7 +15,6 @@ const makeFGBody = (overrides: Partial<RequestFGDTO> = {}): RequestFGDTO => ({
     z_value: 1.65,
     lead_time: 14,
     review_period: 30,
-    unit: "ml",
     product_type: "Parfum",
     distribution_percentage: 0,
     safety_percentage: 0,
@@ -154,7 +153,6 @@ describe("FGService", () => {
                     distribution_percentage: "0.5",
                     safety_percentage: "0.1",
                     product_type: { id: 1, name: "Parfum", slug: "parfum" },
-                    unit: { id: 1, name: "ml", slug: "ml" },
                     size: { id: 1, size: 100 },
                 } as never,
             ]);
@@ -166,7 +164,7 @@ describe("FGService", () => {
             expect(result.len).toBe(1);
             expect(result.data[0]?.z_value).toBe(1.65);
             expect(result.data[0]?.product_type).toBe("Parfum");
-            expect(result.data[0]?.size).toBe("100ml");
+            expect(result.data[0]?.size).toBe("100 ML");
         });
 
         it("filter status default ke != DELETE saat status undefined", async () => {
@@ -201,7 +199,6 @@ describe("FGService", () => {
                 distribution_percentage: "0.5",
                 safety_percentage: "0.1",
                 product_type: { id: 1, name: "Parfum", slug: "parfum" },
-                unit: { id: 1, name: "ml", slug: "ml" },
                 size: { id: 1, size: 100 },
                 product_inventories: [],
                 recipes: [],
@@ -209,59 +206,9 @@ describe("FGService", () => {
 
             const result = await FGService.detail(1);
 
-            expect(result.size).toBe("100ml");
-            expect(result.unit).toBe("ml");
+            expect(result.size).toBe("100 ML");
             expect(result.product_type).toBe("Parfum");
             expect(typeof result.z_value).toBe("number");
-        });
-    });
-
-    describe("lookup", () => {
-        it("returns flat shape (id/code/name/gender/size/unit/product_type)", async () => {
-            vi.mocked(prisma.product.findMany).mockResolvedValueOnce([
-                {
-                    id: 1,
-                    code: "FG_001",
-                    name: "FG One",
-                    gender: "UNISEX",
-                    size: { size: 100 },
-                    unit: { name: "ml" },
-                    product_type: { name: "Parfum" },
-                } as never,
-            ]);
-
-            const result = await FGService.lookup();
-
-            expect(result).toHaveLength(1);
-            expect(result[0]).toEqual({
-                id: 1,
-                code: "FG_001",
-                name: "FG One",
-                gender: "UNISEX",
-                size: "100ml",
-                unit: "ml",
-                product_type: "Parfum",
-            });
-        });
-
-        it("handle null relations dengan fallback string kosong/null", async () => {
-            vi.mocked(prisma.product.findMany).mockResolvedValueOnce([
-                {
-                    id: 2,
-                    code: "FG_002",
-                    name: "FG No Relations",
-                    gender: "UNISEX",
-                    size: null,
-                    unit: null,
-                    product_type: null,
-                } as never,
-            ]);
-
-            const result = await FGService.lookup();
-
-            expect(result[0]?.size).toBe("");
-            expect(result[0]?.unit).toBeNull();
-            expect(result[0]?.product_type).toBeNull();
         });
     });
 
@@ -287,7 +234,6 @@ describe("FGService", () => {
                     safety_percentage: "0.1",
                     lead_time: 14,
                     product_type: { id: 1, name: "Parfum", slug: "parfum" },
-                    unit: { id: 1, name: "ml", slug: "ml" },
                     size: { id: 1, size: 100 },
                 } as never,
             ]);

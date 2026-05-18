@@ -12,15 +12,32 @@ const sanitizeNumber = (val: unknown): number => {
     return Number(val);
 };
 
+// Single source of truth untuk header CSV (import & export wajib pakai konstanta yang sama).
+// Reference: dev-flow §1.I rule 1.
+export const FG_IMPORT_HEADERS = {
+    code: "PRODUCT CODE",
+    name: "PRODUCT NAME",
+    type: "TYPE",
+    gender: "GENDER",
+    size: "SIZE",
+    distribution: "EDAR",
+    safety: "SAFETY",
+} as const;
+
 export const FGImportRowSchema = z.object({
-    "PRODUCT CODE": z.string().min(1).max(100),
-    "PRODUCT NAME": z.string().min(1).max(200),
-    TYPE: z.string().min(1).max(100),
-    GENDER: z.string().max(20).optional().default(""),
-    SIZE: z.preprocess(sanitizeNumber, z.coerce.number().positive()),
-    UOM: z.string().min(1).max(50),
-    EDAR: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
-    SAFETY: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
+    [FG_IMPORT_HEADERS.code]: z.string().min(1).max(100),
+    [FG_IMPORT_HEADERS.name]: z.string().min(1).max(200),
+    [FG_IMPORT_HEADERS.type]: z.string().min(1).max(100),
+    [FG_IMPORT_HEADERS.gender]: z.string().max(20).optional().default(""),
+    [FG_IMPORT_HEADERS.size]: z.preprocess(sanitizeNumber, z.coerce.number().positive()),
+    [FG_IMPORT_HEADERS.distribution]: z.preprocess(
+        sanitizeNumber,
+        z.coerce.number().min(0).optional().default(0),
+    ),
+    [FG_IMPORT_HEADERS.safety]: z.preprocess(
+        sanitizeNumber,
+        z.coerce.number().min(0).optional().default(0),
+    ),
 });
 
 export const RequestExecuteFGImportSchema = z.object({
@@ -36,7 +53,6 @@ export type FGImportPreviewDTO = {
     gender: GENDER;
     size: number;
     type: string | null;
-    unit: string | null;
     distribution_percentage: number;
     safety_percentage: number;
     errors: string[];
@@ -47,4 +63,29 @@ export type ResponseFGImportDTO = {
     total: number;
     valid: number;
     invalid: number;
+};
+
+export type ResponseEnqueueFGImportDTO = {
+    import_id: string;
+    jobId: string;
+    state: "queued";
+};
+
+export type ImportJobState =
+    | "queued"
+    | "active"
+    | "completed"
+    | "failed"
+    | "delayed"
+    | "waiting-children"
+    | "prioritized"
+    | "unknown";
+
+export type ResponseImportStatusDTO = {
+    import_id: string;
+    state: ImportJobState;
+    progress: number;
+    result?: { import_id: string; total: number };
+    failedReason?: string;
+    attemptsMade?: number;
 };

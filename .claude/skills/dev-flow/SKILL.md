@@ -1,6 +1,6 @@
 ---
 name: dev-flow
-description: Full Stack Development Flow untuk ERP Mandalika. Panduan end-to-end dari Backend (Prisma, Zod, service, controller, route) ke Frontend (DTO, query/mutation hooks, komponen). Gunakan saat memulai fitur baru atau ingin mengikuti standar arsitektur proyek ini.
+description: Full Stack Development Flow untuk ERP Mandalika. Panduan end-to-end dari Backend (Prisma, Zod, service, controller, route, HTTP status code, BullMQ import, CSV export) ke Frontend (DTO, query/mutation hooks, komponen). Gunakan saat memulai fitur baru, menambah endpoint import/export, atau ingin mengikuti standar arsitektur proyek ini.
 ---
 
 # Full Stack Development Flow - eLibrary / ERP
@@ -81,6 +81,322 @@ rtk tsc --noEmit
 ```
 
 Tidak boleh ada error baru. Jika ditemukan `any` implisit, tambahkan anotasi tipe (jangan matikan `noImplicitAny`).
+
+---
+
+## 🌐 1.G HTTP Response Status Code (SOP Wajib)
+
+**Jangan kembalikan `200` untuk semua respons sukses.** Status code adalah bagian dari kontrak API — frontend, monitoring, dan klien lain mengandalkan kode ini untuk membedakan jenis hasil tanpa membaca body. Gunakan `ApiResponse.sendSuccess(c, data, statusCode)` dengan kode yang tepat dan `throw new ApiError(statusCode, message)` untuk error.
+
+### Matriks Status Sukses (2xx)
+
+| Code | Nama | Kapan dipakai | Contoh endpoint |
+|---|---|---|---|
+| **200** | OK | Operasi sinkron berhasil dan body berisi resource final (GET, PATCH status, update yang langsung selesai) | `GET /:id`, `GET /` (list), `PATCH /:id/status`, `POST /bulk-status` |
+| **201** | Created | Resource baru berhasil dibuat di server dan body memuat resource hasil create | `POST /` (create FG/RM), `POST /import/preview` (membuat preview session di cache) |
+| **202** | Accepted | Permintaan diterima untuk diproses **asynchronously** (job dimasukkan ke queue, hasil belum final) | `POST /import/execute` (enqueue BullMQ job), trigger forecast batch |
+| **204** | No Content | Operasi sukses tetapi tidak ada body untuk dikembalikan (jarang dipakai — preferensi proyek ini mengembalikan `{ status: "success" }` dengan 200) | _Hindari kecuali endpoint benar-benar tanpa payload._ |
+
+### Matriks Status Error (4xx & 5xx)
+
+| Code | Nama | Kapan dipakai | Contoh |
+|---|---|---|---|
+| **400** | Bad Request | Input tidak valid secara semantik / business rule violation (di luar Zod) — mis. `import_id` kosong, "tidak ada baris valid", filter melebihi batas | `throw new ApiError(400, "Import session tidak ditemukan atau sudah kadaluarsa")` |
+| **401** | Unauthorized | Tidak ada / token tidak valid (otentikasi) | Middleware auth |
+| **403** | Forbidden | Terotentikasi tapi tidak punya hak akses ke resource (otorisasi) | RBAC gate |
+| **404** | Not Found | Resource (atau job) tidak ada | `throw new ApiError(404, "Produk tidak ditemukan")` |
+| **409** | Conflict | Tabrakan state — duplikasi (`P2002`), lock sedang dipegang job lain, FK `RESTRICT` masih punya child | `throw new ApiError(409, "Import sedang diproses")` ; `throw new ApiError(400, "Kode Produk telah digunakan")` ⟵ *untuk duplikasi business, proyek ini memakai 400; lihat catatan di bawah.* |
+| **413** | Payload Too Large | File / jumlah baris melewati batas atas (`MAX_ROWS`, `EXPORT_MAX_ROWS`) | `throw new ApiError(413, `File melebihi batas maksimum ${MAX_ROWS} baris`)` |
+| **415** | Unsupported Media Type | MIME upload tidak didukung (selain `text/csv` / XLSX MIME) | Validator upload |
+| **422** | Unprocessable Entity | Body lolos parsing tapi gagal validasi domain. Proyek ini **lebih memilih 400** untuk konsistensi — jangan pakai 422 kecuali sudah ada kesepakatan tim. | — |
+| **429** | Too Many Requests | Rate limit terlampaui | Rate limiter middleware |
+| **500** | Internal Server Error | Bug / unhandled exception. **Jangan pernah lempar manual** — biarkan global error handler menangani. | Jatuh otomatis dari `throw e` non-`ApiError` |
+| **503** | Service Unavailable | Dependency turun (Redis/queue mati) — boleh dilempar dari health check, bukan dari business logic | — |
+
+### Aturan Khusus Proyek
+
+1. **Duplikasi unique key** (`P2002`) → **400** dengan pesan business (contoh: `"Produk dengan kode: X telah tersedia"`). Bukan 409. Ini standar proyek karena UI menampilkan pesan sebagai form-level error.
+2. **Lock conflict** (Redis `SET NX` gagal saat import) → **409** karena state server lagi `in-progress` untuk resource yang sama.
+3. **FK `RESTRICT` masih punya referensi** saat `clean()` → **409** ("Produk masih terkait dengan Production Order").
+4. **Job tidak ditemukan** saat polling status BullMQ → **404** ("Import job tidak ditemukan").
+5. **Cache preview expired** → **400** atau **404** sesuai konteks (preview lookup pakai 404, execute pakai 400 karena ini state error dari sisi user).
+6. **Validasi Zod gagal** → ditangani oleh middleware `validateBody`, **otomatis 400**. Jangan duplikasi pengecekan.
+
+### Pola Implementasi Controller
+
+```ts
+// ✅ Create resource baru
+return ApiResponse.sendSuccess(c, result, 201);
+
+// ✅ Async job enqueued (BullMQ)
+return ApiResponse.sendSuccess(c, { import_id, jobId, state: "queued" }, 202);
+
+// ✅ Read / list / status update
+return ApiResponse.sendSuccess(c, result, 200);
+
+// ✅ Validation / business rule error
+throw new ApiError(400, "Tidak ada baris valid untuk diimport");
+
+// ✅ Resource not found
+throw new ApiError(404, "Produk tidak ditemukan");
+
+// ✅ Lock / concurrency conflict
+throw new ApiError(409, "Import sedang diproses, coba lagi sebentar");
+
+// ✅ Upload melebihi batas
+throw new ApiError(413, `File melebihi batas maksimum ${MAX_ROWS} baris`);
+```
+
+### Verifikasi
+
+- Setiap controller method **wajib** menyertakan status code eksplisit di argumen ketiga `ApiResponse.sendSuccess`.
+- Reviewer menolak default `200` di endpoint `POST` yang membuat resource atau memicu job async.
+- Integration test memvalidasi `res.status` (bukan hanya `body.status === "success"`).
+
+---
+
+## 📥 1.H Import Pipeline (SOP — BullMQ + Redis Cache)
+
+**Semua endpoint import file (CSV/XLSX) untuk modul inventory/master data wajib pakai pipeline BullMQ.** Pola sinkron `await prisma.createMany()` di dalam request handler **dilarang** karena: (a) request HTTP timeout untuk file besar, (b) retry idempoten tidak ada, (c) progress tidak bisa di-stream ke UI.
+
+Referensi implementasi: `api/src/module/application/inventory/fg/import/` + `api/src/worker.ts` + `api/src/config/queue.ts` + `api/ecosystem.config.cjs`.
+
+### Arsitektur
+
+```
+┌────────────┐    POST /import/preview    ┌─────────────┐
+│  Frontend  │───────(CSV/XLSX file)─────▶│ API process │  ← api-erp (PM2)
+└────────────┘                            └─────┬───────┘
+       ▲                                        │ parse + Zod validate
+       │                                        ▼
+       │                                  ┌─────────────┐
+       │                                  │ Redis cache │  rows + meta (TTL)
+       │                                  └─────────────┘
+       │  POST /import/execute (202)            │
+       │                                        ▼
+       │                                  ┌─────────────┐
+       │                                  │   BullMQ    │  queue: fg-import
+       │                                  │   (Redis)   │
+       │                                  └─────┬───────┘
+       │                                        │
+       │  GET /import/status/:id                ▼
+       │  (polling progress)              ┌─────────────┐
+       │                                  │   Worker    │  ← api-erp-worker (PM2)
+       └──────────────────────────────────│ chunked bulk│
+                                          │  upsert via │
+                                          │ Prisma.sql  │
+                                          └─────────────┘
+```
+
+### Struktur Folder Wajib
+
+```
+src/module/application/[module]/[feature]/import/
+├── import.schema.ts          ← Zod row schema + DTO (HEADER KEYS = uppercase)
+├── import.service.ts         ← preview, execute (lock + enqueue), getStatus, getPreview
+├── import.controller.ts      ← thin layer, status 201/202/200 sesuai aksi
+├── import.routes.ts          ← /preview, /preview/:id, /execute, /status/:id
+├── queue/
+│   ├── [feature]-import.queue.ts    ← `new Queue<JobData>(NAME, { connection, defaultJobOptions })`
+│   └── [feature]-import.worker.ts   ← `new Worker(NAME, handler, { concurrency, lockDuration })`
+└── bulk/
+    └── bulk.upsert.ts        ← `bulkUpsertX(chunk, maps)` + `chunkArray(arr, size)`
+```
+
+### Konfigurasi Global
+
+- **`src/config/queue.ts`** — Tunggal untuk seluruh modul. Definisikan `bullConnection` (Redis) + konstanta nama queue per modul. Saat `NODE_ENV === "test"` queue name di-prefix `test-` agar tidak bocor ke staging.
+- **`src/worker.ts`** — Entry point worker. **Setiap queue baru wajib didaftarkan di sini** lewat `createXImportWorker()`. Worker process membaca semua koneksi (Prisma, Redis) sendiri agar terisolasi dari API process.
+- **`ecosystem.config.cjs`** — Dua app PM2 wajib jalan: `api-erp` (HTTP) + `api-erp-worker` (BullMQ consumer). **Worker tidak boleh digabung** ke API process.
+
+### Step-by-Step
+
+1. **Schema row dengan HEADER UPPERCASE** (di `import.schema.ts`):
+   ```ts
+   export const FGImportRowSchema = z.object({
+       "PRODUCT CODE": z.string().min(1).max(100),
+       "PRODUCT NAME": z.string().min(1).max(200),
+       TYPE: z.string().min(1).max(100),
+       SIZE: z.preprocess(sanitizeNumber, z.coerce.number().positive()),
+       // ...
+   });
+   ```
+   **Key Zod harus identik dengan header CSV yang user upload _dan_ header CSV yang di-export** (lihat §1.I). Konstanta header diekspor agar export module bisa reuse.
+
+2. **Preview** (`POST /import/preview`):
+   - Controller: parse file via `ParseCSV(buffer)` / `ParseXLSX(buffer)`. Tolak `>MAX_ROWS` → **413**.
+   - Service: parsing per-row (errorRow jika gagal Zod), generate `import_id = randomUUID()`, simpan payload ke `ImportCacheService.save(PREFIX, import_id, { total, valid, invalid, rows })`.
+   - Response: **201** + `{ import_id, total, valid, invalid }`.
+
+3. **Get Preview** (`GET /import/preview/:import_id`):
+   - Ambil dari Redis cache. Jika sudah expired/tidak ada → **404**.
+   - Response: **200** + rows + meta. Frontend pakai untuk render preview table sebelum confirm.
+
+4. **Execute** (`POST /import/execute`):
+   - Acquire Redis lock: `SET PREFIX:lock:<id> 1 EX 60 NX`. Gagal → **409** "Import sedang diproses".
+   - Ambil cache → kalau kosong → **400**.
+   - `valid <= 0` → **400**.
+   - `enqueueXImport(import_id)` (return job).
+   - Response: **202** + `{ import_id, jobId, state: "queued" }`.
+   - **Pada catch block, lepas lock** sebelum re-throw.
+
+5. **Get Status** (`GET /import/status/:import_id`):
+   - `queue.getJob(import_id)` → kalau null → **404**.
+   - `job.getState()` + `job.progress` (number 0–100).
+   - State terminal (`completed` / `failed`) → cleanup lock + sertakan `result` atau `failedReason` + `attemptsMade`.
+   - Response: **200**.
+
+6. **Worker** (`queue/[feature]-import.worker.ts`):
+   - `concurrency: 1`, `lockDuration: 60_000` — naikkan jika job ekspektasi >60s, tapi pertahankan concurrency 1 per worker untuk hindari race di master data lookup.
+   - Handler: ambil cache, **dedupe by unique key** (mis. `code`), kumpulkan unique master lookups (type, size, supplier, dst.) → upsert sekali dengan `Promise.all` di dalam `$transaction`.
+   - Chunk rows (`CHUNK_SIZE = 500`), loop `bulkUpsertProducts(chunk, maps)` + `await job.updateProgress(pct)`.
+   - `defaultJobOptions`: `attempts: 3`, `backoff: { type: "exponential", delay: 5000 }`, `removeOnComplete: { age: 3600, count: 100 }`, `removeOnFail: false`.
+   - Listener `worker.on("failed", ...)`: log + release lock **hanya jika** attempt terakhir.
+
+7. **Bulk Upsert** (`bulk/bulk.upsert.ts`):
+   - Gunakan `Prisma.sql` parameterized + `Prisma.join(values)` + `INSERT ... ON CONFLICT (unique_col) DO UPDATE SET ...`. **Jangan** loop `prisma.x.upsert()` per row.
+   - **Larangan**: `Prisma.raw` dengan string concat (SQL injection). Selalu `Prisma.sql`.
+
+### Cleanup & Idempotensi
+
+- Cache preview punya TTL standar; saat job mulai, perpanjang TTL ke `PROCESSING_TTL_SECONDS` agar tidak hilang di tengah eksekusi.
+- Selesai sukses: `ImportCacheService.remove()` + `releaseLock()`.
+- `jobId: import_id` membuat enqueue idempoten — user double-click `/execute` tidak menghasilkan dua job (BullMQ akan throw / return existing).
+
+### Verifikasi
+
+- `npm test` harus mencakup: preview happy/invalid rows, execute lock conflict (**409**), execute tanpa cache (**400**), status not found (**404**), upload `>MAX_ROWS` (**413**).
+- Worker tidak boleh memakai `any` (lihat §1.F). `job.returnvalue` dan `job.progress` di-narrow lewat type guard.
+- Test mock Redis & queue lewat `src/test/setup.ts` (queue name otomatis di-prefix `test-`).
+
+---
+
+## 📤 1.I Export CSV + Konsistensi Header dengan Import (SOP)
+
+**Default export = CSV, bukan XLSX.** XLSX hanya dipertahankan jika ada permintaan eksplisit (mis. konsolidasi multi-sheet dengan styling kompleks). Referensi: `fg.service.ts` — `static async export(query)` + konsolidasi report.
+
+### Mengapa CSV
+
+- Round-trip dengan Import (user export → edit Excel → import balik) **tanpa konversi**.
+- Tidak ada styling/overhead — file 5–10× lebih kecil dari XLSX.
+- Encoding stabil di Excel macOS/Windows lewat UTF-8 BOM + CRLF.
+
+### Aturan Header (KUNCI: konsistensi Export ↔ Import)
+
+> Header yang diexport untuk satu modul **wajib identik (case-sensitive, spasi-sensitive)** dengan key Zod di `import.schema.ts` modul yang sama. User tidak boleh perlu rename kolom saat round-trip.
+
+**Single source of truth.** Definisikan konstanta header di `import.schema.ts` dan reuse di export:
+
+```ts
+// import.schema.ts
+export const FG_IMPORT_HEADERS = {
+    code: "PRODUCT CODE",
+    name: "PRODUCT NAME",
+    type: "TYPE",
+    gender: "GENDER",
+    size: "SIZE",
+    distribution: "EDAR",
+    safety: "SAFETY",
+} as const;
+
+export const FGImportRowSchema = z.object({
+    [FG_IMPORT_HEADERS.code]: z.string().min(1).max(100),
+    [FG_IMPORT_HEADERS.name]: z.string().min(1).max(200),
+    [FG_IMPORT_HEADERS.type]: z.string().min(1).max(100),
+    // ...
+});
+
+// fg.service.ts (export)
+import { FG_IMPORT_HEADERS } from "./import/import.schema.js";
+
+const ROUNDTRIP_COLUMNS = [
+    { header: FG_IMPORT_HEADERS.code, key: "code", width: 15, id: "code" },
+    { header: FG_IMPORT_HEADERS.name, key: "name", width: 40, id: "name" },
+    { header: FG_IMPORT_HEADERS.type, key: "type", width: 20, id: "type" },
+    { header: FG_IMPORT_HEADERS.gender, key: "gender", width: 12, id: "gender" },
+    { header: FG_IMPORT_HEADERS.size, key: "size", width: 10, id: "size" },
+    { header: FG_IMPORT_HEADERS.distribution, key: "distribution", width: 12, id: "distribution_percentage" },
+    { header: FG_IMPORT_HEADERS.safety, key: "safety", width: 12, id: "safety_percentage" },
+];
+```
+
+**Konsekuensi**: kolom display-only yang **tidak** ada di import schema (mis. "No", "Lead Time", "Nilai Z", "Status") boleh muncul di export, tapi user yang ingin re-import wajib menghapusnya. Beri tahu lewat kolom `Status` / docs.
+
+**Aturan**:
+
+1. Setiap header yang ada di `import.schema.ts` **harus** muncul di export dengan ejaan persis sama.
+2. Setiap kolom export yang bukan dari import schema **wajib** dianotasi sebagai display-only di docs modul.
+3. Urutan kolom export sebaiknya mengikuti urutan field di Zod schema agar diff visual mudah.
+4. Nilai size/satuan: **kolom `SIZE` berisi angka murni** (mis. `60`) — _bukan_ `"60 ML"`. Unit ditangani oleh schema/service, bukan disisipkan di CSV. Ini agar `z.coerce.number()` di import tidak gagal.
+5. Enum (gender, status) di-export dengan token persis yang diterima Zod / `mapGender` (mis. `WOMEN`, `MEN`, `UNISEX`). Jangan terjemahkan ke "Wanita".
+
+### Implementasi CSV
+
+Dua opsi resmi:
+
+#### Opsi A — ExcelJS `csv.writeBuffer()` (default)
+
+Dipakai oleh `fg.service.ts`. Cocok untuk export sederhana dengan header bold visual (efek styling tidak akan masuk ke CSV, tapi konfigurasi tetap dipertahankan untuk konsistensi jika nanti pindah ke XLSX).
+
+```ts
+const workbook = new ExcelJS.Workbook();
+const sheet = workbook.addWorksheet("Data Produk");
+sheet.columns = filteredColumns.map(({ header, key, width }) => ({ header, key, width }));
+data.forEach((item, idx) => sheet.addRow({ /* … */ }));
+return await workbook.csv.writeBuffer(); // returns Buffer
+```
+
+#### Opsi B — Manual RFC 4180 (untuk laporan dengan GRAND TOTAL / multi-section)
+
+Dipakai oleh `consolidation.service.ts`. Wajib jika butuh:
+- Baris ringkasan (GRAND TOTAL) yang visible di posisi tertentu.
+- UTF-8 BOM (`﻿`) eksplisit agar Excel macOS membaca diakritik benar.
+- CRLF line ending (`\r\n`).
+- Escaping manual (kutip ganda di dalam field) sesuai RFC 4180.
+
+Helper minimum:
+
+```ts
+const escape = (val: unknown): string => {
+    const s = val == null ? "" : String(val);
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+const lines: string[] = [];
+lines.push(headers.map(escape).join(","));
+rows.forEach((row) => lines.push(headers.map((h) => escape(row[h])).join(",")));
+lines.push(""); // separator
+lines.push(`GRAND TOTAL,${escape(total)}`);
+
+return `﻿${lines.join("\r\n")}`;
+```
+
+### Response Headers HTTP (Controller)
+
+```ts
+return new Response(buffer, {
+    status: 200,
+    headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="fg-export-${Date.now()}.csv"`,
+    },
+});
+```
+
+- **MIME**: `text/csv; charset=utf-8` (bukan `application/octet-stream`).
+- **Extension file**: selalu `.csv` (frontend tidak boleh menambahkan `.xlsx`).
+- **Status**: **200** (export sinkron). Kalau dataset besar dan dipindah ke job async, ikuti pola Import: enqueue → **202** + endpoint download terpisah.
+
+### Batas Aman
+
+- `EXPORT_MAX_ROWS = 50_000` (atau lebih kecil sesuai modul). Lebih dari itu → **400** dengan instruksi pakai filter, atau pindahkan ke pipeline async.
+- Hitung row count via `count()` query sebelum render — jangan render dulu lalu cek panjang.
+
+### Verifikasi
+
+- **Round-trip test**: integration test yang `export → parse CSV → feed ke `FGImportRowSchema.safeParse()` → semua row valid`. Wajib ada untuk setiap modul yang punya export + import.
+- Type-check (`rtk tsc --noEmit`) hijau.
+- Sebelum merge: buka CSV di Excel macOS untuk verifikasi BOM + accents (terutama untuk modul dengan nama vendor non-ASCII).
 
 ---
 

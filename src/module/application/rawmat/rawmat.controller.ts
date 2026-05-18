@@ -2,7 +2,6 @@ import { Context } from "hono";
 import { RawMaterialService } from "./rawmat.service.js";
 import { ApiResponse } from "../../../lib/api.response.js";
 import { QueryRawMaterialDTO } from "./rawmat.schema.js";
-import { redisClient } from "../../../config/redis.js";
 import { Cache } from "../../../lib/utils/cache.js";
 import { CreateLogger } from "../shared/activity-logger.js";
 import { CreateLoggingActivityDTO } from "../shared/activity-logger.js";
@@ -183,10 +182,7 @@ export class RawMaterialController {
 
         const buffer = await RawMaterialService.export(params);
 
-        c.header(
-            "Content-Type",
-            "text/csv",
-        );
+        c.header("Content-Type", "text/csv");
         c.header("Content-Disposition", `attachment; filename="data-raw-materials.csv"`);
         return c.body(buffer as any);
     }

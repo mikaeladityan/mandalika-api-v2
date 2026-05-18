@@ -5,13 +5,13 @@ export class ImportCacheService {
         return `${PREFIX}${importId}`;
     }
 
-    static async save(PREFIX: string, importId: string, payload: any, ttl = 300) {
+    static async save<T>(PREFIX: string, importId: string, payload: T, ttl = 300) {
         await redisClient.set(this.key(PREFIX, importId), JSON.stringify(payload), "EX", ttl);
     }
 
-    static async get(PREFIX: string, importId: string) {
+    static async get<T>(PREFIX: string, importId: string): Promise<T | null> {
         const raw = await redisClient.get(this.key(PREFIX, importId));
-        return raw ? JSON.parse(raw) : null;
+        return raw ? (JSON.parse(raw) as T) : null;
     }
 
     static async exists(PREFIX: string, importId: string) {

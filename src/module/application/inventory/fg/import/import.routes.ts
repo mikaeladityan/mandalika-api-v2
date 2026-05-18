@@ -12,3 +12,4 @@ FGImportRoutes.post(
     validateBody(RequestExecuteFGImportSchema),
     FGImportController.execute,
 );
+FGImportRoutes.get("/status/:import_id", FGImportController.getStatus);

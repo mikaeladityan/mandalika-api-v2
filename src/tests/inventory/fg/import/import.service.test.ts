@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { FGImportService } from "../../../../module/application/inventory/fg/import/import.service.js";
 import { redisClient } from "../../../../config/redis.js";
-import prisma from "../../../../config/prisma.js";
+import {
+    enqueueFGImport,
+    fgImportQueue,
+} from "../../../../module/application/inventory/fg/import/queue/fg-import.queue.js";
 
 describe("FGImportService", () => {
     beforeEach(() => {
@@ -17,7 +20,6 @@ describe("FGImportService", () => {
                     TYPE: "Parfum",
                     GENDER: "Men",
                     SIZE: 100,
-                    UOM: "ml",
                     EDAR: 50,
                     SAFETY: 10,
                 },
@@ -39,7 +41,6 @@ describe("FGImportService", () => {
                     "PRODUCT NAME": "Invalid",
                     TYPE: "Parfum",
                     SIZE: 0,
-                    UOM: "ml",
                 },
             ];
 
@@ -52,9 +53,9 @@ describe("FGImportService", () => {
 
         it("normalize GENDER ke WOMEN/MEN/UNISEX", async () => {
             const rows = [
-                { "PRODUCT CODE": "A", "PRODUCT NAME": "A", TYPE: "T", GENDER: "Woman", SIZE: 10, UOM: "ml" },
-                { "PRODUCT CODE": "B", "PRODUCT NAME": "B", TYPE: "T", GENDER: "men", SIZE: 10, UOM: "ml" },
-                { "PRODUCT CODE": "C", "PRODUCT NAME": "C", TYPE: "T", GENDER: "", SIZE: 10, UOM: "ml" },
+                { "PRODUCT CODE": "A", "PRODUCT NAME": "A", TYPE: "T", GENDER: "Woman", SIZE: 10 },
+                { "PRODUCT CODE": "B", "PRODUCT NAME": "B", TYPE: "T", GENDER: "men", SIZE: 10 },
+                { "PRODUCT CODE": "C", "PRODUCT NAME": "C", TYPE: "T", GENDER: "", SIZE: 10 },
             ];
 
             const result = await FGImportService.preview(rows);
@@ -78,6 +79,9 @@ describe("FGImportService", () => {
 
             await expect(FGImportService.execute("missing-id")).rejects.toThrow(
                 "Import session tidak ditemukan atau sudah kadaluarsa",
+            );
+            expect(redisClient.del).toHaveBeenCalledWith(
+                expect.stringContaining("fg:import:lock:missing-id"),
             );
         });
 
@@ -110,7 +114,7 @@ describe("FGImportService", () => {
             );
         });
 
-        it("sukses execute, menghapus cache, melepas lock", async () => {
+        it("enqueue job dan kembalikan state queued saat sukses", async () => {
             vi.mocked(redisClient.set).mockResolvedValueOnce("OK");
             vi.mocked(redisClient.get).mockResolvedValueOnce(
                 JSON.stringify({
@@ -137,11 +141,12 @@ describe("FGImportService", () => {
             const result = await FGImportService.execute("valid-id");
 
             expect(result.import_id).toBe("valid-id");
-            expect(result.total).toBe(1);
-            expect(redisClient.del).toHaveBeenCalled();
+            expect(result.state).toBe("queued");
+            expect(result.jobId).toBe("valid-id");
+            expect(enqueueFGImport).toHaveBeenCalledWith("valid-id");
         });
 
-        it("melepas lock walaupun bulk upsert gagal", async () => {
+        it("melepas lock saat enqueue gagal", async () => {
             vi.mocked(redisClient.set).mockResolvedValueOnce("OK");
             vi.mocked(redisClient.get).mockResolvedValueOnce(
                 JSON.stringify({
@@ -164,12 +169,64 @@ describe("FGImportService", () => {
                     ],
                 }),
             );
-            vi.mocked(prisma.$transaction).mockRejectedValueOnce(new Error("DB error"));
+            vi.mocked(enqueueFGImport).mockRejectedValueOnce(new Error("queue down"));
 
-            await expect(FGImportService.execute("fail-id")).rejects.toThrow("DB error");
+            await expect(FGImportService.execute("fail-id")).rejects.toThrow("queue down");
             expect(redisClient.del).toHaveBeenCalledWith(
                 expect.stringContaining("fg:import:lock:fail-id"),
             );
+        });
+    });
+
+    describe("getStatus", () => {
+        it("throws 404 jika job tidak ditemukan", async () => {
+            vi.mocked(fgImportQueue.getJob).mockResolvedValueOnce(undefined);
+
+            await expect(FGImportService.getStatus("missing-id")).rejects.toThrow(
+                "Import job tidak ditemukan",
+            );
+        });
+
+        it("mengembalikan state queued untuk waiting job", async () => {
+            vi.mocked(fgImportQueue.getJob).mockResolvedValueOnce({
+                getState: vi.fn().mockResolvedValue("waiting"),
+                progress: 0,
+                returnvalue: null,
+            } as never);
+
+            const result = await FGImportService.getStatus("waiting-id");
+
+            expect(result.state).toBe("queued");
+            expect(result.progress).toBe(0);
+        });
+
+        it("mengembalikan result saat completed", async () => {
+            vi.mocked(fgImportQueue.getJob).mockResolvedValueOnce({
+                getState: vi.fn().mockResolvedValue("completed"),
+                progress: 100,
+                returnvalue: { import_id: "ok-id", total: 5 },
+            } as never);
+
+            const result = await FGImportService.getStatus("ok-id");
+
+            expect(result.state).toBe("completed");
+            expect(result.progress).toBe(100);
+            expect(result.result).toEqual({ import_id: "ok-id", total: 5 });
+        });
+
+        it("mengembalikan failedReason saat failed", async () => {
+            vi.mocked(fgImportQueue.getJob).mockResolvedValueOnce({
+                getState: vi.fn().mockResolvedValue("failed"),
+                progress: 30,
+                failedReason: "DB error",
+                attemptsMade: 3,
+            } as never);
+
+            const result = await FGImportService.getStatus("failed-id");
+
+            expect(result.state).toBe("failed");
+            expect(result.failedReason).toBe("DB error");
+            expect(result.attemptsMade).toBe(3);
         });
     });
 

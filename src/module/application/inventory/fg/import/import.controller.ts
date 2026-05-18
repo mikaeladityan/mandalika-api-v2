@@ -26,7 +26,14 @@ export class FGImportController {
     static async execute(c: Context) {
         const { import_id } = c.get("body") as RequestExecuteFGImportDTO;
         const result = await FGImportService.execute(import_id);
-        return ApiResponse.sendSuccess(c, result, 201);
+        return ApiResponse.sendSuccess(c, result, 202);
+    }
+
+    static async getStatus(c: Context) {
+        const import_id = c.req.param("import_id");
+        if (!import_id) throw new ApiError(400, "Import ID wajib dilampirkan");
+        const result = await FGImportService.getStatus(import_id);
+        return ApiResponse.sendSuccess(c, result, 200);
     }
 
     static async getPreview(c: Context) {

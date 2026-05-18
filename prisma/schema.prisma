@@ -165,6 +165,7 @@ model Unit {
   name     String    @db.VarChar(100)
   products Product[]
 
+  @@index([name])
   @@map("unit_of_materials")
 }
 
@@ -174,6 +175,7 @@ model ProductType {
   name     String    @db.VarChar(100)
   products Product[]
 
+  @@index([name])
   @@map("product_types")
 }
 
@@ -226,6 +228,11 @@ model RawMaterial {
   receipt_items                     PurchaseReceiptItem[]
   vendor_return_items               VendorReturnItem[]
 
+  @@index([deleted_at])
+  @@index([type])
+  @@index([unit_id])
+  @@index([raw_mat_categories_id])
+  @@index([updated_at])
   @@map("raw_materials")
 }
 
@@ -286,6 +293,10 @@ model Supplier {
   purchase_orders    PurchaseOrder[]
   account_payables   AccountPayable[]
 
+  @@index([name])
+  @@index([country])
+  @@index([updated_at])
+  @@index([source])
   @@map("suppliers")
 }
 
@@ -1136,28 +1147,28 @@ model VendorReturnItem {
 }
 
 model AccountPayable {
-  id                   Int            @id @default(autoincrement())
-  ap_number            String         @unique @db.VarChar(50)
-  po_id                Int?
-  receipt_id           Int?
-  payment_term_id      Int?           @unique
-  ap_type              APType         @default(GOODS_RECEIPT)
-  supplier_id          Int?
-  supplier_name        String         @db.VarChar(150)
-  invoice_number       String?        @db.VarChar(100)
-  invoice_date         DateTime?
-  due_date             DateTime?
-  amount               Decimal        @db.Decimal(18, 2)
-  paid_amount          Decimal        @default(0) @db.Decimal(18, 2)
-  balance              Decimal        @default(0) @db.Decimal(18, 2)
-  status               APStatus       @default(UNPAID)
-  last_paid_date       DateTime?
-  last_payment_method  PaymentMethod?
-  notes                String?
-  created_by           String         @db.VarChar(100)
-  updated_by           String?        @db.VarChar(100)
-  created_at           DateTime       @default(now())
-  updated_at           DateTime       @updatedAt
+  id                  Int            @id @default(autoincrement())
+  ap_number           String         @unique @db.VarChar(50)
+  po_id               Int?
+  receipt_id          Int?
+  payment_term_id     Int?           @unique
+  ap_type             APType         @default(GOODS_RECEIPT)
+  supplier_id         Int?
+  supplier_name       String         @db.VarChar(150)
+  invoice_number      String?        @db.VarChar(100)
+  invoice_date        DateTime?
+  due_date            DateTime?
+  amount              Decimal        @db.Decimal(18, 2)
+  paid_amount         Decimal        @default(0) @db.Decimal(18, 2)
+  balance             Decimal        @default(0) @db.Decimal(18, 2)
+  status              APStatus       @default(UNPAID)
+  last_paid_date      DateTime?
+  last_payment_method PaymentMethod?
+  notes               String?
+  created_by          String         @db.VarChar(100)
+  updated_by          String?        @db.VarChar(100)
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @updatedAt
 
   po           PurchaseOrder?       @relation(fields: [po_id], references: [id])
   receipt      PurchaseReceipt?     @relation(fields: [receipt_id], references: [id])
@@ -1178,23 +1189,23 @@ model AccountPayable {
 // ============================================================
 
 model AccountReceivable {
-  id                Int            @id @default(autoincrement())
-  ar_number         String         @unique @db.VarChar(50)
-  partner_type      ARPartnerType  @default(CUSTOMER)
+  id                Int           @id @default(autoincrement())
+  ar_number         String        @unique @db.VarChar(50)
+  partner_type      ARPartnerType @default(CUSTOMER)
   partner_id        Int?
-  partner_name      String         @db.VarChar(150)
-  source_doc        String         @db.VarChar(50)
-  amount            Decimal        @db.Decimal(18, 2)
-  received_amount   Decimal        @default(0) @db.Decimal(18, 2)
-  balance           Decimal        @default(0) @db.Decimal(18, 2)
-  status            ARStatus       @default(OPEN)
+  partner_name      String        @db.VarChar(150)
+  source_doc        String        @db.VarChar(50)
+  amount            Decimal       @db.Decimal(18, 2)
+  received_amount   Decimal       @default(0) @db.Decimal(18, 2)
+  balance           Decimal       @default(0) @db.Decimal(18, 2)
+  status            ARStatus      @default(OPEN)
   due_date          DateTime?
   last_receipt_date DateTime?
   notes             String?
-  created_by        String         @db.VarChar(100)
-  updated_by        String?        @db.VarChar(100)
-  created_at        DateTime       @default(now())
-  updated_at        DateTime       @updatedAt
+  created_by        String        @db.VarChar(100)
+  updated_by        String?       @db.VarChar(100)
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
 
   @@index([status, due_date])
   @@index([partner_id, status])

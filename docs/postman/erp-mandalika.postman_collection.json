@@ -1,0 +1,833 @@
+{
+  "info": {
+    "_postman_id": "e1d5c0a0-1aa1-4f0a-9b6c-erp-mandalika-0001",
+    "name": "ERP Mandalika API",
+    "description": "Koleksi tunggal untuk seluruh REST API ERP Mandalika (`api/`). Setiap modul = folder; setiap scope/sub-modul = sub-folder. Tambah/Update isi folder saat scope baru di-dokumentasikan (lihat skill `module-documentation`).\n\nVariables:\n- `base_url`   — host API (default `http://localhost:3000`).\n- `session_id` — value cookie `session` setelah login (`POST /api/auth/login`).\n- `csrf_token` — value header `x-csrf-token` dari login response.\n\nAuth: cookie session + header `x-csrf-token` (untuk mutasi). Lihat `docs/AUTH.md`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Inventory",
+      "description": "Inventory module — base path `/api/app/inventory`. Sub-folder: FG, RM.",
+      "item": [
+        {
+          "name": "FG",
+          "description": "Finished Goods (parfum jadi dengan size). Source: src/module/application/inventory/fg/. Docs: docs/modules/inventory/fg/README.md. Sub-folder: Import, Size, Type.",
+          "item": [
+            {
+              "name": "List",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Cookie",
+                    "value": "session={{session_id}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/app/inventory/fg?page=1&take=25&sortBy=updated_at&sortOrder=desc&search=&status=ACTIVE&gender=UNISEX&type_id=&size_id=",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "app",
+                    "inventory",
+                    "fg"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "take",
+                      "value": "25"
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "updated_at"
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc"
+                    },
+                    {
+                      "key": "search",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "status",
+                      "value": "ACTIVE",
+                      "disabled": true
+                    },
+                    {
+                      "key": "gender",
+                      "value": "UNISEX",
+                      "disabled": true
+                    },
+                    {
+                      "key": "type_id",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "size_id",
+                      "value": "",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "List FG dengan filter + pagination. Default WHERE status != DELETE."
+              }
+            },
+            {
+              "name": "Create",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Cookie",
+                    "value": "session={{session_id}}"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrf_token}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/app/inventory/fg",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "app",
+                    "inventory",
+                    "fg"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"EDP_110\",\n  \"name\": \"Parfum EDP 110ml Signature\",\n  \"size\": 110,\n  \"gender\": \"UNISEX\",\n  \"status\": \"PENDING\",\n  \"z_value\": 1.65,\n  \"lead_time\": 14,\n  \"review_period\": 30,\n  \"product_type\": \"Parfum EDP\",\n  \"distribution_percentage\": 50,\n  \"safety_percentage\": 10,\n  \"description\": \"Varian signature\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Create FG baru. Field unit sudah dihapus (size default ML)."
+              }
+            },
+            {
+              "name": "Detail",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Cookie",
+                    "value": "session={{session_id}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/app/inventory/fg/:id",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "app",
+                    "inventory",
+                    "fg",
+                    ":id"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Update",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Cookie",
+                    "value": "session={{session_id}}"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrf_token}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/app/inventory/fg/:id",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "app",
+                    "inventory",
+                    "fg",
+                    ":id"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Parfum EDP 110ml Updated\",\n  \"lead_time\": 21\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Partial update; gunakan field yang ingin diubah saja."
+              }
+            },
+            {
+              "name": "Status",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Cookie",
+                    "value": "session={{session_id}}"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrf_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/app/inventory/fg/status/:id?status=ACTIVE",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "app",
+                    "inventory",
+                    "fg",
+                    "status",
+                    ":id"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "ACTIVE"
+                    }
+                  ]
+                },
+                "description": "Set status; DELETE akan set deleted_at = now."
+              }
+            },
+            {
+              "name": "Bulk Status",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Cookie",
+                    "value": "session={{session_id}}"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrf_token}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/app/inventory/fg/bulk-status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "app",
+                    "inventory",
+                    "fg",
+                    "bulk-status"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ids\": [\n    1,\n    2,\n    3\n  ],\n  \"status\": \"DELETE\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Export CSV",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Cookie",
+                    "value": "session={{session_id}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/app/inventory/fg/export?status=ACTIVE&visibleColumns=code,name,size,gender",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "app",
+                    "inventory",
+                    "fg",
+                    "export"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "ACTIVE"
+                    },
+                    {
+                      "key": "visibleColumns",
+                      "value": "code,name,size,gender"
+                    }
+                  ]
+                },
+                "description": "Export CSV (cap 50k baris)."
+              }
+            },
+            {
+              "name": "Clean",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Cookie",
+                    "value": "session={{session_id}}"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrf_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/app/inventory/fg/clean",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "app",
+                    "inventory",
+                    "fg",
+                    "clean"
+                  ]
+                },
+                "description": "Permanent delete untuk produk status=DELETE. 409 jika terkait Production Order."
+              }
+            },
+            {
+              "name": "Import",
+              "description": "Bulk import FG via XLSX/CSV. BullMQ async. Docs: docs/modules/inventory/fg/import/README.md.",
+              "item": [
+                {
+                  "name": "Preview Upload",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      },
+                      {
+                        "key": "x-csrf-token",
+                        "value": "{{csrf_token}}"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/import/preview",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "import",
+                        "preview"
+                      ]
+                    },
+                    "body": {
+                      "mode": "formdata",
+                      "formdata": [
+                        {
+                          "key": "file",
+                          "type": "file",
+                          "src": []
+                        }
+                      ]
+                    },
+                    "description": "Upload XLSX/CSV. Returns { import_id, total, valid, invalid }. 413 jika > 5000 baris."
+                  }
+                },
+                {
+                  "name": "Get Preview",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/import/preview/:import_id",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "import",
+                        "preview",
+                        ":import_id"
+                      ]
+                    },
+                    "description": "Ambil snapshot rows hasil preview (selama belum expired)."
+                  }
+                },
+                {
+                  "name": "Execute",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      },
+                      {
+                        "key": "x-csrf-token",
+                        "value": "{{csrf_token}}"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/import/execute",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "import",
+                        "execute"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"import_id\": \"9c83f0a0-1234-5678-9abc-def012345678\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "description": "Enqueue job. 202 saat sukses, 409 jika lock terkunci."
+                  }
+                },
+                {
+                  "name": "Status",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/import/status/:import_id",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "import",
+                        "status",
+                        ":import_id"
+                      ]
+                    },
+                    "description": "Polling state queued/active/completed/failed + progress 0-100."
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Size",
+              "description": "Master product_size. Docs: docs/modules/inventory/fg/size/README.md.",
+              "item": [
+                {
+                  "name": "List",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/sizes?page=1&take=25&search=110",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "sizes"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "take",
+                          "value": "25"
+                        },
+                        {
+                          "key": "search",
+                          "value": "110",
+                          "disabled": true
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "name": "Create",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      },
+                      {
+                        "key": "x-csrf-token",
+                        "value": "{{csrf_token}}"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/sizes",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "sizes"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"size\": 110\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "Update",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      },
+                      {
+                        "key": "x-csrf-token",
+                        "value": "{{csrf_token}}"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/sizes/:id",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "sizes",
+                        ":id"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"size\": 120\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "Delete",
+                  "request": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      },
+                      {
+                        "key": "x-csrf-token",
+                        "value": "{{csrf_token}}"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/sizes/:id",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "sizes",
+                        ":id"
+                      ]
+                    },
+                    "description": "400 jika size masih dipakai produk."
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Type",
+              "description": "Master product_types. Docs: docs/modules/inventory/fg/type/README.md.",
+              "item": [
+                {
+                  "name": "List",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/types?page=1&take=25&search=parfum",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "types"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "take",
+                          "value": "25"
+                        },
+                        {
+                          "key": "search",
+                          "value": "parfum",
+                          "disabled": true
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "name": "Create",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      },
+                      {
+                        "key": "x-csrf-token",
+                        "value": "{{csrf_token}}"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/types",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "types"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"Parfum EDP\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "Update",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      },
+                      {
+                        "key": "x-csrf-token",
+                        "value": "{{csrf_token}}"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/types/:id",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "types",
+                        ":id"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"Parfum EDT\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "Delete",
+                  "request": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Cookie",
+                        "value": "session={{session_id}}"
+                      },
+                      {
+                        "key": "x-csrf-token",
+                        "value": "{{csrf_token}}"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{base_url}}/api/app/inventory/fg/types/:id",
+                      "host": [
+                        "{{base_url}}"
+                      ],
+                      "path": [
+                        "api",
+                        "app",
+                        "inventory",
+                        "fg",
+                        "types",
+                        ":id"
+                      ]
+                    },
+                    "description": "400 jika tipe masih dipakai produk."
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "session_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "csrf_token",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

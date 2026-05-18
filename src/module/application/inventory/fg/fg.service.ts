@@ -6,14 +6,88 @@ import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { getOrCreateSlug } from "../../../../lib/utils/upsert-slug.js";
 import { getOrCreateSize } from "../../../../lib/utils/upsert-size.js";
 import { QueryFGDTO, RequestFGDTO, ResponseFGDTO } from "./fg.schema.js";
+import { FG_IMPORT_HEADERS } from "./import/import.schema.js";
 import ExcelJS from "exceljs";
 
 const EXPORT_MAX_ROWS = 50_000;
 
+const SIZE_UNIT = "ML";
+
+const formatSize = (size: number | null | undefined): string =>
+    size != null ? `${size} ${SIZE_UNIT}` : "";
+
+type ListFilters = Pick<QueryFGDTO, "type_id" | "size_id" | "gender" | "status" | "search">;
+
+function buildProductWhere(query: ListFilters): Prisma.ProductWhereInput {
+    const { type_id, size_id, gender, status, search } = query;
+    return {
+        ...(type_id && { type_id }),
+        ...(size_id && { size_id }),
+        ...(gender && { gender }),
+        ...(status ? { status } : { status: { not: STATUS.DELETE } }),
+        ...(search && {
+            OR: [
+                { name: { contains: search, mode: "insensitive" } },
+                { code: { contains: search, mode: "insensitive" } },
+                { product_type: { name: { contains: search, mode: "insensitive" } } },
+            ],
+        }),
+    };
+}
+
+function buildProductOrderBy(
+    sortBy: QueryFGDTO["sortBy"],
+    sortOrder: QueryFGDTO["sortOrder"],
+): Prisma.ProductOrderByWithRelationInput {
+    const map: Record<string, Prisma.ProductOrderByWithRelationInput> = {
+        code: { code: sortOrder },
+        name: { name: sortOrder },
+        gender: { gender: sortOrder },
+        updated_at: { updated_at: sortOrder },
+        created_at: { created_at: sortOrder },
+        type: { product_type: { name: sortOrder } },
+        size: { size: { size: sortOrder } },
+    };
+    return (sortBy && map[sortBy]) ?? { updated_at: "desc" };
+}
+
+// Kolom CSV export — header roundtrip wajib identik dengan key Zod di import.schema.ts (dev-flow §1.I).
+// `roundtrip: true` = kolom yang juga dipakai untuk re-import; `false` = display-only.
+const EXPORT_COLUMNS: ReadonlyArray<{
+    header: string;
+    key: string;
+    width: number;
+    id: string;
+    roundtrip: boolean;
+}> = [
+    { header: "No", key: "no", width: 5, id: "no", roundtrip: false },
+    { header: FG_IMPORT_HEADERS.code, key: "code", width: 15, id: "code", roundtrip: true },
+    { header: FG_IMPORT_HEADERS.name, key: "name", width: 40, id: "name", roundtrip: true },
+    { header: FG_IMPORT_HEADERS.type, key: "type", width: 20, id: "type", roundtrip: true },
+    { header: FG_IMPORT_HEADERS.gender, key: "gender", width: 12, id: "gender", roundtrip: true },
+    { header: FG_IMPORT_HEADERS.size, key: "size", width: 10, id: "size", roundtrip: true },
+    {
+        header: FG_IMPORT_HEADERS.distribution,
+        key: "distribution",
+        width: 12,
+        id: "distribution_percentage",
+        roundtrip: true,
+    },
+    {
+        header: FG_IMPORT_HEADERS.safety,
+        key: "safety",
+        width: 12,
+        id: "safety_percentage",
+        roundtrip: true,
+    },
+    { header: "Lead Time", key: "lead_time", width: 12, id: "lead_time", roundtrip: false },
+    { header: "Nilai Z", key: "z_value", width: 10, id: "z_value", roundtrip: false },
+    { header: "Status", key: "status", width: 15, id: "status", roundtrip: false },
+];
+
 type FGDetailPayload = Prisma.ProductGetPayload<{
     include: {
         product_type: true;
-        unit: true;
         size: true;
         product_inventories: { include: { warehouse: true } };
         recipes: {
@@ -31,31 +105,29 @@ type FGDetailPayload = Prisma.ProductGetPayload<{
 
 export type FGDetailResponse = Omit<
     FGDetailPayload,
-    "z_value" | "distribution_percentage" | "safety_percentage" | "size" | "unit" | "product_type"
+    "z_value" | "distribution_percentage" | "safety_percentage" | "size" | "product_type"
 > & {
     z_value: number;
     distribution_percentage: number;
     safety_percentage: number;
     size: string;
-    unit: string | null;
     product_type: string | null;
 };
 
 export class FGService {
     static async create(body: RequestFGDTO) {
-        const { code, product_type, unit, size, ...reqBody } = body;
+        const { code, product_type, size, ...reqBody } = body;
 
         try {
             return await prisma.$transaction(async (tx) => {
-                const [type_id, unit_id, size_id] = await Promise.all([
+                const [type_id, size_id] = await Promise.all([
                     product_type ? getOrCreateSlug(tx.productType, product_type) : null,
-                    unit ? getOrCreateSlug(tx.unit, unit) : null,
                     size ? getOrCreateSize(tx, size) : null,
                 ]);
 
                 const result = await tx.product.create({
-                    data: { ...reqBody, code, type_id, unit_id, size_id },
-                    include: { product_type: true, unit: true, size: true },
+                    data: { ...reqBody, code, type_id, size_id },
+                    include: { product_type: true, size: true },
                 });
 
                 return {
@@ -66,7 +138,6 @@ export class FGService {
                 };
             });
         } catch (e) {
-            // Tangkap P2002 (bukan pre-check) supaya atomic dari race condition concurrent create.
             if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
                 throw new ApiError(400, `Produk dengan kode: ${code} telah tersedia`);
             }
@@ -77,24 +148,23 @@ export class FGService {
     static async update(id: number, body: Partial<RequestFGDTO>) {
         const product = await prisma.product.findUnique({
             where: { id },
-            select: { id: true, code: true, type_id: true, unit_id: true, size_id: true },
+            select: { id: true, code: true, type_id: true, size_id: true },
         });
         if (!product) throw new ApiError(404, "Produk tidak ditemukan");
 
-        const { code, unit, product_type, size, ...reqBody } = body;
+        const { code, product_type, size, ...reqBody } = body;
 
         try {
             return await prisma.$transaction(async (tx) => {
-                const [type_id, unit_id, size_id] = await Promise.all([
+                const [type_id, size_id] = await Promise.all([
                     product_type ? getOrCreateSlug(tx.productType, product_type) : product.type_id,
-                    unit ? getOrCreateSlug(tx.unit, unit) : product.unit_id,
                     size ? getOrCreateSize(tx, size) : product.size_id,
                 ]);
 
                 const result = await tx.product.update({
                     where: { id },
-                    data: { ...reqBody, code: code ?? product.code, type_id, unit_id, size_id },
-                    include: { product_type: true, unit: true, size: true },
+                    data: { ...reqBody, code: code ?? product.code, type_id, size_id },
+                    include: { product_type: true, size: true },
                 });
 
                 return {
@@ -114,7 +184,7 @@ export class FGService {
 
     static async status(id: number, status: STATUS) {
         const existing = await prisma.product.findUnique({ where: { id }, select: { id: true } });
-        if (!existing) throw new ApiError(404, `Produk dengan kode ${id} tidak ditemukan`);
+        if (!existing) throw new ApiError(404, `Produk dengan ID ${id} tidak ditemukan`);
 
         await prisma.product.update({
             where: { id },
@@ -135,13 +205,22 @@ export class FGService {
     }
 
     static async export(query: QueryFGDTO) {
-        const { data, len } = await this.list({ ...query, take: EXPORT_MAX_ROWS, page: 1 });
-        if (len > EXPORT_MAX_ROWS) {
+        const where = buildProductWhere(query);
+
+        const total = await prisma.product.count({ where });
+        if (total > EXPORT_MAX_ROWS) {
             throw new ApiError(
                 400,
-                `Data terlalu besar (${len} baris). Gunakan filter untuk membatasi maksimal ${EXPORT_MAX_ROWS} baris.`,
+                `Data terlalu besar (${total} baris). Gunakan filter untuk membatasi maksimal ${EXPORT_MAX_ROWS} baris.`,
             );
         }
+
+        const products = await prisma.product.findMany({
+            where,
+            include: { product_type: true, size: true },
+            orderBy: buildProductOrderBy(query.sortBy, query.sortOrder),
+            take: EXPORT_MAX_ROWS,
+        });
 
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet("Data Produk");
@@ -149,41 +228,25 @@ export class FGService {
         const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : [];
         const hasVisibility = visibleCols.length > 0;
 
-        const allColumns = [
-            { header: "No", key: "no", width: 5, id: "no" },
-            { header: "Kode", key: "code", width: 15, id: "code" },
-            { header: "Nama Produk", key: "name", width: 40, id: "name" },
-            { header: "Tipe", key: "type", width: 20, id: "type" },
-            { header: "Size", key: "size", width: 10, id: "size" },
-            { header: "Unit", key: "unit", width: 10, id: "unit" },
-            { header: "Gender", key: "gender", width: 15, id: "gender" },
-            { header: "Lead Time", key: "lead_time", width: 12, id: "lead_time" },
-            { header: "Nilai Z", key: "z_value", width: 10, id: "z_value" },
-            { header: "Distribusi %", key: "distribution", width: 15, id: "distribution_percentage" },
-            { header: "Safety %", key: "safety", width: 15, id: "safety_percentage" },
-            { header: "Status", key: "status", width: 15, id: "status" },
-        ];
-
         const filteredColumns = hasVisibility
-            ? allColumns.filter((col) => col.id === "no" || visibleCols.includes(col.id))
-            : allColumns;
+            ? EXPORT_COLUMNS.filter((col) => col.id === "no" || visibleCols.includes(col.id))
+            : EXPORT_COLUMNS;
 
         sheet.columns = filteredColumns.map(({ header, key, width }) => ({ header, key, width }));
 
-        data.forEach((item, index) => {
+        products.forEach((p, index) => {
             sheet.addRow({
                 no: index + 1,
-                code: item.code || "-",
-                name: item.name,
-                type: item.product_type ?? "-",
-                size: item.size || "-",
-                unit: item.unit ?? "-",
-                gender: item.gender,
-                lead_time: item.lead_time,
-                z_value: item.z_value,
-                distribution: item.distribution_percentage,
-                safety: item.safety_percentage,
-                status: item.status,
+                code: p.code ?? "",
+                name: p.name,
+                type: p.product_type?.name ?? "",
+                gender: p.gender,
+                size: p.size?.size ?? "",
+                distribution: Number(p.distribution_percentage),
+                safety: Number(p.safety_percentage),
+                lead_time: p.lead_time,
+                z_value: Number(p.z_value),
+                status: p.status,
             });
         });
 
@@ -201,7 +264,8 @@ export class FGService {
                 where: { deleted_at: { not: null }, status: STATUS.DELETE },
                 select: { id: true },
             });
-            if (products.length === 0) throw new ApiError(400, "Tidak ada produk yang akan dihapus");
+            if (products.length === 0)
+                throw new ApiError(400, "Tidak ada produk yang akan dihapus");
 
             const ids = products.map((p) => p.id);
 
@@ -233,48 +297,16 @@ export class FGService {
     }
 
     static async list(query: QueryFGDTO): Promise<{ data: ResponseFGDTO[]; len: number }> {
-        const {
-            page = 1,
-            take = 10,
-            sortBy = "updated_at",
-            sortOrder = "desc",
-            gender,
-            search,
-            status,
-            type_id,
-            size_id,
-        } = query;
+        const { page = 1, take = 10 } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
-        const where: Prisma.ProductWhereInput = {
-            ...(type_id && { type_id }),
-            ...(size_id && { size_id }),
-            ...(gender && { gender }),
-            ...(status ? { status } : { status: { not: STATUS.DELETE } }),
-            ...(search && {
-                OR: [
-                    { name: { contains: search, mode: "insensitive" } },
-                    { code: { contains: search, mode: "insensitive" } },
-                    { product_type: { name: { contains: search, mode: "insensitive" } } },
-                ],
-            }),
-        };
-
-        const orderByMap: Record<string, Prisma.ProductOrderByWithRelationInput> = {
-            code: { code: sortOrder },
-            name: { name: sortOrder },
-            gender: { gender: sortOrder },
-            updated_at: { updated_at: sortOrder },
-            created_at: { created_at: sortOrder },
-            type: { product_type: { name: sortOrder } },
-            size: { size: { size: sortOrder } },
-        };
-        const orderBy = orderByMap[sortBy] ?? { updated_at: "desc" };
+        const where = buildProductWhere(query);
+        const orderBy = buildProductOrderBy(query.sortBy, query.sortOrder);
 
         const [products, len] = await Promise.all([
             prisma.product.findMany({
                 where,
-                include: { product_type: true, unit: true, size: true },
+                include: { product_type: true, size: true },
                 orderBy,
                 skip,
                 take: limit,
@@ -287,8 +319,7 @@ export class FGService {
             z_value: Number(p.z_value),
             distribution_percentage: Number(p.distribution_percentage),
             safety_percentage: Number(p.safety_percentage),
-            size: `${p.size?.size ?? ""}${p.unit?.name ?? ""}`,
-            unit: p.unit?.name ?? null,
+            size: formatSize(p.size?.size),
             product_type: p.product_type?.name ?? null,
         }));
 
@@ -300,7 +331,6 @@ export class FGService {
             where: { id },
             include: {
                 product_type: true,
-                unit: true,
                 size: true,
                 product_inventories: { include: { warehouse: true } },
                 recipes: {
@@ -324,8 +354,7 @@ export class FGService {
             z_value: Number(product.z_value),
             distribution_percentage: Number(product.distribution_percentage),
             safety_percentage: Number(product.safety_percentage),
-            size: `${product.size?.size ?? ""}${product.unit?.name ?? ""}`,
-            unit: product.unit?.name ?? null,
+            size: formatSize(product.size?.size),
             product_type: product.product_type?.name ?? null,
         };
     }

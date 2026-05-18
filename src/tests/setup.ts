@@ -645,6 +645,7 @@ vi.mock("../config/prisma.js", () => ({
                 phone: null,
             }),
             delete: vi.fn().mockResolvedValue({ id: 1 }),
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
             count: vi.fn().mockResolvedValue(1),
         },
         purchaseOrder: {
@@ -1111,6 +1112,38 @@ vi.mock("../config/redis.js", () => {
 vi.mock("../module/application/log/log.service.js", () => ({
     CreateLogger: vi.fn().mockResolvedValue({}),
 }));
+
+vi.mock("../module/application/inventory/fg/import/queue/fg-import.queue.js", () => {
+    const addMock = vi.fn().mockImplementation(async (_name: string, _data: unknown, opts?: { jobId?: string }) => ({
+        id: opts?.jobId ?? "job-1",
+    }));
+    const getJobMock = vi.fn().mockResolvedValue(null);
+    return {
+        fgImportQueue: {
+            add: addMock,
+            getJob: getJobMock,
+        },
+        enqueueFGImport: vi.fn().mockImplementation(async (import_id: string) => ({
+            id: import_id,
+        })),
+    };
+});
+
+vi.mock("../module/application/inventory/rm/import/queue/rm-import.queue.js", () => {
+    const addMock = vi.fn().mockImplementation(async (_name: string, _data: unknown, opts?: { jobId?: string }) => ({
+        id: opts?.jobId ?? "job-1",
+    }));
+    const getJobMock = vi.fn().mockResolvedValue(null);
+    return {
+        rmImportQueue: {
+            add: addMock,
+            getJob: getJobMock,
+        },
+        enqueueRMImport: vi.fn().mockImplementation(async (import_id: string) => ({
+            id: import_id,
+        })),
+    };
+});
 
 vi.mock("../lib/logger.js", () => ({
     logger: {

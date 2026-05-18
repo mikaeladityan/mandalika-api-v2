@@ -1,21 +1,21 @@
 import { randomUUID } from "crypto";
-import prisma from "../../../../../config/prisma.js";
 import { redisClient } from "../../../../../config/redis.js";
 import { GENDER } from "../../../../../generated/prisma/client.js";
-import { STATUS } from "../../../../../generated/prisma/enums.js";
 import { ApiError } from "../../../../../lib/errors/api.error.js";
 import { ImportCacheService } from "../../../../../lib/utils/import.cache.js";
-import { getOrCreateSlug } from "../../../../../lib/utils/upsert-slug.js";
-import { getOrCreateSize } from "../../../../../lib/utils/upsert-size.js";
 import {
+    FG_IMPORT_HEADERS,
     FGImportPreviewDTO,
     FGImportRowSchema,
+    ImportJobState,
+    ResponseEnqueueFGImportDTO,
     ResponseFGImportDTO,
+    ResponseImportStatusDTO,
 } from "./import.schema.js";
+import { enqueueFGImport, fgImportQueue } from "./queue/fg-import.queue.js";
 
 const CACHE_PREFIX = "fg:import:";
 const LOCK_TTL_SECONDS = 60;
-const TRANSACTION_TIMEOUT_MS = 60_000;
 
 type ImportCachePayload = {
     createdAt: number;
@@ -34,12 +34,11 @@ function mapGender(value: string): GENDER {
 
 function errorRow(raw: Record<string, unknown>, errors: string[]): FGImportPreviewDTO {
     return {
-        code: String(raw["PRODUCT CODE"] ?? ""),
-        name: String(raw["PRODUCT NAME"] ?? ""),
+        code: String(raw[FG_IMPORT_HEADERS.code] ?? ""),
+        name: String(raw[FG_IMPORT_HEADERS.name] ?? ""),
         gender: GENDER.UNISEX,
         size: 0,
         type: null,
-        unit: null,
         distribution_percentage: 0,
         safety_percentage: 0,
         errors,
@@ -49,18 +48,20 @@ function errorRow(raw: Record<string, unknown>, errors: string[]): FGImportPrevi
 function parseRow(raw: Record<string, unknown>): FGImportPreviewDTO {
     const parsed = FGImportRowSchema.safeParse(raw);
     if (!parsed.success) {
-        return errorRow(raw, parsed.error.issues.map((e) => e.message));
+        return errorRow(
+            raw,
+            parsed.error.issues.map((e) => e.message),
+        );
     }
     const d = parsed.data;
     return {
-        code: d["PRODUCT CODE"].trim(),
-        name: d["PRODUCT NAME"].trim(),
-        gender: mapGender(d.GENDER),
-        size: d.SIZE,
-        type: d.TYPE.trim(),
-        unit: d.UOM.trim(),
-        distribution_percentage: d.EDAR,
-        safety_percentage: d.SAFETY,
+        code: d[FG_IMPORT_HEADERS.code].trim(),
+        name: d[FG_IMPORT_HEADERS.name].trim(),
+        gender: mapGender(d[FG_IMPORT_HEADERS.gender]),
+        size: d[FG_IMPORT_HEADERS.size],
+        type: d[FG_IMPORT_HEADERS.type].trim(),
+        distribution_percentage: d[FG_IMPORT_HEADERS.distribution],
+        safety_percentage: d[FG_IMPORT_HEADERS.safety],
         errors: [],
     };
 }
@@ -74,6 +75,8 @@ async function acquireLock(importId: string): Promise<boolean> {
 async function releaseLock(importId: string): Promise<void> {
     await redisClient.del(`${CACHE_PREFIX}lock:${importId}`);
 }
+
+const TERMINAL_STATES = new Set<ImportJobState>(["completed", "failed"]);
 
 export class FGImportService {
     static async preview(rows: Array<Record<string, unknown>>): Promise<ResponseFGImportDTO> {
@@ -95,106 +98,63 @@ export class FGImportService {
         return { import_id, total, valid, invalid };
     }
 
-    static async execute(import_id: string) {
+    static async execute(import_id: string): Promise<ResponseEnqueueFGImportDTO> {
         if (!(await acquireLock(import_id))) {
             throw new ApiError(409, "Import sedang diproses, coba lagi sebentar");
         }
 
         try {
-            const cache = (await ImportCacheService.get(
-                CACHE_PREFIX,
-                import_id,
-            )) as ImportCachePayload | null;
+            const cache = await ImportCacheService.get<ImportCachePayload>(CACHE_PREFIX, import_id);
 
             if (!cache) {
                 throw new ApiError(400, "Import session tidak ditemukan atau sudah kadaluarsa");
             }
 
-            const validRows = cache.rows.filter((r) => r.errors.length === 0);
-            if (!validRows.length) {
+            if (cache.valid <= 0) {
                 throw new ApiError(400, "Tidak ada baris valid untuk diimport");
             }
 
-            await this.bulkUpsert(validRows);
-            await ImportCacheService.remove(CACHE_PREFIX, import_id);
-            return { import_id, total: validRows.length };
-        } finally {
+            const job = await enqueueFGImport(import_id);
+            return { import_id, jobId: String(job.id ?? import_id), state: "queued" };
+        } catch (err) {
             await releaseLock(import_id);
+            throw err;
         }
     }
 
-    private static async bulkUpsert(rows: FGImportPreviewDTO[]): Promise<void> {
-        const deduped = new Map<string, FGImportPreviewDTO>();
-        for (const row of rows) {
-            const code = row.code?.trim();
-            if (code) deduped.set(code, row);
+    static async getStatus(import_id: string): Promise<ResponseImportStatusDTO> {
+        const job = await fgImportQueue.getJob(import_id);
+        if (!job) {
+            throw new ApiError(404, "Import job tidak ditemukan");
         }
-        const finalRows = Array.from(deduped.values());
-        if (!finalRows.length) return;
+        const rawState = await job.getState();
+        const state: ImportJobState =
+            rawState === "waiting" ? "queued" : (rawState as ImportJobState);
 
-        const uniqueTypes = [...new Set(finalRows.map((r) => r.type).filter((v): v is string => !!v))];
-        const uniqueUnits = [...new Set(finalRows.map((r) => r.unit).filter((v): v is string => !!v))];
-        const uniqueSizes = [...new Set(finalRows.map((r) => r.size).filter((v) => v > 0))];
+        const progressNum = typeof job.progress === "number" ? job.progress : 0;
+        const response: ResponseImportStatusDTO = {
+            import_id,
+            state,
+            progress: progressNum,
+        };
 
-        await prisma.$transaction(
-            async (tx) => {
-                const [typeIds, unitIds, sizeIds] = await Promise.all([
-                    Promise.all(
-                        uniqueTypes.map(async (name) =>
-                            [name, await getOrCreateSlug(tx.productType, name)] as const,
-                        ),
-                    ).then((entries) => new Map(entries)),
-                    Promise.all(
-                        uniqueUnits.map(async (name) =>
-                            [name, await getOrCreateSlug(tx.unit, name)] as const,
-                        ),
-                    ).then((entries) => new Map(entries)),
-                    Promise.all(
-                        uniqueSizes.map(async (size) =>
-                            [size, await getOrCreateSize(tx, size)] as const,
-                        ),
-                    ).then((entries) => new Map(entries)),
-                ]);
+        if (state === "completed" && job.returnvalue) {
+            response.result = job.returnvalue as { import_id: string; total: number };
+        }
+        if (state === "failed") {
+            response.failedReason = job.failedReason ?? "Unknown error";
+            response.attemptsMade = job.attemptsMade ?? 0;
+        }
 
-                for (const row of finalRows) {
-                    const type_id = row.type ? typeIds.get(row.type) ?? null : null;
-                    const unit_id = row.unit ? unitIds.get(row.unit) ?? null : null;
-                    const size_id = row.size > 0 ? sizeIds.get(row.size) ?? null : null;
+        if (TERMINAL_STATES.has(state)) {
+            await releaseLock(import_id).catch(() => undefined);
+        }
 
-                    await tx.product.upsert({
-                        where: { code: row.code },
-                        create: {
-                            code: row.code,
-                            name: row.name,
-                            gender: row.gender,
-                            type_id,
-                            unit_id,
-                            size_id,
-                            distribution_percentage: row.distribution_percentage,
-                            safety_percentage: row.safety_percentage,
-                            status: STATUS.ACTIVE,
-                        },
-                        update: {
-                            name: row.name,
-                            gender: row.gender,
-                            type_id,
-                            unit_id,
-                            size_id,
-                            distribution_percentage: row.distribution_percentage,
-                            safety_percentage: row.safety_percentage,
-                        },
-                    });
-                }
-            },
-            { timeout: TRANSACTION_TIMEOUT_MS },
-        );
+        return response;
     }
 
     static async getPreview(import_id: string) {
-        const cache = (await ImportCacheService.get(
-            CACHE_PREFIX,
-            import_id,
-        )) as ImportCachePayload | null;
+        const cache = await ImportCacheService.get<ImportCachePayload>(CACHE_PREFIX, import_id);
 
         if (!cache) {
             throw new ApiError(404, "Import preview tidak ditemukan atau sudah kadaluarsa");
