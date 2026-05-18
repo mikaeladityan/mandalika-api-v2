@@ -2,7 +2,38 @@ import prisma from "../../../config/prisma.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { QueryConsolidationDTO } from "./consolidation.schema.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
-import ExcelJS from "exceljs";
+
+const USD_RATE = 17000;
+
+type ConsolidationRow = {
+    recommendation_id: number;
+    material_id: number | null;
+    barcode: string | null;
+    material_name: string;
+    supplier_name: string;
+    quantity: number;
+    uom: string;
+    price: number;
+    moq: number | null;
+    pic_id: string | null;
+    status: string;
+    created_at: Date | string | null;
+};
+
+type ExportColumn = {
+    header: string;
+    uiId: string;
+    value: (row: ConsolidationRow, index: number) => string | number;
+};
+
+const escapeCsv = (val: unknown): string => {
+    if (val === null || val === undefined) return "";
+    const s = typeof val === "number" ? String(val) : String(val);
+    if (/[",\r\n]/.test(s)) {
+        return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+};
 
 export class ConsolidationService {
     static async list(query: QueryConsolidationDTO) {
@@ -203,11 +234,10 @@ export class ConsolidationService {
         return Object.values(grouping);
     }
 
-    static async export(query: QueryConsolidationDTO) {
+    static async export(query: QueryConsolidationDTO): Promise<Buffer> {
         const { data } = await this.list({ ...query, take: 1000000, page: 1 });
 
-        // Filter: Include DRAFT and ACC items
-        let draftItems = data.filter((item) => ["DRAFT", "ACC"].includes(item.status));
+        let draftItems: ConsolidationRow[] = data.filter((item) => ["DRAFT", "ACC"].includes(item.status));
 
         if (query.selectedIds) {
             const ids = query.selectedIds.split(",").map(Number).filter(Boolean);
@@ -215,117 +245,69 @@ export class ConsolidationService {
                 draftItems = draftItems.filter((item) => ids.includes(item.recommendation_id));
             }
         }
-        const supplierName = (draftItems.length > 0 && query.supplier_id) ? draftItems[0]?.supplier_name : "";
 
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet(supplierName ? `Pesanan - ${supplierName}` : "Konsolidasi Purchase");
+        const isImpor = query.type === "impor";
 
-        const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : null;
+        const visibleCols = query.visibleColumns ? new Set(query.visibleColumns.split(",")) : null;
+        const isVisible = (uiId: string) => !visibleCols || visibleCols.has(uiId);
 
-        const isVisible = (uiId: string) => {
-            if (!visibleCols) return true;
-            return visibleCols.includes(uiId);
-        };
-
-        const allColumns: any[] = [
-            { header: "No", key: "no", width: 5, uiId: "no" },
-            { header: "Barcode", key: "barcode", width: 15, uiId: "material_name" },
-            { header: "Nama Material", key: "material_name", width: 35, uiId: "material_name" },
-            { header: "Supplier", key: "supplier_name", width: 25, uiId: "supplier_name" },
-            { header: "Quantity", key: "quantity", width: 12, uiId: "quantity" },
-            { header: "MOQ", key: "moq", width: 10, uiId: "moq" },
-            { header: "UOM", key: "uom", width: 10, uiId: "uom" },
-            { header: query.type === "impor" ? "Harga Satuan (IDR)" : "Harga Satuan", key: "price", width: 15, uiId: "price" },
-            ...(query.type === "impor" ? [{ header: "Harga Satuan (USD)", key: "price_usd", width: 15, uiId: "price" }] : []),
-            { header: query.type === "impor" ? "Total Harga (IDR)" : "Total Harga", key: "total_price", width: 18, uiId: "subtotal" },
-            ...(query.type === "impor" ? [{ header: "Total Harga (USD)", key: "total_price_usd", width: 18, uiId: "subtotal" }] : []),
-            { header: "Status", key: "status", width: 12, uiId: "status" },
-            { header: "Tanggal Pengajuan", key: "created_at", width: 25, uiId: "created_at" },
-            { header: "PIC", key: "pic_id", width: 15, uiId: "pic_id" },
+        const allColumns: ExportColumn[] = [
+            { header: "No", uiId: "no", value: (_r, i) => i + 1 },
+            { header: "Barcode", uiId: "material_name", value: (r) => r.barcode ?? "-" },
+            { header: "Nama Material", uiId: "material_name", value: (r) => r.material_name },
+            { header: "Supplier", uiId: "supplier_name", value: (r) => r.supplier_name },
+            { header: "Quantity", uiId: "quantity", value: (r) => r.quantity },
+            { header: "MOQ", uiId: "moq", value: (r) => r.moq ?? 0 },
+            { header: "UOM", uiId: "uom", value: (r) => r.uom?.toUpperCase() ?? "" },
+            { header: isImpor ? "Harga Satuan (IDR)" : "Harga Satuan", uiId: "price", value: (r) => r.price },
+            ...(isImpor ? [{ header: "Harga Satuan (USD)", uiId: "price", value: (r: ConsolidationRow) => (r.price || 0) / USD_RATE }] : []),
+            { header: isImpor ? "Total Harga (IDR)" : "Total Harga", uiId: "subtotal", value: (r) => (r.price || 0) * (r.quantity || 0) },
+            ...(isImpor ? [{ header: "Total Harga (USD)", uiId: "subtotal", value: (r: ConsolidationRow) => ((r.price || 0) * (r.quantity || 0)) / USD_RATE }] : []),
+            { header: "Status", uiId: "status", value: (r) => r.status },
+            { header: "Tanggal Pengajuan", uiId: "created_at", value: (r) => (r.created_at ? new Date(r.created_at).toLocaleString("id-ID") : "-") },
+            { header: "PIC", uiId: "pic_id", value: (r) => r.pic_id ?? "System" },
         ];
 
-        const filteredColumns = allColumns.filter((col) => {
-            if (!col.uiId) return true;
-            return isVisible(col.uiId);
-        });
+        const columns = allColumns.filter((col) => isVisible(col.uiId));
 
         if (query.columnOrder) {
             const orderArr = query.columnOrder.split(",");
-            filteredColumns.sort((a, b) => {
-                const uiIdA = a.uiId || "";
-                const uiIdB = b.uiId || "";
-
-                const indexA = orderArr.indexOf(uiIdA);
-                const indexB = orderArr.indexOf(uiIdB);
-
-                if (indexA !== -1 && indexB !== -1) {
-                    if (indexA === indexB) return 0;
-                    return indexA - indexB;
-                }
-
-                if (indexA !== -1) return -1;
-                if (indexB !== -1) return 1;
+            columns.sort((a, b) => {
+                const ia = orderArr.indexOf(a.uiId);
+                const ib = orderArr.indexOf(b.uiId);
+                if (ia !== -1 && ib !== -1) return ia - ib;
+                if (ia !== -1) return -1;
+                if (ib !== -1) return 1;
                 return 0;
             });
         }
 
-        sheet.columns = filteredColumns;
+        const lines: string[] = [];
+        lines.push(columns.map((c) => escapeCsv(c.header)).join(","));
 
         let grandTotal = 0;
         draftItems.forEach((item, index) => {
-            const totalPrice = (item.price || 0) * (item.quantity || 0);
-            grandTotal += totalPrice;
-
-            const rowData: Record<string, any> = {
-                no: index + 1,
-                barcode: item.barcode || "-",
-                material_name: item.material_name,
-                supplier_name: item.supplier_name,
-                quantity: item.quantity,
-                moq: item.moq || 0,
-                uom: item.uom?.toUpperCase(),
-                price: item.price,
-                ...(query.type === "impor" ? { price_usd: (item.price || 0) / 17000 } : {}),
-                total_price: totalPrice,
-                ...(query.type === "impor" ? { total_price_usd: totalPrice / 17000 } : {}),
-                status: item.status,
-                created_at: item.created_at
-                    ? new Date(item.created_at).toLocaleString("id-ID")
-                    : "-",
-                pic_id: item.pic_id || "System",
-            };
-
-            sheet.addRow(rowData);
+            grandTotal += (item.price || 0) * (item.quantity || 0);
+            lines.push(columns.map((c) => escapeCsv(c.value(item, index))).join(","));
         });
 
-        const totalRow = sheet.addRow({
-            no: "",
-            barcode: "",
-            material_name: "GRAND TOTAL",
-            supplier_name: "",
-            quantity: "",
-            moq: "",
-            uom: "",
-            price: "",
-            ...(query.type === "impor" ? { price_usd: "" } : {}),
-            total_price: grandTotal,
-            ...(query.type === "impor" ? { total_price_usd: grandTotal / 17000 } : {}),
-            status: "",
-            created_at: "",
-            pic_id: "",
-        });
-        totalRow.font = { bold: true };
+        // Grand total row: label di kolom visible pertama agar selalu terlihat,
+        // nilai total ditaruh di kolom dengan uiId "subtotal".
+        if (columns.length > 0) {
+            const totalCells = columns.map((c) => {
+                if (c.uiId === "subtotal") {
+                    const isUsdCol = c.header.includes("USD");
+                    return escapeCsv(isUsdCol ? grandTotal / USD_RATE : grandTotal);
+                }
+                return "";
+            });
+            totalCells[0] = escapeCsv("GRAND TOTAL");
+            lines.push(totalCells.join(","));
+        }
 
-        sheet.getRow(1).font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } };
-        sheet.getRow(1).height = 25;
-        sheet.getRow(1).fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: "FF0070C0" },
-        };
-        sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
-
-        return await workbook.csv.writeBuffer();
+        // BOM agar Excel mengenali UTF-8; CRLF mengikuti RFC 4180.
+        const csv = "﻿" + lines.join("\r\n");
+        return Buffer.from(csv, "utf8");
     }
 
     static async bulkUpdateStatus(ids: number[], status: any) {
