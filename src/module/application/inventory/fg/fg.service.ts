@@ -2,22 +2,13 @@ import prisma from "../../../../config/prisma.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { STATUS } from "../../../../generated/prisma/enums.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
-import { normalizeSlug } from "../../../../lib/index.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
-import { FGLookupDTO, QueryFGDTO, RequestFGDTO, ResponseFGDTO } from "./fg.schema.js";
+import { getOrCreateSlug } from "../../../../lib/utils/upsert-slug.js";
+import { getOrCreateSize } from "../../../../lib/utils/upsert-size.js";
+import { QueryFGDTO, RequestFGDTO, ResponseFGDTO } from "./fg.schema.js";
 import ExcelJS from "exceljs";
 
 const EXPORT_MAX_ROWS = 50_000;
-
-// Subset delegate untuk slug-based lookup table (productType, unit) — atomic upsert.
-type UpsertSlugDelegate = {
-    upsert: (args: {
-        where: { slug: string };
-        update: Record<string, never>;
-        create: { name: string; slug: string };
-        select: { id: true };
-    }) => Promise<{ id: number }>;
-};
 
 type FGDetailPayload = Prisma.ProductGetPayload<{
     include: {
@@ -51,50 +42,15 @@ export type FGDetailResponse = Omit<
 };
 
 export class FGService {
-    // --- Helper Methods ---
-
-    private static async getOrCreate(
-        model: UpsertSlugDelegate,
-        name: string | number,
-    ): Promise<number> {
-        if (typeof name !== "string") return name;
-
-        const formattedName = name.trim();
-        const slug = normalizeSlug(formattedName);
-
-        const result = await model.upsert({
-            where: { slug },
-            update: {},
-            create: { name: formattedName, slug },
-            select: { id: true },
-        });
-        return result.id;
-    }
-
-    private static async getOrCreateSize(
-        tx: Prisma.TransactionClient,
-        size: number,
-    ): Promise<number> {
-        const result = await tx.productSize.upsert({
-            where: { size },
-            update: {},
-            create: { size },
-            select: { id: true },
-        });
-        return result.id;
-    }
-
-    // --- Core Methods ---
-
     static async create(body: RequestFGDTO) {
         const { code, product_type, unit, size, ...reqBody } = body;
 
         try {
             return await prisma.$transaction(async (tx) => {
                 const [type_id, unit_id, size_id] = await Promise.all([
-                    product_type ? this.getOrCreate(tx.productType, product_type) : null,
-                    unit ? this.getOrCreate(tx.unit, unit) : null,
-                    size ? this.getOrCreateSize(tx, size) : null,
+                    product_type ? getOrCreateSlug(tx.productType, product_type) : null,
+                    unit ? getOrCreateSlug(tx.unit, unit) : null,
+                    size ? getOrCreateSize(tx, size) : null,
                 ]);
 
                 const result = await tx.product.create({
@@ -130,9 +86,9 @@ export class FGService {
         try {
             return await prisma.$transaction(async (tx) => {
                 const [type_id, unit_id, size_id] = await Promise.all([
-                    product_type ? this.getOrCreate(tx.productType, product_type) : product.type_id,
-                    unit ? this.getOrCreate(tx.unit, unit) : product.unit_id,
-                    size ? this.getOrCreateSize(tx, size) : product.size_id,
+                    product_type ? getOrCreateSlug(tx.productType, product_type) : product.type_id,
+                    unit ? getOrCreateSlug(tx.unit, unit) : product.unit_id,
+                    size ? getOrCreateSize(tx, size) : product.size_id,
                 ]);
 
                 const result = await tx.product.update({
@@ -337,32 +293,6 @@ export class FGService {
         }));
 
         return { data, len };
-    }
-
-    static async lookup(): Promise<FGLookupDTO[]> {
-        const products = await prisma.product.findMany({
-            where: { status: { not: STATUS.DELETE } },
-            select: {
-                id: true,
-                code: true,
-                name: true,
-                gender: true,
-                size: { select: { size: true } },
-                unit: { select: { name: true } },
-                product_type: { select: { name: true } },
-            },
-            orderBy: { name: "asc" },
-        });
-
-        return products.map((p) => ({
-            id: p.id,
-            code: p.code,
-            name: p.name,
-            gender: p.gender,
-            size: `${p.size?.size ?? ""}${p.unit?.name ?? ""}`,
-            unit: p.unit?.name ?? null,
-            product_type: p.product_type?.name ?? null,
-        }));
     }
 
     static async detail(id: number): Promise<FGDetailResponse> {
