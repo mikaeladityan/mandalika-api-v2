@@ -1,26 +1,29 @@
 import { Context } from "hono";
 import { ApiResponse } from "../../../../../lib/api.response.js";
 import { ApiError } from "../../../../../lib/errors/api.error.js";
-import { GetUploadedFile } from "../../../../../lib/get.file.js";
+import { GetUploadedFile, MAX_ROWS } from "../../../../../lib/get.file.js";
 import { ParseCSV } from "../../../../../lib/csv.js";
 import { ParseXLSX } from "../../../../../lib/excel.js";
 import { FGImportService } from "./import.service.js";
 import { RequestExecuteFGImportDTO } from "./import.schema.js";
 
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
 export class FGImportController {
     static async preview(c: Context) {
         const { buffer, mimetype, filename } = await GetUploadedFile(c);
-        const isXlsx =
-            mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-            filename.endsWith(".xlsx");
+        const isXlsx = mimetype === XLSX_MIME || filename.endsWith(".xlsx");
 
         const rows = isXlsx ? await ParseXLSX(buffer) : ParseCSV(buffer);
+        if (rows.length > MAX_ROWS) {
+            throw new ApiError(413, `File melebihi batas maksimum ${MAX_ROWS} baris`);
+        }
+
         const result = await FGImportService.preview(rows);
         return ApiResponse.sendSuccess(c, result, 201);
     }
 
     static async execute(c: Context) {
-        // Hono Context.get default ke `any` tanpa generic Variables — di-narrow di sini supaya type-safe.
         const { import_id } = c.get("body") as RequestExecuteFGImportDTO;
         const result = await FGImportService.execute(import_id);
         return ApiResponse.sendSuccess(c, result, 201);

@@ -13,12 +13,12 @@ const sanitizeNumber = (val: unknown): number => {
 };
 
 export const FGImportRowSchema = z.object({
-    "PRODUCT CODE": z.string().min(1),
-    "PRODUCT NAME": z.string().min(1),
-    TYPE: z.string().min(1),
-    GENDER: z.string().optional().default(""),
+    "PRODUCT CODE": z.string().min(1).max(100),
+    "PRODUCT NAME": z.string().min(1).max(200),
+    TYPE: z.string().min(1).max(100),
+    GENDER: z.string().max(20).optional().default(""),
     SIZE: z.preprocess(sanitizeNumber, z.coerce.number().positive()),
-    UOM: z.string().min(1),
+    UOM: z.string().min(1).max(50),
     EDAR: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
     SAFETY: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
 });

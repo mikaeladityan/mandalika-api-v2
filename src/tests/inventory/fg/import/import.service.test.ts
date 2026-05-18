@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { FGImportService } from "../../../../module/application/inventory/fg/import/import.service.js";
 import { redisClient } from "../../../../config/redis.js";
+import prisma from "../../../../config/prisma.js";
 
 describe("FGImportService", () => {
     beforeEach(() => {
@@ -63,35 +64,27 @@ describe("FGImportService", () => {
     });
 
     describe("execute", () => {
-        it("throws ApiError saat cache tidak ditemukan", async () => {
+        it("throws 409 jika lock tidak bisa di-acquire", async () => {
+            vi.mocked(redisClient.set).mockResolvedValueOnce(null);
+
+            await expect(FGImportService.execute("busy-id")).rejects.toThrow(
+                "Import sedang diproses, coba lagi sebentar",
+            );
+        });
+
+        it("throws 400 jika cache tidak ditemukan", async () => {
+            vi.mocked(redisClient.set).mockResolvedValueOnce("OK");
             vi.mocked(redisClient.get).mockResolvedValueOnce(null);
 
             await expect(FGImportService.execute("missing-id")).rejects.toThrow(
-                "Import session expired, not found, or already executed",
+                "Import session tidak ditemukan atau sudah kadaluarsa",
             );
         });
 
-        it("throws ApiError saat status sudah executing", async () => {
+        it("throws 400 jika tidak ada baris valid", async () => {
+            vi.mocked(redisClient.set).mockResolvedValueOnce("OK");
             vi.mocked(redisClient.get).mockResolvedValueOnce(
                 JSON.stringify({
-                    status: "executing",
-                    createdAt: Date.now(),
-                    total: 1,
-                    valid: 1,
-                    invalid: 0,
-                    rows: [],
-                }),
-            );
-
-            await expect(FGImportService.execute("locked-id")).rejects.toThrow(
-                "Import session expired, not found, or already executed",
-            );
-        });
-
-        it("throws ApiError saat tidak ada baris valid", async () => {
-            vi.mocked(redisClient.get).mockResolvedValueOnce(
-                JSON.stringify({
-                    status: "preview",
                     createdAt: Date.now(),
                     total: 1,
                     valid: 0,
@@ -117,10 +110,10 @@ describe("FGImportService", () => {
             );
         });
 
-        it("sukses execute dan menghapus cache", async () => {
+        it("sukses execute, menghapus cache, melepas lock", async () => {
+            vi.mocked(redisClient.set).mockResolvedValueOnce("OK");
             vi.mocked(redisClient.get).mockResolvedValueOnce(
                 JSON.stringify({
-                    status: "preview",
                     createdAt: Date.now(),
                     total: 1,
                     valid: 1,
@@ -131,7 +124,7 @@ describe("FGImportService", () => {
                             name: "Parfum",
                             gender: "MEN",
                             size: 100,
-                            type: "parfum",
+                            type: "Parfum",
                             unit: "ml",
                             distribution_percentage: 50,
                             safety_percentage: 10,
@@ -147,37 +140,50 @@ describe("FGImportService", () => {
             expect(result.total).toBe(1);
             expect(redisClient.del).toHaveBeenCalled();
         });
+
+        it("melepas lock walaupun bulk upsert gagal", async () => {
+            vi.mocked(redisClient.set).mockResolvedValueOnce("OK");
+            vi.mocked(redisClient.get).mockResolvedValueOnce(
+                JSON.stringify({
+                    createdAt: Date.now(),
+                    total: 1,
+                    valid: 1,
+                    invalid: 0,
+                    rows: [
+                        {
+                            code: "FG_001",
+                            name: "Parfum",
+                            gender: "MEN",
+                            size: 100,
+                            type: "Parfum",
+                            unit: "ml",
+                            distribution_percentage: 0,
+                            safety_percentage: 0,
+                            errors: [],
+                        },
+                    ],
+                }),
+            );
+            vi.mocked(prisma.$transaction).mockRejectedValueOnce(new Error("DB error"));
+
+            await expect(FGImportService.execute("fail-id")).rejects.toThrow("DB error");
+            expect(redisClient.del).toHaveBeenCalledWith(
+                expect.stringContaining("fg:import:lock:fail-id"),
+            );
+        });
     });
 
     describe("getPreview", () => {
-        it("throws ApiError 404 jika cache tidak ada", async () => {
+        it("throws 404 jika cache tidak ada", async () => {
             vi.mocked(redisClient.get).mockResolvedValueOnce(null);
 
             await expect(FGImportService.getPreview("missing-id")).rejects.toThrow(
-                "Import preview not found or expired",
-            );
-        });
-
-        it("throws ApiError 400 jika sudah executed", async () => {
-            vi.mocked(redisClient.get).mockResolvedValueOnce(
-                JSON.stringify({
-                    status: "executing",
-                    createdAt: Date.now(),
-                    total: 0,
-                    valid: 0,
-                    invalid: 0,
-                    rows: [],
-                }),
-            );
-
-            await expect(FGImportService.getPreview("executing-id")).rejects.toThrow(
-                "Import already executed",
+                "Import preview tidak ditemukan atau sudah kadaluarsa",
             );
         });
 
         it("mengembalikan summary + rows ketika cache valid", async () => {
             const cachePayload = {
-                status: "preview" as const,
                 createdAt: 1700000000000,
                 total: 2,
                 valid: 1,
@@ -188,7 +194,7 @@ describe("FGImportService", () => {
                         name: "OK",
                         gender: "MEN",
                         size: 100,
-                        type: "parfum",
+                        type: "Parfum",
                         unit: "ml",
                         distribution_percentage: 0,
                         safety_percentage: 0,
