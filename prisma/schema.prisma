@@ -143,12 +143,11 @@ model Product {
   production_fg_wastes     ProductionOrderWaste[]  @relation("ProductionWasteFG")
   production_order_outputs ProductionOrderOutput[]
 
-  @@index([code])
   @@index([type_id])
-  @@index([name])
+  @@index([size_id])
   @@index([status])
   @@index([updated_at])
-  @@index([code, name, status])
+  @@index([gender, status])
   @@map("products")
 }
 

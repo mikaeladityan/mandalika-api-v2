@@ -45,6 +45,45 @@ Pengembangan selalu diawali di sisi `Backend` (`/api`) untuk mematangkan pondasi
 
 ---
 
+## ⚠️ 1.F Type Safety (SOP Wajib)
+
+Sayang sekali pakai TypeScript kalau masih ada `any`/`unknown` tersebar. Aturan ini berlaku **di semua layer backend** (schema, service, controller, routes, lib).
+
+### Larangan
+
+- ❌ **`any`** — eksplisit (`x: any`) maupun implisit (parameter tanpa anotasi, callback tanpa generic).
+- ❌ **`unknown` malas** — `unknown` hanya boleh dipakai sebagai *initial type* dari sumber yang benar-benar tidak terprediksi (mis. `JSON.parse`, error catch). Setelah itu **wajib di-narrow** lewat type guard / Zod parse sebelum dipakai.
+- ❌ **Cast paksa** — `as any`, `as unknown as X` dilarang kecuali ada komentar `// reason: ...` yang menjelaskan keterbatasan teknis (mis. limitasi library typing).
+
+### Cara Mengganti
+
+| Kasus | Anti-pattern | Gunakan |
+|---|---|---|
+| Param transaction client | `tx: any` | `tx: Prisma.TransactionClient` |
+| Delegate Prisma generik (upsert helper, dsb.) | `model: any` | Type literal eksplisit, contoh: `type UpsertSlugDelegate = { upsert: (args: { where: { slug: string }; update: Record<string, never>; create: { name: string; slug: string }; select: { id: true } }) => Promise<{ id: number }> };` |
+| Hasil `$queryRaw` | `prisma.$queryRaw<any[]>` | Tipe row eksplisit: `prisma.$queryRaw<Array<{ id: number; name: string; ... }>>` atau `Array<Record<string, unknown>>` lalu narrow lewat Zod. |
+| Akses relasi nested di mapping | `(item.product_type as any)?.name` | Gunakan tipe dari `include` Prisma — relasi sudah strongly-typed dari generated client. |
+| Body Hono context | `c.get("body") as any` | Set generic di `c.get<RequestFeatureDTO>("body")` atau gunakan middleware `validateBody` yang sudah inject typed payload. |
+| Error catch | `catch (e: any)` | `catch (e)` (TS default `unknown`) → narrow via `e instanceof Prisma.PrismaClientKnownRequestError` / `instanceof Error`. |
+
+### Hirarki Pengganti (Last Resort)
+
+Jika benar-benar tidak ada cara lain (mis. integrasi library JS tanpa `@types/*`):
+
+1. **`Record<string, unknown>`** atau type literal eksplisit — _selalu_ lebih baik dari opsi berikutnya.
+2. **`unknown`** + narrow — bukan `any`.
+3. **`any`** — **dilarang**; pertimbangkan menulis `@types/...` deklarasi sendiri di `src/types/`.
+
+### Verifikasi Sebelum Commit
+
+```bash
+rtk tsc --noEmit
+```
+
+Tidak boleh ada error baru. Jika ditemukan `any` implisit, tambahkan anotasi tipe (jangan matikan `noImplicitAny`).
+
+---
+
 ## 🧪 2. Fase Testing (Vitest)
 
 Setelah seluruh lapisan backend (Service, Controller, Routes) selesai dibuat, tulis unit test dan integration test **sebelum** melanjutkan ke Frontend. Ini memastikan kontrak API stabil dan bug tertangkap lebih awal.
