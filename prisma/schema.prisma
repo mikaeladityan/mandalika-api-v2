@@ -577,13 +577,16 @@ model OutletInventory {
   product_id Int
   quantity   Decimal  @default(0) @db.Decimal(18, 2)
   min_stock  Decimal? @db.Decimal(18, 2)
+  month      Int      @default(1)
+  year       Int      @default(2024)
   updated_at DateTime @updatedAt
   outlet     Outlet   @relation(fields: [outlet_id], references: [id], onDelete: Cascade)
   product    Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
-  @@unique([outlet_id, product_id])
+  @@unique([outlet_id, product_id, month, year])
   @@index([outlet_id])
   @@index([product_id])
+  @@index([month, year])
   @@map("outlet_inventories")
 }
 
