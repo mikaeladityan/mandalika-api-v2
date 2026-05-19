@@ -87,6 +87,41 @@ describe("StockDistributionRMService", () => {
         });
     });
 
+    describe("list sorted by total_stock", () => {
+        it("ranks raw materials by total_stock across all matching ids", async () => {
+            (prisma.rawMaterial.findMany as any)
+                .mockResolvedValueOnce([{ id: 1 }, { id: 2 }, { id: 3 }])
+                .mockResolvedValueOnce([
+                    { ...RM_SAMPLE, id: 2, name: "B" },
+                    { ...RM_SAMPLE, id: 3, name: "C" },
+                    { ...RM_SAMPLE, id: 1, name: "A" },
+                ]);
+            // @ts-ignore
+            prisma.rawMaterialInventory.groupBy.mockResolvedValue([
+                { raw_material_id: 1, _sum: { quantity: "10" } },
+                { raw_material_id: 2, _sum: { quantity: "50" } },
+                { raw_material_id: 3, _sum: { quantity: "20" } },
+            ]);
+            // assembleMatrix needs findMany returning page-specific rows
+            // @ts-ignore
+            prisma.rawMaterialInventory.findMany.mockResolvedValue([]);
+
+            const result = await StockDistributionRMService.list({ sortBy: "total_stock", sortOrder: "desc" });
+
+            expect(result.len).toBe(3);
+            // Expected order (desc): id 2 (50), id 3 (20), id 1 (10)
+            expect(result.data.map((r) => r.name)).toEqual(["B", "C", "A"]);
+        });
+
+        it("returns empty data when no matching raw materials", async () => {
+            (prisma.rawMaterial.findMany as any).mockResolvedValueOnce([]);
+
+            const result = await StockDistributionRMService.list({ sortBy: "total_stock" });
+
+            expect(result).toEqual({ data: [], len: 0 });
+        });
+    });
+
     describe("listLocations", () => {
         it("returns only RM warehouses", async () => {
             // @ts-ignore
