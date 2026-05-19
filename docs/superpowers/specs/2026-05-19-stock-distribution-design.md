@@ -1,8 +1,9 @@
-# Stock Distribution Module — Design
+# Stock Distribution Module — Design (Phase B)
 
 **Date:** 2026-05-19
 **Module:** `api/src/module/application/inventory-v2/monitoring/stock-distribution/`
 **Status:** Design — pending approval
+**Depends on:** Phase A — `2026-05-19-outlet-inventory-period-migration-design.md` (outlet_inventories must have month/year columns before this ships).
 
 ## 1. Background & Motivation
 
@@ -209,18 +210,14 @@ These are tracked in implementation plan, not in this design spec.
 - No breaking changes to existing routes.
 - Index check: `product_inventories.@@index([date, month, year])` and `raw_material_inventories.@@index([date, month, year])` already present. Sufficient.
 
-## 13. Period Semantics for FG vs RM
+## 13. Period Semantics
 
-A subtlety found during review: `outlet_inventories` has **no `month`/`year` column** — only `updated_at`. So historical snapshots only exist for warehouse legs.
+Both legs honor `?month=&year=`:
+- **FG warehouse leg**: `product_inventories` filtered by month/year (period row carries running balance).
+- **FG outlet leg**: `outlet_inventories` filtered by month/year — **requires Phase A migration** (adds month/year columns to outlet_inventories). Until Phase A ships, this module cannot be merged.
+- **RM**: `raw_material_inventories` filtered by month/year (Phase A not required for RM).
 
-- **FG**: when `?month=&year=` ≠ current period:
-  - Warehouse leg pulls from `product_inventories` for that period
-  - Outlet leg still shows **current** quantities (only source available)
-  - Both are surfaced in `location_stocks`, but the response includes a flag `outlet_period_note: "current-only"` when non-current period is requested, so FE can disclaim
-  - When period = current month/year, no flag is set
-- **RM**: period works fully (all data comes from `raw_material_inventories` which has month/year).
-
-This is a data-shape limitation, not a bug. Documented for FE consumers.
+Period defaults: current month/year when omitted.
 
 ## 14. Open Items
 
