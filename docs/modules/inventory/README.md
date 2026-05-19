@@ -22,6 +22,8 @@ Sub-modul inventaris terpadu untuk ERP Mandalika.
 | RM / Suppliers | `/api/app/inventory/rm/suppliers`     | `src/module/application/inventory/rm/supplier`      | ✅ Ready | [rm/supplier/README.md](./rm/supplier/README.md) |
 | RM / Categories | `/api/app/inventory/rm/categories`   | `src/module/application/inventory/rm/category`      | ✅ Ready | [rm/category/README.md](./rm/category/README.md) |
 | RM / Units      | `/api/app/inventory/rm/units`        | `src/module/application/inventory/rm/unit`          | ✅ Ready | [rm/unit/README.md](./rm/unit/README.md)         |
+| Monitoring                       | `/api/app/inventory/monitoring`                              | `src/module/application/inventory/monitoring`                              | ✅ Ready | [monitoring/README.md](./monitoring/README.md)                                       |
+| Monitoring / Stock Distribution  | `/api/app/inventory/monitoring/stock-distribution/{fg\|rm}`  | `src/module/application/inventory/monitoring/stock-distribution`           | ✅ Ready | [monitoring/stock-distribution/README.md](./monitoring/stock-distribution/README.md) |
 
 > Dokumen flat lama `fg.md` masih ada untuk referensi; sumber kebenaran tunggal sekarang `fg/README.md` + sub-modul.
 

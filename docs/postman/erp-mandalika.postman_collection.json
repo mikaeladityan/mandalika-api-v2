@@ -2342,6 +2342,138 @@
                   ]
                 }
               ]
+            },
+            {
+              "name": "Monitoring",
+              "item": [
+                {
+                  "name": "Stock Distribution",
+                  "item": [
+                    {
+                      "name": "FG",
+                      "item": [
+                        {
+                          "name": "List FG matrix",
+                          "request": {
+                            "method": "GET",
+                            "header": [
+                              { "key": "Cookie", "value": "session={{session_id}}" }
+                            ],
+                            "url": {
+                              "raw": "{{base_url}}/api/app/inventory/monitoring/stock-distribution/fg?page=1&take=25&sortBy=updated_at&sortOrder=desc",
+                              "host": ["{{base_url}}"],
+                              "path": ["api", "app", "inventory", "monitoring", "stock-distribution", "fg"],
+                              "query": [
+                                { "key": "page", "value": "1" },
+                                { "key": "take", "value": "25" },
+                                { "key": "sortBy", "value": "updated_at" },
+                                { "key": "sortOrder", "value": "desc" },
+                                { "key": "search", "value": "", "disabled": true },
+                                { "key": "type_id", "value": "", "disabled": true },
+                                { "key": "gender", "value": "MEN", "disabled": true },
+                                { "key": "month", "value": "", "disabled": true },
+                                { "key": "year", "value": "", "disabled": true }
+                              ]
+                            },
+                            "description": "Matrix view stok FG. Rows=Product, dynamic columns=warehouse FG + outlet. Period default ke bulan/tahun berjalan. sortBy=total_stock memakai jalur cross-page (fetch all ids → groupBy → sort → slice)."
+                          }
+                        },
+                        {
+                          "name": "Locations FG",
+                          "request": {
+                            "method": "GET",
+                            "header": [
+                              { "key": "Cookie", "value": "session={{session_id}}" }
+                            ],
+                            "url": {
+                              "raw": "{{base_url}}/api/app/inventory/monitoring/stock-distribution/fg/locations",
+                              "host": ["{{base_url}}"],
+                              "path": ["api", "app", "inventory", "monitoring", "stock-distribution", "fg", "locations"]
+                            },
+                            "description": "Dropdown lokasi: warehouse FINISH_GOODS + outlet aktif. Field `type`: 'WAREHOUSE' | 'OUTLET'."
+                          }
+                        },
+                        {
+                          "name": "Export FG CSV",
+                          "request": {
+                            "method": "GET",
+                            "header": [
+                              { "key": "Cookie", "value": "session={{session_id}}" }
+                            ],
+                            "url": {
+                              "raw": "{{base_url}}/api/app/inventory/monitoring/stock-distribution/fg/export",
+                              "host": ["{{base_url}}"],
+                              "path": ["api", "app", "inventory", "monitoring", "stock-distribution", "fg", "export"]
+                            },
+                            "description": "Download CSV (max EXPORT_ROW_LIMIT=5000 rows). Header: SKU/Code, Nama Produk, Tipe, Size, Gender, UOM, Total Stok, Total Hilang, lalu satu kolom per location. Kalau kosong → JSON message."
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "name": "RM",
+                      "item": [
+                        {
+                          "name": "List RM matrix",
+                          "request": {
+                            "method": "GET",
+                            "header": [
+                              { "key": "Cookie", "value": "session={{session_id}}" }
+                            ],
+                            "url": {
+                              "raw": "{{base_url}}/api/app/inventory/monitoring/stock-distribution/rm?page=1&take=25&sortBy=updated_at&sortOrder=desc",
+                              "host": ["{{base_url}}"],
+                              "path": ["api", "app", "inventory", "monitoring", "stock-distribution", "rm"],
+                              "query": [
+                                { "key": "page", "value": "1" },
+                                { "key": "take", "value": "25" },
+                                { "key": "sortBy", "value": "updated_at" },
+                                { "key": "sortOrder", "value": "desc" },
+                                { "key": "search", "value": "", "disabled": true },
+                                { "key": "category_id", "value": "", "disabled": true },
+                                { "key": "material_type", "value": "FO", "disabled": true },
+                                { "key": "month", "value": "", "disabled": true },
+                                { "key": "year", "value": "", "disabled": true }
+                              ]
+                            },
+                            "description": "Matrix view stok Raw Material. Rows=RawMaterial, dynamic columns=warehouse RAW_MATERIAL only. Tidak ada total_missing."
+                          }
+                        },
+                        {
+                          "name": "Locations RM",
+                          "request": {
+                            "method": "GET",
+                            "header": [
+                              { "key": "Cookie", "value": "session={{session_id}}" }
+                            ],
+                            "url": {
+                              "raw": "{{base_url}}/api/app/inventory/monitoring/stock-distribution/rm/locations",
+                              "host": ["{{base_url}}"],
+                              "path": ["api", "app", "inventory", "monitoring", "stock-distribution", "rm", "locations"]
+                            },
+                            "description": "Dropdown warehouse RAW_MATERIAL aktif. Field `type` selalu 'WAREHOUSE'."
+                          }
+                        },
+                        {
+                          "name": "Export RM CSV",
+                          "request": {
+                            "method": "GET",
+                            "header": [
+                              { "key": "Cookie", "value": "session={{session_id}}" }
+                            ],
+                            "url": {
+                              "raw": "{{base_url}}/api/app/inventory/monitoring/stock-distribution/rm/export",
+                              "host": ["{{base_url}}"],
+                              "path": ["api", "app", "inventory", "monitoring", "stock-distribution", "rm", "export"]
+                            },
+                            "description": "Download CSV RM. Header: Nama Bahan Baku, Kategori, Satuan, Tipe Material, Min Stock, Total Stok, lalu satu kolom per warehouse RAW_MATERIAL."
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
             }
           ]
         }
