@@ -96,11 +96,13 @@ export class StockTotalService {
                               AND w.deleted_at IS NULL
                             GROUP BY w.name
                             UNION ALL
-                            -- Per toko aktif
+                            -- Per toko aktif (current period)
                             SELECT o.name AS loc_name, oi.quantity::numeric AS loc_qty
                             FROM outlet_inventories oi
                             JOIN outlets o ON oi.outlet_id = o.id
                             WHERE oi.product_id = p.id
+                              AND oi.month = ${currentMonth}
+                              AND oi.year  = ${currentYear}
                               AND o.deleted_at IS NULL
                         ) locs
                         WHERE loc_qty > 0
@@ -116,10 +118,11 @@ export class StockTotalService {
                     WHERE month = ${currentMonth} AND year = ${currentYear}
                     GROUP BY product_id
                 ) wh_agg ON wh_agg.product_id = p.id
-                -- aggregate outlet qty for total
+                -- aggregate outlet qty for total (current period)
                 LEFT JOIN (
                     SELECT product_id, SUM(quantity)::numeric AS total_qty
                     FROM outlet_inventories
+                    WHERE month = ${currentMonth} AND year = ${currentYear}
                     GROUP BY product_id
                 ) out_agg ON out_agg.product_id = p.id
                 -- aggregate missing qty from transfers (DO / TG) — excludes cancelled

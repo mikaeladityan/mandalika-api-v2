@@ -74,11 +74,13 @@ export class ProductStockLocationService {
                             JOIN warehouses w ON pi.warehouse_id = w.id
                             WHERE pi.product_id = p.id AND pi.month = ${currentMonth} AND pi.year = ${currentYear}
                             UNION ALL
-                            -- Outlets
+                            -- Outlets (current period)
                             SELECT o.name, oi.quantity as qty
                             FROM outlet_inventories oi
                             JOIN outlets o ON oi.outlet_id = o.id
                             WHERE oi.product_id = p.id
+                              AND oi.month = ${currentMonth}
+                              AND oi.year  = ${currentYear}
                         ) sub WHERE qty > 0
                     ) as location_stocks
                 FROM products p
@@ -92,10 +94,11 @@ export class ProductStockLocationService {
                     WHERE month = ${currentMonth} AND year = ${currentYear}
                     GROUP BY product_id
                 ) inv ON inv.product_id = p.id
-                -- Join for Total Stock calculation (Outlets)
+                -- Join for Total Stock calculation (Outlets, current period)
                 LEFT JOIN (
                     SELECT product_id, SUM(quantity) as qty
                     FROM outlet_inventories
+                    WHERE month = ${currentMonth} AND year = ${currentYear}
                     GROUP BY product_id
                 ) out_inv ON out_inv.product_id = p.id
                 ${whereClause}

@@ -147,6 +147,10 @@ export class StockLocationService {
         }
 
         // ── OUTLET branch ──────────────────────────────────────────────────
+        const nowOut   = new Date();
+        const outMonth = query.month ?? (nowOut.getMonth() + 1);
+        const outYear  = query.year  ?? nowOut.getFullYear();
+
         const [countRes, rows] = await Promise.all([
             prisma.$queryRaw<{ total: bigint }[]>`
                 SELECT COUNT(*)::bigint AS total
@@ -167,6 +171,8 @@ export class StockLocationService {
                 ${commonJoins}
                 LEFT JOIN outlet_inventories oi ON p.id = oi.product_id
                   AND oi.outlet_id = ${activeLocationId}
+                  AND oi.month     = ${outMonth}
+                  AND oi.year      = ${outYear}
                 ${productWhere}
                 ORDER BY ${Prisma.raw(`${sortCol} ${sortDir}`)}
                 LIMIT ${limit} OFFSET ${skip}
