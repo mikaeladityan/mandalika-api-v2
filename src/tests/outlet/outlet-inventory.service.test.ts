@@ -16,6 +16,8 @@ const mockInventory = {
     product_id: 1,
     quantity: "10.00",
     min_stock: "5.00",
+    month: new Date().getMonth() + 1,
+    year: new Date().getFullYear(),
     updated_at: new Date(),
     product: { id: 1, name: "T-Shirt", code: "TSHIRT" },
 };
@@ -39,7 +41,7 @@ describe("OutletInventoryService", () => {
             // @ts-ignore
             prisma.outlet.findUnique.mockResolvedValue(mockOutlet);
             // @ts-ignore
-            prisma.outletInventory.findUnique.mockResolvedValue(null);
+            prisma.outletInventory.findFirst.mockResolvedValue(null);
 
             await expect(OutletInventoryService.getStock(1, 999)).rejects.toThrow("Stok produk tidak ditemukan");
         });
@@ -48,7 +50,7 @@ describe("OutletInventoryService", () => {
             // @ts-ignore
             prisma.outlet.findUnique.mockResolvedValue(mockOutlet);
             // @ts-ignore
-            prisma.outletInventory.findUnique.mockResolvedValue({ ...mockInventory, quantity: "10.00", min_stock: "5.00" });
+            prisma.outletInventory.findFirst.mockResolvedValue({ ...mockInventory, quantity: "10.00", min_stock: "5.00" });
 
             const result = await OutletInventoryService.getStock(1, 1);
 
@@ -60,7 +62,7 @@ describe("OutletInventoryService", () => {
             // @ts-ignore
             prisma.outlet.findUnique.mockResolvedValue(mockOutlet);
             // @ts-ignore
-            prisma.outletInventory.findUnique.mockResolvedValue({ ...mockInventory, quantity: "2.00", min_stock: "5.00" });
+            prisma.outletInventory.findFirst.mockResolvedValue({ ...mockInventory, quantity: "2.00", min_stock: "5.00" });
 
             const result = await OutletInventoryService.getStock(1, 1);
 
@@ -71,7 +73,7 @@ describe("OutletInventoryService", () => {
             // @ts-ignore
             prisma.outlet.findUnique.mockResolvedValue(mockOutlet);
             // @ts-ignore
-            prisma.outletInventory.findUnique.mockResolvedValue({ ...mockInventory, quantity: "0.00", min_stock: null });
+            prisma.outletInventory.findFirst.mockResolvedValue({ ...mockInventory, quantity: "0.00", min_stock: null });
 
             const result = await OutletInventoryService.getStock(1, 1);
 
@@ -253,7 +255,7 @@ describe("OutletInventoryService", () => {
     describe("adjustQuantity", () => {
         it("should throw 404 if inventory not found", async () => {
             // @ts-ignore
-            prisma.outletInventory.findUnique.mockResolvedValue(null);
+            prisma.outletInventory.findFirst.mockResolvedValue(null);
 
             await expect(OutletInventoryService.adjustQuantity(1, 999, 5)).rejects.toThrow(
                 "Stok produk tidak ditemukan",
@@ -262,7 +264,7 @@ describe("OutletInventoryService", () => {
 
         it("should add positive delta (stock in)", async () => {
             // @ts-ignore
-            prisma.outletInventory.findUnique.mockResolvedValue({ ...mockInventory, quantity: "10.00" });
+            prisma.outletInventory.findFirst.mockResolvedValue({ ...mockInventory, quantity: "10.00" });
             // @ts-ignore
             prisma.outletInventory.update.mockResolvedValue({});
 
@@ -274,7 +276,7 @@ describe("OutletInventoryService", () => {
 
         it("should subtract negative delta (stock out)", async () => {
             // @ts-ignore
-            prisma.outletInventory.findUnique.mockResolvedValue({ ...mockInventory, quantity: "10.00" });
+            prisma.outletInventory.findFirst.mockResolvedValue({ ...mockInventory, quantity: "10.00" });
             // @ts-ignore
             prisma.outletInventory.update.mockResolvedValue({});
 
@@ -286,7 +288,7 @@ describe("OutletInventoryService", () => {
 
         it("should throw 422 if resulting quantity would be negative", async () => {
             // @ts-ignore
-            prisma.outletInventory.findUnique.mockResolvedValue({ ...mockInventory, quantity: "2.00" });
+            prisma.outletInventory.findFirst.mockResolvedValue({ ...mockInventory, quantity: "2.00" });
 
             await expect(OutletInventoryService.adjustQuantity(1, 1, -5)).rejects.toThrow(ApiError);
             await expect(OutletInventoryService.adjustQuantity(1, 1, -5)).rejects.toThrow(
@@ -296,7 +298,7 @@ describe("OutletInventoryService", () => {
 
         it("should allow adjustment resulting in exactly 0", async () => {
             // @ts-ignore
-            prisma.outletInventory.findUnique.mockResolvedValue({ ...mockInventory, quantity: "5.00" });
+            prisma.outletInventory.findFirst.mockResolvedValue({ ...mockInventory, quantity: "5.00" });
             // @ts-ignore
             prisma.outletInventory.update.mockResolvedValue({});
 
