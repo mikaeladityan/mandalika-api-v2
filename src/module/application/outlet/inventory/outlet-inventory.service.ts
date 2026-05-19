@@ -17,14 +17,20 @@ export class OutletInventoryService {
         return outlet;
     }
 
+    private static getPeriod(): { month: number; year: number } {
+        const now = new Date();
+        return { month: now.getMonth() + 1, year: now.getFullYear() };
+    }
+
     static async getStock(outlet_id: number, product_id: number) {
         const outlet = await OutletInventoryService.findOutlet(outlet_id);
 
-        const inventory = await prisma.outletInventory.findUnique({
-            where: { outlet_id_product_id: { outlet_id, product_id } },
+        const inventory = await prisma.outletInventory.findFirst({
+            where: { outlet_id, product_id },
+            orderBy: [{ year: "desc" }, { month: "desc" }],
             include: { product: { select: { id: true, name: true, code: true } } },
         });
-        
+
         if (!inventory) throw new ApiError(404, "Stok produk tidak ditemukan di outlet ini");
 
         return {
@@ -50,8 +56,12 @@ export class OutletInventoryService {
         } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
+        const { month, year } = OutletInventoryService.getPeriod();
+
         const where: Prisma.OutletInventoryWhereInput = {
             outlet_id,
+            month,
+            year,
             ...(search && {
                 product: {
                     OR: [
@@ -120,8 +130,10 @@ export class OutletInventoryService {
             throw new ApiError(404, "Satu atau lebih produk tidak ditemukan atau sudah dihapus");
         }
 
+        const { month, year } = OutletInventoryService.getPeriod();
+
         const result = await prisma.outletInventory.createMany({
-            data: product_ids.map((product_id) => ({ outlet_id, product_id, quantity: 0 })),
+            data: product_ids.map((product_id) => ({ outlet_id, product_id, quantity: 0, month, year })),
             skipDuplicates: true,
         });
 
@@ -129,13 +141,15 @@ export class OutletInventoryService {
     }
 
     static async setMinStock(outlet_id: number, product_id: number, body: RequestOutletInventorySetMinStockDTO) {
+        const { month, year } = OutletInventoryService.getPeriod();
+
         const inventory = await prisma.outletInventory.findUnique({
-            where: { outlet_id_product_id: { outlet_id, product_id } },
+            where: { outlet_id_product_id_month_year: { outlet_id, product_id, month, year } },
         });
-        if (!inventory) throw new ApiError(404, "Stok produk tidak ditemukan di outlet ini");
+        if (!inventory) throw new ApiError(404, "Stok produk tidak ditemukan di outlet ini untuk periode berjalan");
 
         return await prisma.outletInventory.update({
-            where: { outlet_id_product_id: { outlet_id, product_id } },
+            where: { outlet_id_product_id_month_year: { outlet_id, product_id, month, year } },
             data: { min_stock: body.min_stock },
             include: { product: { select: { id: true, name: true, code: true } } },
         });
@@ -154,22 +168,28 @@ export class OutletInventoryService {
         tx?: typeof prisma,
     ) {
         const client = tx ?? prisma;
+        const { month, year } = OutletInventoryService.getPeriod();
 
-        const inventory = await client.outletInventory.findUnique({
-            where: { outlet_id_product_id: { outlet_id, product_id } },
+        const latest = await client.outletInventory.findFirst({
+            where: { outlet_id, product_id },
+            orderBy: [{ year: "desc" }, { month: "desc" }],
         });
-        if (!inventory) throw new ApiError(404, "Stok produk tidak ditemukan di outlet ini");
+        if (!latest) throw new ApiError(404, "Stok produk tidak ditemukan di outlet ini");
 
-        const qty_before = Number(inventory.quantity);
+        const qty_before = Number(latest.quantity);
         const qty_after = qty_before + delta;
 
         if (qty_after < 0)
             throw new ApiError(422, "Stok tidak mencukupi untuk melakukan pengurangan");
 
-        await client.outletInventory.update({
-            where: { outlet_id_product_id: { outlet_id, product_id } },
-            data: { quantity: qty_after },
-        });
+        const isCurrentPeriod = latest.month === month && latest.year === year;
+        if (isCurrentPeriod) {
+            await client.outletInventory.update({ where: { id: latest.id }, data: { quantity: qty_after } });
+        } else {
+            await client.outletInventory.create({
+                data: { outlet_id, product_id, quantity: qty_after, month, year },
+            });
+        }
 
         return { qty_before, qty_after };
     }
