@@ -69,14 +69,14 @@ describe("StockDistributionFGService", () => {
             // @ts-ignore
             prisma.product.findMany.mockResolvedValue([]);
 
-            await StockDistributionFGService.list({ search: "shoe", type_id: 2, gender: "MALE" });
+            await StockDistributionFGService.list({ search: "shoe", type_id: 2, gender: "MEN" });
 
             // @ts-ignore
             const callArgs = prisma.product.findMany.mock.calls[0][0];
             expect(callArgs.where).toMatchObject({
                 deleted_at: null,
                 type_id: 2,
-                gender: "MALE",
+                gender: "MEN",
                 OR: expect.any(Array),
             });
         });
@@ -101,6 +101,48 @@ describe("StockDistributionFGService", () => {
             // @ts-ignore
             const oiCall = prisma.outletInventory.findMany.mock.calls[0][0];
             expect(oiCall.where).toMatchObject({ month: 3, year: 2025 });
+        });
+    });
+
+    describe("list sorted by total_stock", () => {
+        it("ranks products by total_stock across all matching ids, not per-page", async () => {
+            // 3 products; ids 1,2,3 with totals 10, 50, 20 respectively
+            (prisma.product.findMany as any)
+                .mockResolvedValueOnce([{ id: 1 }, { id: 2 }, { id: 3 }])  // id-only sweep
+                .mockResolvedValueOnce([                                    // page detail load
+                    { ...PRODUCT_SAMPLE, id: 2, code: "B" },
+                    { ...PRODUCT_SAMPLE, id: 3, code: "C" },
+                    { ...PRODUCT_SAMPLE, id: 1, code: "A" },
+                ]);
+            // @ts-ignore
+            prisma.productInventory.groupBy.mockResolvedValue([
+                { product_id: 1, _sum: { quantity: "10" } },
+                { product_id: 2, _sum: { quantity: "50" } },
+                { product_id: 3, _sum: { quantity: "20" } },
+            ]);
+            // @ts-ignore
+            prisma.outletInventory.groupBy.mockResolvedValue([]);
+            // assembleMatrix needs these (called for the sliced page)
+            // @ts-ignore
+            prisma.productInventory.findMany.mockResolvedValue([]);
+            // @ts-ignore
+            prisma.outletInventory.findMany.mockResolvedValue([]);
+            // @ts-ignore
+            prisma.stockTransferItem.groupBy.mockResolvedValue([]);
+
+            const result = await StockDistributionFGService.list({ sortBy: "total_stock", sortOrder: "desc" });
+
+            expect(result.len).toBe(3);
+            // Expected order (desc): id 2 (50), id 3 (20), id 1 (10)
+            expect(result.data.map((r) => r.code)).toEqual(["B", "C", "A"]);
+        });
+
+        it("returns empty data when no matching products at all", async () => {
+            (prisma.product.findMany as any).mockResolvedValueOnce([]);
+
+            const result = await StockDistributionFGService.list({ sortBy: "total_stock" });
+
+            expect(result).toEqual({ data: [], len: 0 });
         });
     });
 
