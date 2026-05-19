@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { StockDistributionRMService } from "../../../../module/application/inventory-v2/monitoring/stock-distribution/rm/rm.service.js";
+import { StockDistributionRMService } from "../../../../module/application/inventory/monitoring/stock-distribution/rm/rm.service.js";
 import prisma from "../../../../config/prisma.js";
 
 const RM_SAMPLE = {

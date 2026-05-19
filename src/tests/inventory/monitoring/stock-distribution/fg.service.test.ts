@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { StockDistributionFGService } from "../../../../module/application/inventory-v2/monitoring/stock-distribution/fg/fg.service.js";
+import { StockDistributionFGService } from "../../../../module/application/inventory/monitoring/stock-distribution/fg/fg.service.js";
 import prisma from "../../../../config/prisma.js";
 
 const PRODUCT_SAMPLE = {
