@@ -1,6 +1,6 @@
 # Inventory / RM — Frontend Integration (Scope Level)
 
-End-to-end FE integration **lengkap** untuk scope Raw Material (RM). FE engineer baca file ini saja → bisa implement dari nol.
+Kontrak BE→FE untuk scope Raw Material (RM): schema, endpoint, service, hooks, flow. Komponen (List/Form/Dialog/Columns/Page) termasuk **nested suppliers field-array form** didelegasikan ke SOP [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md).
 
 **Backend scope path**: `api/src/module/application/inventory/rm/`
 **Frontend scope path**: `app/src/app/(application)/inventory/rm/server/`
@@ -307,7 +307,35 @@ export type BulkActionDTO = z.infer<typeof BulkActionEnum>;
 
 ---
 
-## 3. Service Class — FULL CODE
+## 3. Routing — Endpoint Table
+
+Daftar lengkap endpoint scope RM. Path lengkap di-prefix `/api/app/inventory/rm`. Sumber kebenaran tunggal untuk FE saat wiring service. Status code MUST match controller (`api/src/module/application/inventory/rm/rm.controller.ts`).
+
+| #   | Method   | Path                              | Body / Query                                                       | Response (status code)                 | Error utama                                                                                                                              |
+| :-- | :------- | :-------------------------------- | :----------------------------------------------------------------- | :------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `GET`    | `/`                               | Query: `QueryRMDTO` (filter trash via `?status=actived\|deleted`)  | **200** `{ data: ResponseRMDTO[], len: number }` | 400 Zod (query invalid).                                                                                                                 |
+| 2   | `POST`   | `/`                               | Body: `RequestRMDTO` (validateBody `RequestRMSchema`)              | **201** `ResponseRMDTO`                | 400 Zod, 400 P2002 (`barcode` duplikat), 404 supplier_id tidak ditemukan (P2003).                                                        |
+| 3   | `GET`    | `/:id`                            | —                                                                  | **200** `ResponseRMDTO`                | 400 ID invalid, 404 RM tidak ditemukan.                                                                                                  |
+| 4   | `PUT`    | `/:id`                            | Body: `Partial<RequestRMDTO>` (validateBody `RequestRMSchema.partial()`) | **201** `ResponseRMDTO`          | 400 Zod, 400 P2002 (barcode), 404 RM/Supplier tidak ditemukan. ⚠️ Controller pakai 201, bukan 200.                                       |
+| 5   | `PATCH`  | `/:id`                            | Body: `Partial<RequestRMDTO>` (alias dari PUT, sama handler)        | **201** `ResponseRMDTO`                | sama dengan PUT.                                                                                                                         |
+| 6   | `DELETE` | `/:id`                            | —                                                                  | **200** `{}` (soft-delete via `deleted_at`) | 400 ID invalid, 400 sudah deleted, 404 RM tidak ditemukan.                                                                               |
+| 7   | `PATCH`  | `/:id/restore`                    | —                                                                  | **200** `{}` (clear `deleted_at`)      | 400 ID invalid, 400 belum deleted, 404 RM tidak ditemukan.                                                                               |
+| 8   | `PUT`    | `/bulk-status`                    | Body: `BulkStatusRMDTO` (`{ ids: number[], status: "ACTIVE" \| "DELETE" }`) | **200** `{ affected: number }` | 400 Zod (status di luar `ACTIVE`/`DELETE`, ids kosong).                                                                                  |
+| 9   | `DELETE` | `/clean`                          | — (hard-delete semua row `deleted_at IS NOT NULL`)                 | **200** `{ deleted: number }`          | 409 RM masih dipakai Recipe / POItem / ProductionOrderItem.                                                                              |
+| 10  | `GET`    | `/export`                         | Query: `QueryRMDTO` (`visibleColumns` opsional)                    | **200** `text/csv` (Blob attachment)   | 400 Zod, 400 `EXPORT_MAX_ROWS` (50.000) exceeded.                                                                                        |
+
+> **Notes**:
+>
+> - **Trash mode** pakai `?status=actived|deleted` — RM **TIDAK** pakai `?trash=1` (deviasi dari konvensi modul Inventory).
+> - **Create vs Update status code**: BE controller mengembalikan **201 untuk create DAN update** (lihat `rm.controller.ts:46,65`). Ini menyimpang dari konvensi 201-create-200-update di module-level — **FE service harus tetap pakai response data, bukan branch berdasarkan status code**.
+> - **`PATCH /:id`** adalah alias `PUT /:id`; FE boleh pakai keduanya, tapi prefer `PUT` agar konsisten dengan modul lain.
+> - **`POST /`** divalidasi via `validateBody(RequestRMSchema)`; **`PUT/PATCH /:id`** via `validateBody(RequestRMSchema.partial())` — semua field optional pada update.
+> - **Sub-routes**: `/import/*`, `/suppliers/*`, `/categories/*`, `/units/*` dimount sebelum dynamic routes (lihat `rm.routes.ts:12-15`) → punya scope doc sendiri di `./import/`, `./supplier/`, `./category/`, `./unit/`.
+> - **CSRF**: semua mutasi (POST/PUT/PATCH/DELETE) wajib panggil `setupCSRFToken()` di service.
+
+---
+
+## 4. Service Class — FULL CODE
 
 **File**: `app/src/app/(application)/inventory/rm/server/inventory.rm.service.ts` 🚧 TBD
 
@@ -422,7 +450,7 @@ export class InventoryRMService {
 
 ---
 
-## 4. Hooks — 5 Hook Split FULL CODE
+## 5. Hooks — 5 Hook Split FULL CODE
 
 **File**: `app/src/app/(application)/inventory/rm/server/use.inventory.rm.ts` 🚧 TBD
 
@@ -447,7 +475,7 @@ import type {
 const KEY = ["inventory.rm"] as const;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.1 READ — useInventoryRM + useInventoryRMDetail
+// 5.1 READ — useInventoryRM + useInventoryRMDetail
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryRM(params: QueryRMDTO, enabled = true) {
     return useQuery<{ data: ResponseRMDTO[]; len: number }, ResponseError>({
@@ -467,7 +495,7 @@ export function useInventoryRMDetail(id: number, enabled = true) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.2 WRITE — create + update mutations (handle nested suppliers[])
+// 5.2 WRITE — create + update mutations (handle nested suppliers[])
 // ──────────────────────────────────────────────────────────────────────────────
 export function useFormInventoryRM() {
     const setErr = useSetAtom(errorAtom);
@@ -500,7 +528,7 @@ export function useFormInventoryRM() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.3 ACTION — soft-delete + restore + bulkStatus + clean
+// 5.3 ACTION — soft-delete + restore + bulkStatus + clean
 // ──────────────────────────────────────────────────────────────────────────────
 export function useActionInventoryRM() {
     const setErr = useSetAtom(errorAtom);
@@ -556,7 +584,7 @@ export function useActionInventoryRM() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.4 TableState — URL sync + debounce search + filter type/category/supplier/unit
+// 5.4 TableState — URL sync + debounce search + filter type/category/supplier/unit
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryRMTableState() {
     const searchParams = useSearchParams();
@@ -623,220 +651,12 @@ export function useInventoryRMTableState() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.5 Query-wrapper — bundling list + tableState untuk page consumer
+// 5.5 Query-wrapper — bundling list + tableState untuk page consumer
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryRMQuery() {
     const tableState = useInventoryRMTableState();
     const query = useInventoryRM(tableState.queryParams);
     return { ...tableState, query };
-}
-```
-
----
-
-## 5. Components — Snippets
-
-### 5.1 List page — `components/pages/inventory/rm/index.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useInventoryRMQuery, useActionInventoryRM, useFormInventoryRM } from "@/app/(application)/inventory/rm/server/use.inventory.rm";
-import { InventoryRMService } from "@/app/(application)/inventory/rm/server/inventory.rm.service";
-import { DataTable } from "@/components/ui/data-table";
-import { columns } from "./table/columns";
-import { RMFormDialog } from "./form/rm-form-dialog";
-
-export default function RMList() {
-    const { query, search, setSearch, isTrashMode, toggleTrashMode, queryParams } = useInventoryRMQuery();
-    const { bulkStatus, clean } = useActionInventoryRM();
-
-    const handleExport = async () => {
-        const blob = await InventoryRMService.exportCsv(queryParams);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "data-raw-materials.csv";
-        a.click();
-        URL.revokeObjectURL(url);
-    };
-
-    return (
-        <section className="space-y-4">
-            <header className="flex items-center justify-between gap-2">
-                <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Cari nama / barcode / supplier…"
-                    className="rounded-xl border-zinc-200 px-3 py-2"
-                />
-                <div className="flex gap-2">
-                    <button onClick={handleExport}>Export CSV</button>
-                    <button onClick={toggleTrashMode}>{isTrashMode ? "Lihat Aktif" : "Lihat Sampah"}</button>
-                    {isTrashMode && <button onClick={() => clean.mutate()}>Bersihkan Sampah</button>}
-                    <RMFormDialog mode="create" />
-                </div>
-            </header>
-            <DataTable
-                tableId="inventory-rm-table"
-                columns={columns}
-                data={query.data?.data ?? []}
-                total={query.data?.len ?? 0}
-                loading={query.isLoading}
-                enableMultiSelect
-                onBulkAction={(ids, action: "ACTIVE" | "DELETE") => bulkStatus.mutate({ ids, status: action })}
-            />
-        </section>
-    );
-}
-```
-
-### 5.2 Form create — nested `suppliers[]` via `useFieldArray` — `components/pages/inventory/rm/form/create.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useForm, useFieldArray } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Form } from "@/components/ui/form/main";
-import { InputForm, SelectForm, CheckboxForm } from "@/components/ui/form";
-import { RequestRMSchema, type RequestRMDTO } from "@/app/(application)/inventory/rm/server/inventory.rm.schema";
-import { useFormInventoryRM } from "@/app/(application)/inventory/rm/server/use.inventory.rm";
-import { MaterialType } from "@/shared/types";
-
-export function CreateRMForm({ onSuccess }: { onSuccess?: () => void }) {
-    const form = useForm<RequestRMDTO>({
-        resolver: zodResolver(RequestRMSchema),
-        defaultValues: { suppliers: [] },
-    });
-    const { fields, append, remove } = useFieldArray({ control: form.control, name: "suppliers" });
-    const { create } = useFormInventoryRM();
-
-    const handleSubmit = form.handleSubmit(async (body) => {
-        // Sanitasi: kalau suppliers kosong di FE, hapus dari payload supaya BE skip (bukan clear).
-        const payload: RequestRMDTO = { ...body, suppliers: body.suppliers?.length ? body.suppliers : undefined };
-        await create.mutateAsync(payload);
-        form.reset();
-        onSuccess?.();
-    });
-
-    return (
-        <Form methods={form}>
-            <form onSubmit={handleSubmit} className="space-y-3">
-                <InputForm name="name" label="Nama Material" required />
-                <InputForm name="barcode" label="Barcode (opsional)" />
-                <SelectForm
-                    name="type"
-                    label="Tipe"
-                    options={[
-                        { value: "FO", label: "Filling Oil" },
-                        { value: "PCKG", label: "Packaging" },
-                    ]}
-                />
-                <InputForm name="unit" label="UOM (Unit)" required placeholder="ML, KG, PCS…" />
-                <InputForm name="raw_mat_category" label="Kategori" />
-                <InputForm name="min_stock" label="Min Stock" type="number" />
-
-                <fieldset className="space-y-2 rounded-xl border border-zinc-200 p-3">
-                    <legend className="px-2 text-sm font-medium">Suppliers</legend>
-                    {fields.map((f, idx) => (
-                        <div key={f.id} className="grid grid-cols-6 gap-2">
-                            <InputForm name={`suppliers.${idx}.supplier_id`} label="ID Supplier" type="number" />
-                            <InputForm name={`suppliers.${idx}.unit_price`} label="Harga" type="number" />
-                            <InputForm name={`suppliers.${idx}.min_buy`} label="MOQ" type="number" />
-                            <InputForm name={`suppliers.${idx}.lead_time`} label="Lead Time (hari)" type="number" />
-                            <CheckboxForm name={`suppliers.${idx}.is_preferred`} label="Preferred" />
-                            <button type="button" onClick={() => remove(idx)}>Hapus</button>
-                        </div>
-                    ))}
-                    <button
-                        type="button"
-                        onClick={() =>
-                            append({ supplier_id: 0, unit_price: 0, min_buy: null, lead_time: null, is_preferred: fields.length === 0, status: "ACTIVE" })
-                        }
-                    >
-                        + Tambah Supplier
-                    </button>
-                </fieldset>
-
-                <button type="submit" disabled={create.isPending}>
-                    {create.isPending ? "Menyimpan…" : "Simpan"}
-                </button>
-            </form>
-        </Form>
-    );
-}
-```
-
-### 5.3 Dialog wrapper — `components/pages/inventory/rm/form/rm-form-dialog.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useState } from "react";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
-import { CreateRMForm } from "./create";
-import { EditRMForm } from "./edit";
-
-type Props = { mode: "create" } | { mode: "edit"; id: number };
-
-export function RMFormDialog(props: Props) {
-    const [open, setOpen] = useState(false);
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <button>{props.mode === "create" ? "Tambah RM" : "Edit"}</button>
-            </DialogTrigger>
-            <DialogContent>
-                {props.mode === "create"
-                    ? <CreateRMForm onSuccess={() => setOpen(false)} />
-                    : <EditRMForm id={props.id} onSuccess={() => setOpen(false)} />}
-            </DialogContent>
-        </Dialog>
-    );
-}
-```
-
-### 5.4 Columns — `components/pages/inventory/rm/table/columns.tsx` 🚧 TBD
-
-```tsx
-import type { ColumnDef } from "@tanstack/react-table";
-import type { ResponseRMDTO } from "@/app/(application)/inventory/rm/server/inventory.rm.schema";
-
-export const columns: ColumnDef<ResponseRMDTO>[] = [
-    { accessorKey: "barcode", header: "Barcode", cell: ({ row }) => row.original.barcode ?? "—" },
-    { accessorKey: "name", header: "Nama Material" },
-    { accessorKey: "type", header: "Tipe", cell: ({ row }) => row.original.type ?? "—" },
-    { accessorKey: "unit_raw_material.name", header: "UOM", cell: ({ row }) => row.original.unit_raw_material.name },
-    { accessorKey: "raw_mat_category.name", header: "Kategori", cell: ({ row }) => row.original.raw_mat_category?.name ?? "—" },
-    {
-        accessorKey: "min_stock",
-        header: "Min Stock",
-        // min_stock dari BE sudah Number()-cast; tetap defensive.
-        cell: ({ row }) => (row.original.min_stock != null ? Number(row.original.min_stock) : "—"),
-    },
-    {
-        id: "preferred_supplier",
-        header: "Supplier Utama",
-        cell: ({ row }) => row.original.suppliers.find((s) => s.is_preferred)?.supplier_name ?? "—",
-    },
-    {
-        id: "suppliers_count",
-        header: "Jumlah Supplier",
-        cell: ({ row }) => row.original.suppliers.length,
-    },
-];
-```
-
-### 5.5 Page entry — `app/(application)/inventory/rm/page.tsx` 🚧 TBD
-
-```tsx
-import { Suspense } from "react";
-import RMList from "@/components/pages/inventory/rm";
-
-export default function RMPage() {
-    return (
-        <Suspense fallback={<div>Loading…</div>}>
-            <RMList />
-        </Suspense>
-    );
 }
 ```
 
@@ -1009,13 +829,14 @@ sequenceDiagram
   - `suppliers: undefined` di body → service `kind: "skip"` (tidak menyentuh `supplier_materials`).
   - `suppliers: []` → service `kind: "clear"` (delete semua `supplier_materials`).
   - `suppliers: [rows]` → service `kind: "set"` (diff + upsert + delete `notIn`).
-  - FE harus **sanitasi** sebelum submit: kalau form punya array kosong dan user tidak ingin clear, set ke `undefined` di payload (lihat §5.2 `handleSubmit`).
+  - FE harus **sanitasi** sebelum submit: kalau form punya array kosong dan user tidak ingin clear, set ke `undefined` di payload sebelum `mutate`.
 - **Legacy `supplier_id` shortcut** — kalau body kirim `supplier_id` tanpa `suppliers`, BE promote ke 1-row preferred. Jangan kirim **dua-duanya** secara bersamaan (`suppliers` menang kalau ada).
 - **`MaterialType` nullable** — `FO` / `PCKG` atau `null`. UI dropdown harus punya opsi "—" untuk null.
 - **`min_stock` nullable Decimal** — BE service `Number()`-cast saat keluar; FE tetap defensive `Number(x ?? 0)` saat render. Decimal di Prisma serialized sebagai string oleh default → toDTO normalisasi ke number.
 - **`barcode` optional + unique** — bisa null/kosong; tapi kalau diisi harus unik. P2002 → 400 `"Barcode telah digunakan, tolong ubah dengan barcode lainnya"`.
 - **`unit` & `raw_mat_category` lookup-or-create-by-slug** — FE kirim string bebas; BE `getOrCreateSlug` jamin upsert by slug normalized. Saat read, response punya nested `{id,name,slug}` — FE jangan kirim id, kirim string.
 - **Trash mode lewat `?status=deleted`**, bukan `?trash=1` (deviasi dari konvensi modul — kalau perlu konsisten, ubah BE atau alias di FE).
+- **Update mengembalikan status 201** (sama dengan create) — controller `rm.controller.ts:65`. FE service jangan branch berdasarkan status code; pakai response body saja.
 - **Sort key `category`** memetakan ke relation `raw_mat_category.name`. Sort key tidak include `supplier` / `unit` — kalau perlu sort by itu, request BE patch dulu.
 - **RM transfer & stock movement** — RM punya relation ke `StockMovement` (`entity_type: "RAW_MATERIAL"`). `clean()` BE menghapus stock movement juga. **Operasi transfer stok bukan tanggung jawab scope RM** — verify di service `inventory/transfer` atau equivalent kalau ada (FE harus cek ke modul transfer terpisah).
 - **CSV export header sinkron** dengan canonical `RM_IMPORT_HEADERS` (`src/module/application/inventory/rm/import/import.schema.ts`): `BARCODE`, `MATERIAL NAME`, `CATEGORY`, `UOM`, `MOQ`, `MIN STOCK`, `LEAD TIME`, `SUPPLIER`, `LOCAL/IMPORT`, `COUNTRY`, `PRICE`. **Round-trip export → import HARUS valid** (SOP §1.I). Jika menambah kolom import, update header export di `rm.service.ts` `export()` dan dokumen ini.
@@ -1026,116 +847,11 @@ sequenceDiagram
 
 ---
 
-## 8. Testing FE (Vitest + RTL)
-
-**Lokasi**: `app/src/__tests__/inventory/rm/` 🚧 TBD. Mengikuti SOP `frontend-testing`.
-
-### 8.1 Service test
-
-```ts
-import { describe, it, expect, vi } from "vitest";
-import api from "@/lib/api";
-import { InventoryRMService } from "@/app/(application)/inventory/rm/server/inventory.rm.service";
-
-vi.mock("@/lib/api");
-vi.mock("@/shared/api/csrf", () => ({ setupCSRFToken: vi.fn() }));
-
-describe("InventoryRMService", () => {
-    it("list passes params to GET /api/app/inventory/rm", async () => {
-        (api.get as any).mockResolvedValue({ data: { data: { data: [], len: 0 } } });
-        await InventoryRMService.list({ page: 1, status: "actived", sortBy: "updated_at", sortOrder: "asc" });
-        expect(api.get).toHaveBeenCalledWith(
-            expect.stringMatching(/\/api\/app\/inventory\/rm$/),
-            { params: expect.objectContaining({ page: 1 }) },
-        );
-    });
-
-    it("create calls setupCSRFToken before POST", async () => {
-        (api.post as any).mockResolvedValue({ data: { data: { id: 1, name: "X" } } });
-        await InventoryRMService.create({ name: "X", unit: "ML" } as any);
-        expect(api.post).toHaveBeenCalled();
-    });
-
-    it("bulkStatus posts subset enum DELETE", async () => {
-        (api.put as any).mockResolvedValue({ data: { data: { affected: 3 } } });
-        await InventoryRMService.bulkStatus([1, 2, 3], "DELETE");
-        expect(api.put).toHaveBeenCalledWith(
-            expect.stringMatching(/bulk-status$/),
-            { ids: [1, 2, 3], status: "DELETE" },
-        );
-    });
-
-    it("exportCsv requests responseType blob", async () => {
-        (api.get as any).mockResolvedValue({ data: new Blob() });
-        await InventoryRMService.exportCsv({ status: "actived" } as any);
-        expect(api.get).toHaveBeenCalledWith(
-            expect.stringMatching(/\/export$/),
-            expect.objectContaining({ responseType: "blob" }),
-        );
-    });
-});
-```
-
-### 8.2 Hook test
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useInventoryRM } from "@/app/(application)/inventory/rm/server/use.inventory.rm";
-import { InventoryRMService } from "@/app/(application)/inventory/rm/server/inventory.rm.service";
-
-vi.mock("@/app/(application)/inventory/rm/server/inventory.rm.service");
-
-const wrapper = ({ children }: { children: React.ReactNode }) => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-};
-
-describe("useInventoryRM", () => {
-    it("fetches list via service", async () => {
-        (InventoryRMService.list as any).mockResolvedValue({ data: [], len: 0 });
-        const { result } = renderHook(() => useInventoryRM({ page: 1, status: "actived" } as any), { wrapper });
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-        expect(InventoryRMService.list).toHaveBeenCalledWith(expect.objectContaining({ page: 1 }));
-    });
-});
-```
-
-### 8.3 Component test — nested suppliers field-array
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { CreateRMForm } from "@/components/pages/inventory/rm/form/create";
-
-vi.mock("@/app/(application)/inventory/rm/server/use.inventory.rm", () => ({
-    useFormInventoryRM: () => ({ create: { mutateAsync: vi.fn(), isPending: false } }),
-}));
-
-describe("CreateRMForm", () => {
-    it("renders required fields and supplier add button", () => {
-        render(<CreateRMForm />);
-        expect(screen.getByLabelText("Nama Material")).toBeInTheDocument();
-        expect(screen.getByLabelText("UOM (Unit)")).toBeInTheDocument();
-        expect(screen.getByText("+ Tambah Supplier")).toBeInTheDocument();
-    });
-
-    it("appends supplier row on click", () => {
-        render(<CreateRMForm />);
-        fireEvent.click(screen.getByText("+ Tambah Supplier"));
-        expect(screen.getByLabelText(/ID Supplier/i)).toBeInTheDocument();
-    });
-});
-```
-
----
-
-## 9. Cross-link
+## 8. Cross-link
 
 - BE scope doc: [./README.md](./README.md)
 - Module-level konvensi FE: [../frontend-integration.md](../frontend-integration.md)
-- SOP FE canonical: [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md)
-- SOP FE testing: [frontend-testing](../../../../.claude/skills/frontend-testing/SKILL.md)
+- **SOP FE canonical**: [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md) — gunakan untuk implementasi komponen (List/Form/Dialog/Columns/Page). **Form dengan `useFieldArray` (suppliers nested) — pattern di frontend-dev-flow SOP** (§Form composite + nested field-array).
+- **SOP FE testing**: [frontend-testing](../../../../.claude/skills/frontend-testing/SKILL.md) — gunakan untuk test service (mock axios + CSRF), test hooks (RTL `renderHook` + QueryClient wrapper), dan test komponen termasuk nested field-array form (append/remove suppliers row).
 - Sibling sub-scope: [./supplier](./supplier), [./category](./category), [./unit](./unit), [./import](./import)
 - Postman folder: `Inventory → RM` di `docs/postman/erp-mandalika.postman_collection.json`.

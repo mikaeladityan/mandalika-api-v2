@@ -1,6 +1,6 @@
 # Inventory / FG — Frontend Integration (Scope Level)
 
-End-to-end FE integration **lengkap** untuk scope Finished Goods (FG). FE engineer baca file ini saja → bisa implement dari nol.
+Kontrak BE→FE untuk scope Finished Goods (FG). Dokumen ini fokus pada **schema mirror**, **routing**, **service**, **hooks**, dan **flow** — yaitu seluruh kontrak data dan transport layer. Komponen React (List, Form, Dialog, Columns, Page) diserahkan ke [`frontend-dev-flow`](../../../../.claude/skills/frontend-dev-flow/SKILL.md) SOP. Testing FE (Vitest + RTL) diserahkan ke [`frontend-testing`](../../../../.claude/skills/frontend-testing/SKILL.md) SOP.
 
 **Backend scope path**: `api/src/module/application/inventory/fg/`
 **Frontend scope path**: `app/src/app/(application)/inventory/fg/server/` 🚧 TBD
@@ -350,7 +350,49 @@ export type BulkStatusFGDTO = z.infer<typeof BulkStatusFGSchema>;
 
 ---
 
-## 3. Service Class — FULL CODE
+## 3. Routing — Endpoint Table
+
+Base path: `/api/app/inventory/fg`. Semua endpoint butuh session valid (account middleware) dan mutasi butuh CSRF token (handled di service). Sub-route `/import`, `/sizes`, `/types` ada di scope doc-nya masing-masing (lihat §8 Cross-link).
+
+| #  | Method | Path                       | Body / Query                                     | Response (status) | Error utama                                                                                       |
+| :- | :----- | :------------------------- | :----------------------------------------------- | :---------------- | :------------------------------------------------------------------------------------------------ |
+| 1  | GET    | `/`                        | Query: `QueryFGDTO`                              | 200 OK            | 400 query Zod, 401 unauthenticated                                                                |
+| 2  | POST   | `/`                        | Body: `RequestFGDTO`                             | 201 Created       | 400 body Zod, 401, 403 CSRF, 409 code unique conflict                                             |
+| 3  | GET    | `/:id`                     | Param: `id` (number)                             | 200 OK            | 400 id invalid, 401, 404 FG tidak ditemukan                                                       |
+| 4  | PUT    | `/:id`                     | Body: `Partial<RequestFGDTO>`                    | 200 OK            | 400 body Zod / id invalid, 401, 403 CSRF, 404, 409 code unique conflict                           |
+| 5  | PATCH  | `/status/:id`              | Query: `?status=<STATUS>` (validated via `StatusParamFGSchema`) | 200 OK | 400 "Status tidak valid" / id invalid, 401, 403 CSRF, 404                                         |
+| 6  | PUT    | `/bulk-status`             | Body: `BulkStatusFGDTO`                          | 200 OK            | 400 body Zod ("Minimal 1 produk harus dipilih"), 401, 403 CSRF, 404 "Tidak ada produk yang cocok" |
+| 7  | DELETE | `/clean`                   | —                                                | 200 OK            | 401, 403 CSRF, 409 FK RESTRICT (ProductionOrder)                                                  |
+| 8  | GET    | `/export`                  | Query: `QueryFGDTO`                              | 200 OK (text/csv attachment) | 400 query Zod / "Data terlalu besar" (>50.000 baris), 401                              |
+
+**Konvensi response (JSON success)**:
+
+```jsonc
+{
+    "status": 200,                      // atau 201 untuk create
+    "message": "OK",
+    "data": { /* payload — bentuk per endpoint */ },
+    "meta": { /* hanya muncul di list: page, take, total, dst */ }
+}
+```
+
+**Konvensi response (error)**:
+
+```jsonc
+{
+    "status": 400,
+    "message": "Pesan singkat user-facing",
+    "errors": [ /* opsional, detail field-level dari Zod */ ]
+}
+```
+
+- `text/csv` (endpoint #8) bukan JSON: FE harus pakai `responseType: "blob"` lalu trigger download via `URL.createObjectURL`.
+- PATCH `/status/:id` (endpoint #5) memakai **query param**, bukan body — service FE harus kirim `null` body + `{ params: { status } }`.
+- Semua mutasi (POST/PUT/PATCH/DELETE) **wajib** panggil `setupCSRFToken()` di service FE sebelum request.
+
+---
+
+## 4. Service Class — FULL CODE
 
 **File**: `app/src/app/(application)/inventory/fg/server/inventory.fg.service.ts` 🚧 TBD
 
@@ -450,7 +492,7 @@ export class InventoryFGService {
 
 ---
 
-## 4. Hooks — 5 Hook Split FULL CODE
+## 5. Hooks — 5 Hook Split FULL CODE
 
 **File**: `app/src/app/(application)/inventory/fg/server/use.inventory.fg.ts` 🚧 TBD
 
@@ -477,7 +519,7 @@ import type {
 const KEY = ["inventory.fg"] as const;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.1 READ — list + detail
+// 5.1 READ — list + detail
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryFG(params: QueryFGDTO, enabled = true) {
     return useQuery<{ data: ResponseFGDTO[]; len: number }, ResponseError>({
@@ -497,7 +539,7 @@ export function useInventoryFGDetail(id: number, enabled = true) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.2 WRITE — create + update mutations
+// 5.2 WRITE — create + update mutations
 // ──────────────────────────────────────────────────────────────────────────────
 export function useFormInventoryFG() {
     const setErr = useSetAtom(errorAtom);
@@ -530,7 +572,7 @@ export function useFormInventoryFG() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.3 ACTION — status + bulk + clean + export
+// 5.3 ACTION — status + bulk + clean + export
 // ──────────────────────────────────────────────────────────────────────────────
 export function useActionInventoryFG() {
     const setErr = useSetAtom(errorAtom);
@@ -587,7 +629,7 @@ export function useActionInventoryFG() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.4 TableState — URL sync + debounce search + trash toggle + gender filter
+// 5.4 TableState — URL sync + debounce search + trash toggle + gender filter
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryFGTableState() {
     const searchParams = useSearchParams();
@@ -652,235 +694,12 @@ export function useInventoryFGTableState() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.5 Query-wrapper — bundle list + tableState untuk page consumer
+// 5.5 Query-wrapper — bundle list + tableState untuk page consumer
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryFGQuery() {
     const tableState = useInventoryFGTableState();
     const query = useInventoryFG(tableState.queryParams);
     return { ...tableState, query };
-}
-```
-
----
-
-## 5. Components — Snippets
-
-### 5.1 List page — `components/pages/inventory/fg/index.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import {
-    useInventoryFGQuery,
-    useActionInventoryFG,
-} from "@/app/(application)/inventory/fg/server/use.inventory.fg";
-import { DataTable } from "@/components/ui/data-table";
-import { columns } from "./table/columns";
-import { FGFormDialog } from "./form/fg-form-dialog";
-
-export default function InventoryFGList() {
-    const { query, search, setSearch, isTrashMode, toggleTrashMode, queryParams } =
-        useInventoryFGQuery();
-    const { bulkStatus, clean, exportCsv } = useActionInventoryFG();
-
-    return (
-        <section className="space-y-4">
-            <header className="flex items-center justify-between gap-2">
-                <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Cari kode / nama / tipe…"
-                    className="rounded-xl border border-zinc-200 px-3 py-2"
-                />
-                <div className="flex gap-2">
-                    <button onClick={toggleTrashMode}>
-                        {isTrashMode ? "Lihat Aktif" : "Lihat Sampah"}
-                    </button>
-                    <button onClick={() => exportCsv.mutate(queryParams)} disabled={exportCsv.isPending}>
-                        {exportCsv.isPending ? "Mengekspor…" : "Export CSV"}
-                    </button>
-                    {isTrashMode ? (
-                        <button onClick={() => clean.mutate()} disabled={clean.isPending}>
-                            Bersihkan Sampah
-                        </button>
-                    ) : (
-                        <FGFormDialog mode="create" />
-                    )}
-                </div>
-            </header>
-            <DataTable
-                tableId="inventory-fg-table"
-                columns={columns}
-                data={query.data?.data ?? []}
-                total={query.data?.len ?? 0}
-                loading={query.isLoading}
-                enableMultiSelect
-                onBulkAction={(ids, action) => bulkStatus.mutate({ ids, status: action })}
-            />
-        </section>
-    );
-}
-```
-
-### 5.2 Form create — `components/pages/inventory/fg/form/create.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Form } from "@/components/ui/form/main";
-import { InputForm, SelectForm, TextareaForm } from "@/components/ui/form";
-import {
-    RequestFGSchema,
-    type RequestFGDTO,
-} from "@/app/(application)/inventory/fg/server/inventory.fg.schema";
-import { useFormInventoryFG } from "@/app/(application)/inventory/fg/server/use.inventory.fg";
-
-const GENDER_OPTIONS = [
-    { value: "WOMEN", label: "Wanita" },
-    { value: "MEN", label: "Pria" },
-    { value: "UNISEX", label: "Unisex" },
-];
-
-export function CreateFGForm({ onSuccess }: { onSuccess?: () => void }) {
-    const form = useForm<RequestFGDTO>({
-        resolver: zodResolver(RequestFGSchema),
-        defaultValues: { gender: "UNISEX", status: "PENDING", z_value: 1.65, lead_time: 14, review_period: 30 },
-    });
-    const { create } = useFormInventoryFG();
-
-    const handleSubmit = form.handleSubmit(async (body) => {
-        await create.mutateAsync(body);
-        form.reset();
-        onSuccess?.();
-    });
-
-    return (
-        <Form methods={form}>
-            <form onSubmit={handleSubmit} className="space-y-3">
-                <InputForm name="code" label="Kode" required placeholder="EDP_110" />
-                <InputForm name="name" label="Nama Produk" required />
-                <InputForm name="product_type" label="Tipe Produk" placeholder="Parfum EDP" />
-                <SelectForm name="gender" label="Gender" options={GENDER_OPTIONS} />
-                <InputForm name="size" label="Ukuran (ML)" type="number" required />
-                <InputForm name="lead_time" label="Lead Time (hari)" type="number" />
-                <InputForm name="review_period" label="Review Period (hari)" type="number" />
-                <InputForm name="z_value" label="Nilai Z" type="number" step="0.01" />
-                <InputForm name="distribution_percentage" label="Distribusi %" type="number" />
-                <InputForm name="safety_percentage" label="Safety %" type="number" />
-                <TextareaForm name="description" label="Deskripsi" />
-                <button type="submit" disabled={create.isPending}>
-                    {create.isPending ? "Menyimpan…" : "Simpan"}
-                </button>
-            </form>
-        </Form>
-    );
-}
-```
-
-### 5.3 Form edit — `components/pages/inventory/fg/form/edit.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Form } from "@/components/ui/form/main";
-import { InputForm, SelectForm } from "@/components/ui/form";
-import {
-    RequestFGSchema,
-    type RequestFGDTO,
-    type ResponseFGDTO,
-} from "@/app/(application)/inventory/fg/server/inventory.fg.schema";
-import { useFormInventoryFG } from "@/app/(application)/inventory/fg/server/use.inventory.fg";
-
-export function EditFGForm({ initial, onSuccess }: { initial: ResponseFGDTO; onSuccess?: () => void }) {
-    const form = useForm<RequestFGDTO>({
-        resolver: zodResolver(RequestFGSchema.partial()),
-        defaultValues: {
-            code: initial.code,
-            name: initial.name,
-            // initial.size = "110 ML" → parse balik ke number sebelum submit
-            size: Number(String(initial.size).replace(/\D/g, "")) || undefined,
-            gender: initial.gender,
-            status: initial.status,
-            z_value: initial.z_value,
-            lead_time: initial.lead_time,
-            review_period: initial.review_period,
-            product_type: initial.product_type ?? undefined,
-            distribution_percentage: initial.distribution_percentage,
-            safety_percentage: initial.safety_percentage,
-            description: initial.description ?? undefined,
-        },
-    });
-    const { update } = useFormInventoryFG();
-
-    const handleSubmit = form.handleSubmit(async (body) => {
-        await update.mutateAsync({ id: initial.id, body });
-        onSuccess?.();
-    });
-
-    return (
-        <Form methods={form}>
-            <form onSubmit={handleSubmit} className="space-y-3">
-                {/* field list sama dengan CreateFGForm */}
-                <InputForm name="name" label="Nama Produk" required />
-                {/* … */}
-                <button type="submit" disabled={update.isPending}>
-                    {update.isPending ? "Menyimpan…" : "Simpan Perubahan"}
-                </button>
-            </form>
-        </Form>
-    );
-}
-```
-
-### 5.4 Columns — `components/pages/inventory/fg/table/columns.tsx` 🚧 TBD
-
-```tsx
-import type { ColumnDef } from "@tanstack/react-table";
-import type { ResponseFGDTO } from "@/app/(application)/inventory/fg/server/inventory.fg.schema";
-import { StatusBadge, GenderBadge } from "@/components/ui/badge";
-
-export const columns: ColumnDef<ResponseFGDTO>[] = [
-    { accessorKey: "code", header: "Kode", cell: ({ row }) => <span className="font-mono">{row.original.code}</span> },
-    { accessorKey: "name", header: "Nama Produk" },
-    { accessorKey: "product_type", header: "Tipe", cell: ({ row }) => row.original.product_type ?? "—" },
-    { accessorKey: "size", header: "Ukuran" }, // sudah "110 ML"
-    {
-        accessorKey: "gender",
-        header: "Gender",
-        cell: ({ row }) => <GenderBadge value={row.original.gender} />,
-    },
-    {
-        accessorKey: "z_value",
-        header: "Nilai Z",
-        cell: ({ row }) => <span className="font-mono">{row.original.z_value.toFixed(2)}</span>,
-    },
-    { accessorKey: "lead_time", header: "Lead Time" },
-    {
-        accessorKey: "status",
-        header: "Status",
-        cell: ({ row }) => <StatusBadge value={row.original.status} />,
-    },
-    {
-        accessorKey: "updated_at",
-        header: "Diperbarui",
-        cell: ({ row }) => new Date(row.original.updated_at).toLocaleDateString("id-ID"),
-    },
-];
-```
-
-### 5.5 Page entry — `app/(application)/inventory/fg/page.tsx` 🚧 TBD
-
-```tsx
-import { Suspense } from "react";
-import InventoryFGList from "@/components/pages/inventory/fg";
-
-export default function InventoryFGPage() {
-    return (
-        <Suspense fallback={<div>Loading…</div>}>
-            <InventoryFGList />
-        </Suspense>
-    );
 }
 ```
 
@@ -1017,119 +836,12 @@ sequenceDiagram
 
 ---
 
-## 8. Testing FE (Vitest + RTL)
+## 8. Cross-link
 
-**Lokasi**: `app/src/__tests__/inventory/fg/` 🚧 TBD. Mengikuti SOP [`frontend-testing`](../../../../.claude/skills/frontend-testing/SKILL.md).
-
-### 8.1 Service test
-
-```ts
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import api from "@/lib/api";
-import { InventoryFGService } from "@/app/(application)/inventory/fg/server/inventory.fg.service";
-
-vi.mock("@/lib/api");
-vi.mock("@/shared/api/csrf", () => ({ setupCSRFToken: vi.fn() }));
-
-describe("InventoryFGService", () => {
-    beforeEach(() => vi.clearAllMocks());
-
-    it("list passes params to GET", async () => {
-        (api.get as any).mockResolvedValue({ data: { data: { data: [], len: 0 } } });
-        await InventoryFGService.list({ page: 1, take: 25 });
-        expect(api.get).toHaveBeenCalledWith(expect.stringContaining("/inventory/fg"), {
-            params: { page: 1, take: 25 },
-        });
-    });
-
-    it("create calls setupCSRFToken before POST", async () => {
-        const { setupCSRFToken } = await import("@/shared/api/csrf");
-        (api.post as any).mockResolvedValue({});
-        await InventoryFGService.create({ code: "EDP_110", name: "Parfum EDP 110ml", size: 110 } as any);
-        expect(setupCSRFToken).toHaveBeenCalled();
-        expect(api.post).toHaveBeenCalled();
-    });
-
-    it("changeStatus sends query param", async () => {
-        (api.patch as any).mockResolvedValue({});
-        await InventoryFGService.changeStatus(1, "ACTIVE" as any);
-        expect(api.patch).toHaveBeenCalledWith(
-            expect.stringContaining("/status/1"),
-            null,
-            { params: { status: "ACTIVE" } },
-        );
-    });
-
-    it("exportCsv requests blob responseType", async () => {
-        (api.get as any).mockResolvedValue({ data: new Blob(["csv"]) });
-        const blob = await InventoryFGService.exportCsv({ page: 1 });
-        expect(blob).toBeInstanceOf(Blob);
-        expect(api.get).toHaveBeenCalledWith(
-            expect.stringContaining("/export"),
-            expect.objectContaining({ responseType: "blob" }),
-        );
-    });
-});
-```
-
-### 8.2 Hook test
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useInventoryFG } from "@/app/(application)/inventory/fg/server/use.inventory.fg";
-import { InventoryFGService } from "@/app/(application)/inventory/fg/server/inventory.fg.service";
-
-vi.mock("@/app/(application)/inventory/fg/server/inventory.fg.service");
-
-const wrapper = ({ children }: { children: React.ReactNode }) => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-};
-
-describe("useInventoryFG", () => {
-    it("fetches list via service", async () => {
-        (InventoryFGService.list as any).mockResolvedValue({ data: [], len: 0 });
-        const { result } = renderHook(() => useInventoryFG({ page: 1 }), { wrapper });
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-        expect(InventoryFGService.list).toHaveBeenCalledWith({ page: 1 });
-    });
-});
-```
-
-### 8.3 Component test
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { CreateFGForm } from "@/components/pages/inventory/fg/form/create";
-
-vi.mock("@/app/(application)/inventory/fg/server/use.inventory.fg", () => ({
-    useFormInventoryFG: () => ({
-        create: { mutateAsync: vi.fn(), isPending: false },
-        update: { mutateAsync: vi.fn(), isPending: false },
-    }),
-}));
-
-describe("CreateFGForm", () => {
-    it("renders required fields", () => {
-        render(<CreateFGForm />);
-        expect(screen.getByLabelText("Kode")).toBeInTheDocument();
-        expect(screen.getByLabelText("Nama Produk")).toBeInTheDocument();
-        expect(screen.getByLabelText("Ukuran (ML)")).toBeInTheDocument();
-    });
-});
-```
-
----
-
-## 9. Cross-link
-
-- BE scope doc: [`./README.md`](./README.md)
-- Module-level konvensi FE: [`../frontend-integration.md`](../frontend-integration.md)
-- SOP FE canonical: [`frontend-dev-flow`](../../../../.claude/skills/frontend-dev-flow/SKILL.md)
-- SOP FE testing: [`frontend-testing`](../../../../.claude/skills/frontend-testing/SKILL.md)
-- SOP query/mutation: [`frontend-query-mutation`](../../../../.claude/skills/frontend-query-mutation/SKILL.md)
-- Sub-modul FG (terkait): [`./import/README.md`](./import/README.md), [`./size/README.md`](./size/README.md), [`./type/README.md`](./type/README.md)
-- Postman folder: `Inventory → FG` di `docs/postman/erp-mandalika.postman_collection.json`.
+- **BE scope doc**: [`./README.md`](./README.md) — endpoint detail, error catalog, DB schema, testing BE, Postman.
+- **Module-level FE konvensi**: [`../frontend-integration.md`](../frontend-integration.md) — CSRF, queryKey naming, error pattern, debounce, design tokens.
+- **Component implementation (List / Form / Dialog / Columns / Page)**: [`frontend-dev-flow`](../../../../.claude/skills/frontend-dev-flow/SKILL.md) — SOP canonical; semua pattern komponen React (file layout, RHF + zodResolver, DataTable, dialog state, badge, KPI card, gold/zinc design tokens) ada di sini. Dokumen scope ini sengaja tidak meng-duplikasi snippet komponen.
+- **Testing FE (Vitest + RTL)**: [`frontend-testing`](../../../../.claude/skills/frontend-testing/SKILL.md) — SOP canonical; pola test service / hook / component (mock `api`, mock `setupCSRFToken`, `QueryClientProvider` wrapper, RTL `screen.getByLabelText`).
+- **Query / mutation pattern**: [`frontend-query-mutation`](../../../../.claude/skills/frontend-query-mutation/SKILL.md) — conditional query, cache invalidation, error handling.
+- **Sub-modul FG (terkait)**: [`./import/README.md`](./import/README.md), [`./size/README.md`](./size/README.md), [`./type/README.md`](./type/README.md).
+- **Postman folder**: `Inventory → FG` di `docs/postman/erp-mandalika.postman_collection.json`.

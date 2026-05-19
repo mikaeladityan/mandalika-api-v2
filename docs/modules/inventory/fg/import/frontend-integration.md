@@ -1,16 +1,15 @@
 # Inventory / FG / Import — Frontend Integration (Scope Level)
 
-End-to-end FE integration **lengkap** untuk scope FG Bulk Import. FE engineer baca file ini saja → bisa implement dari nol (Upload → Preview → Execute async → Polling status).
+Kontrak BE→FE. Wizard UI component (Upload → Preview → Progress) diserahkan ke frontend-dev-flow SOP.
 
 **Backend scope path**: `api/src/module/application/inventory/fg/import/`
 **Frontend scope path**: `app/src/app/(application)/inventory/fg/import/server/` 🚧 TBD
-**Component path**: `app/src/components/pages/inventory/fg/import/` 🚧 TBD
 **Endpoint base**: `/api/app/inventory/fg/import`
 **Status FE**: 🚧 TBD
 
 **Dependencies**:
 
-- Konvensi global modul ([`../../frontend-integration.md`](../../frontend-integration.md)) — `setupCSRFToken` policy, queryKey naming `["inventory.<scope>", ...]`, `FetchError` pattern, debounce 500ms (tidak relevan di import), design tokens Gold/Zinc, status code expectation (201 preview, 202 enqueue, 200 status).
+- Konvensi global modul ([`../../frontend-integration.md`](../../frontend-integration.md)) — `setupCSRFToken` policy, queryKey naming `["inventory.<scope>", ...]`, `FetchError` pattern, design tokens Gold/Zinc, status code expectation (201 preview, 202 enqueue, 200 read).
 - BE scope doc ([`./README.md`](./README.md)) — Zod source, endpoint detail, error catalog, worker pipeline detail.
 - SOP canonical: [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md).
 
@@ -194,7 +193,30 @@ export type FGImportPreviewSnapshotDTO = {
 
 ---
 
-## 3. Service Class — FULL CODE
+## 3. Routing — Endpoint Table
+
+**Path prefix**: `/api/app/inventory/fg/import` (mounted via parent module router).
+
+**Source BE**: `src/module/application/inventory/fg/import/import.routes.ts` + `import.controller.ts`.
+
+| Method | Path | Body type | Success status | Handler | Catatan |
+| :----- | :--- | :-------- | :------------- | :------ | :------ |
+| `POST` | `/preview` | `multipart/form-data` (field `file`) | **201 Created** | `FGImportController.preview` | Upload CSV/XLSX. BE parse + Zod validate per-baris, simpan snapshot Redis (TTL 300s). Return `{ import_id, total, valid, invalid }`. Limit `MAX_ROWS = 5000` → **413** jika lebih. |
+| `GET` | `/preview/:import_id` | — | **200 OK** | `FGImportController.getPreview` | Reload snapshot row preview dari Redis cache (untuk recovery setelah F5 di Step 2). |
+| `POST` | `/execute` | `application/json` `{ import_id: uuid }` | **202 Accepted** | `FGImportController.execute` | Enqueue BullMQ job (`jobId = import_id`). BE acquire lock `NX EX 60` → **409** jika double-call. |
+| `GET` | `/status/:import_id` | — | **200 OK** | `FGImportController.getStatus` | Polling state job. Terminal = `completed` \| `failed` → FE stop polling. |
+
+**CSRF policy**: `setupCSRFToken()` WAJIB sebelum kedua `POST` (preview & execute). `GET` tidak perlu.
+
+**Status code contract**:
+
+- `201` (POST /preview) — resource snapshot baru terbentuk di Redis.
+- `202` (POST /execute) — job enqueued, belum tentu selesai. FE harus polling `/status`.
+- `200` (GET /preview/:id, GET /status/:id) — pembacaan resource yang sudah ada.
+
+---
+
+## 4. Service Class — FULL CODE
 
 **File**: `app/src/app/(application)/inventory/fg/import/server/inventory.fg.import.service.ts` 🚧 TBD
 
@@ -261,7 +283,7 @@ export class InventoryFGImportService {
 
 ---
 
-## 4. Hooks — 5 Hook Split FULL CODE
+## 5. Hooks — 5 Hook Split FULL CODE
 
 **File**: `app/src/app/(application)/inventory/fg/import/server/use.inventory.fg.import.ts` 🚧 TBD
 
@@ -285,7 +307,7 @@ const PREVIEW_KEY = (id: string) => [...KEY, "preview", id] as const;
 const TERMINAL_STATES = new Set<ImportJobState>(["completed", "failed"]);
 const POLL_INTERVAL_MS = 1500;
 
-// 4.1 READ — status polling, auto-stop saat terminal + invalidate list FG saat completed
+// 5.1 READ — status polling, auto-stop saat terminal + invalidate list FG saat completed
 export function useInventoryFGImport(import_id: string | null) {
     const queryClient = useQueryClient();
     return useQuery<ResponseImportStatusDTO, ResponseError>({
@@ -319,7 +341,7 @@ export function useInventoryFGImportPreview(import_id: string | null) {
     });
 }
 
-// 4.2 WRITE — preview (upload) + execute (enqueue) mutations
+// 5.2 WRITE — preview (upload) + execute (enqueue) mutations
 export function useFormInventoryFGImport() {
     const setErr = useSetAtom(errorAtom);
     const setNotif = useSetAtom(notificationAtom);
@@ -348,13 +370,13 @@ export function useFormInventoryFGImport() {
     return { preview, execute };
 }
 
-// 4.3 ACTION — placeholder (BE belum punya retry/cancel; isi saat endpoint tersedia)
+// 5.3 ACTION — placeholder (BE belum punya retry/cancel; isi saat endpoint tersedia)
 export function useActionInventoryFGImport() {
     // N/A — no status toggle, no bulk, no soft-delete in import scope.
     return {} as const;
 }
 
-// 4.4 SessionState — wizard step + import_id (local state, no URL sync)
+// 5.4 SessionState — wizard step + import_id (local state, no URL sync)
 export type FGImportStep = "upload" | "preview" | "progress";
 
 export function useInventoryFGImportSessionState() {
@@ -369,7 +391,7 @@ export function useInventoryFGImportSessionState() {
     );
 }
 
-// 4.5 Query-wrapper — bundle session state + status polling untuk page consumer
+// 5.5 Query-wrapper — bundle session state + status polling untuk page consumer
 export function useInventoryFGImportQuery() {
     const session = useInventoryFGImportSessionState();
     const status = useInventoryFGImport(session.step === "progress" ? session.importId : null);
@@ -387,213 +409,7 @@ export function useInventoryFGImportQuery() {
 - `["inventory.fg.import", "preview"]` / `["inventory.fg.import", "execute"]` — mutationKey.
 - Invalidation lintas-scope: saat `state === "completed"` → invalidate `["inventory.fg"]` (table FG inti refresh).
 
----
-
-## 5. Components — Wizard 3-Step Snippets
-
-Import scope **bukan** list/CRUD. Komponen scope ini adalah **wizard 3-step**: Upload → Preview Table → Progress.
-
-### 5.1 Page entry — `app/(application)/inventory/fg/import/page.tsx` 🚧 TBD
-
-```tsx
-import { Suspense } from "react";
-import { FGImportWizard } from "@/components/pages/inventory/fg/import";
-export default function FGImportPage() {
-    return <Suspense fallback={<div>Loading…</div>}><FGImportWizard /></Suspense>;
-}
-```
-
-### 5.2 Wizard shell — `components/pages/inventory/fg/import/index.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useInventoryFGImportQuery } from "@/app/(application)/inventory/fg/import/server/use.inventory.fg.import";
-import { FGImportUploadStep } from "./steps/upload-step";
-import { FGImportPreviewStep } from "./steps/preview-step";
-import { FGImportProgressStep } from "./steps/progress-step";
-
-export function FGImportWizard() {
-    const ctx = useInventoryFGImportQuery();
-    return (
-        <section className="space-y-6">
-            <header className="flex items-center gap-3">
-                <h1 className="text-xl font-semibold text-zinc-900">Import FG</h1>
-                <StepIndicator step={ctx.step} />
-            </header>
-            {ctx.step === "upload" && <FGImportUploadStep onSuccess={ctx.goToPreview} />}
-            {ctx.step === "preview" && ctx.importId && (
-                <FGImportPreviewStep
-                    importId={ctx.importId}
-                    snapshot={ctx.previewSnapshot.data}
-                    isLoading={ctx.previewSnapshot.isLoading}
-                    onConfirm={ctx.goToProgress}
-                    onCancel={ctx.reset}
-                />
-            )}
-            {ctx.step === "progress" && ctx.importId && (
-                <FGImportProgressStep importId={ctx.importId} status={ctx.status.data} onDone={ctx.reset} />
-            )}
-        </section>
-    );
-}
-
-function StepIndicator({ step }: { step: "upload" | "preview" | "progress" }) {
-    const order = ["upload", "preview", "progress"] as const;
-    const idx = order.indexOf(step);
-    return (
-        <ol className="flex gap-2 text-sm">
-            {order.map((s, i) => (
-                <li key={s} className={i <= idx ? "text-amber-600 font-medium" : "text-zinc-400"}>{i + 1}. {s}</li>
-            ))}
-        </ol>
-    );
-}
-```
-
-### 5.3 Step 1 — Upload form — `steps/upload-step.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useState } from "react";
-import { useFormInventoryFGImport } from "@/app/(application)/inventory/fg/import/server/use.inventory.fg.import";
-
-const ACCEPT = ".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv";
-const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard; BE validasi 5000 row.
-
-export function FGImportUploadStep({ onSuccess }: { onSuccess: (import_id: string) => void }) {
-    const { preview } = useFormInventoryFGImport();
-    const [file, setFile] = useState<File | null>(null);
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!file) return;
-        if (file.size > MAX_FILE_BYTES) return alert("File maksimum 10 MB");
-        const res = await preview.mutateAsync(file);
-        onSuccess(res.import_id);
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-zinc-200 p-6">
-            <p className="text-sm text-zinc-600">
-                CSV/XLSX dengan header <code>PRODUCT CODE, PRODUCT NAME, TYPE, GENDER, SIZE, EDAR, SAFETY</code>. Maks 5.000 baris.
-            </p>
-            <input type="file" accept={ACCEPT}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="block w-full rounded-xl border border-zinc-200 px-3 py-2" />
-            <button type="submit" disabled={!file || preview.isPending}
-                className="rounded-xl bg-amber-500 px-4 py-2 text-white disabled:opacity-50">
-                {preview.isPending ? "Memvalidasi…" : "Upload & Preview"}
-            </button>
-        </form>
-    );
-}
-```
-
-### 5.4 Step 2 — Preview table — `steps/preview-step.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useFormInventoryFGImport } from "@/app/(application)/inventory/fg/import/server/use.inventory.fg.import";
-import type { FGImportPreviewSnapshotDTO } from "@/app/(application)/inventory/fg/import/server/inventory.fg.import.schema";
-
-const COLS = ["Code", "Name", "Type", "Gender", "Size", "EDAR %", "Safety %", "Errors"];
-
-export function FGImportPreviewStep(props: {
-    importId: string;
-    snapshot: FGImportPreviewSnapshotDTO | undefined;
-    isLoading: boolean;
-    onConfirm: () => void;
-    onCancel: () => void;
-}) {
-    const { importId, snapshot, isLoading, onConfirm, onCancel } = props;
-    const { execute } = useFormInventoryFGImport();
-    if (isLoading || !snapshot) return <div>Memuat snapshot…</div>;
-
-    const handleConfirm = async () => { await execute.mutateAsync(importId); onConfirm(); };
-
-    return (
-        <div className="space-y-4">
-            <div className="flex gap-4 text-sm">
-                <span>Total: <b>{snapshot.total}</b></span>
-                <span className="text-emerald-600">Valid: <b>{snapshot.valid}</b></span>
-                <span className={snapshot.invalid > 0 ? "text-red-600" : ""}>Invalid: <b>{snapshot.invalid}</b></span>
-            </div>
-            <div className="overflow-auto rounded-2xl border border-zinc-200">
-                <table className="w-full text-sm">
-                    <thead className="bg-zinc-50 text-left">
-                        <tr>{COLS.map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                        {snapshot.rows.map((row, i) => (
-                            <tr key={i} className={row.errors.length ? "bg-red-50" : ""}>
-                                <td className="px-3 py-2 font-mono">{row.code}</td>
-                                <td className="px-3 py-2">{row.name}</td>
-                                <td className="px-3 py-2">{row.type ?? "-"}</td>
-                                <td className="px-3 py-2">{row.gender}</td>
-                                <td className="px-3 py-2 text-right">{row.size}</td>
-                                <td className="px-3 py-2 text-right">{row.distribution_percentage}</td>
-                                <td className="px-3 py-2 text-right">{row.safety_percentage}</td>
-                                <td className="px-3 py-2 text-xs text-red-600">{row.errors.join("; ")}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-            <div className="flex justify-end gap-2">
-                <button onClick={onCancel} className="rounded-xl border border-zinc-200 px-4 py-2">Batal</button>
-                <button onClick={handleConfirm} disabled={snapshot.valid === 0 || execute.isPending}
-                    className="rounded-xl bg-amber-500 px-4 py-2 text-white disabled:opacity-50">
-                    {execute.isPending ? "Mengantrekan…" : `Jalankan Import (${snapshot.valid} baris)`}
-                </button>
-            </div>
-        </div>
-    );
-}
-```
-
-### 5.5 Step 3 — Progress polling — `steps/progress-step.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import type { ResponseImportStatusDTO } from "@/app/(application)/inventory/fg/import/server/inventory.fg.import.schema";
-
-export function FGImportProgressStep(props: {
-    importId: string;
-    status: ResponseImportStatusDTO | undefined;
-    onDone: () => void;
-}) {
-    const { status, onDone } = props;
-    if (!status) return <div>Menunggu worker…</div>;
-    const isDone = status.state === "completed";
-    const isFailed = status.state === "failed";
-
-    return (
-        <div className="space-y-4 rounded-2xl border border-zinc-200 p-6">
-            <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-zinc-700">State: {status.state}</span>
-                <span className="text-zinc-500">{status.progress}%</span>
-            </div>
-            <div className="h-2 rounded-full bg-zinc-100">
-                <div
-                    className={`h-full rounded-full transition-all ${isFailed ? "bg-red-500" : "bg-amber-500"}`}
-                    style={{ width: `${status.progress}%` }}
-                />
-            </div>
-            {isDone && status.result && (
-                <p className="text-sm text-emerald-700">Selesai. {status.result.total} produk di-upsert.</p>
-            )}
-            {isFailed && (
-                <p className="text-sm text-red-600">Gagal: {status.failedReason} (attempts: {status.attemptsMade})</p>
-            )}
-            {(isDone || isFailed) && (
-                <button onClick={onDone} className="rounded-xl bg-amber-500 px-4 py-2 text-white">Selesai</button>
-            )}
-        </div>
-    );
-}
-```
-
-> **Tidak ada** komponen `form/create.tsx` / `form/edit.tsx` / `table/columns.tsx` di scope ini — import bukan CRUD entity. Yang setara list/columns adalah preview table di §5.4.
+> Komponen wizard (Upload → Preview Table → Progress) di-implement mengikuti **frontend-dev-flow SOP** — bukan bagian dari kontrak BE→FE ini.
 
 ---
 
@@ -675,115 +491,14 @@ sequenceDiagram
 
 ---
 
-## 8. Testing FE (Vitest + RTL)
-
-**Lokasi**: `app/src/__tests__/inventory/fg/import/` 🚧 TBD. Ikuti SOP `frontend-testing`.
-
-### 8.1 Service test — mock multipart + status
-
-```ts
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import api from "@/lib/api";
-import { InventoryFGImportService } from "@/app/(application)/inventory/fg/import/server/inventory.fg.import.service";
-
-vi.mock("@/lib/api");
-vi.mock("@/shared/api/csrf", () => ({ setupCSRFToken: vi.fn() }));
-
-describe("InventoryFGImportService", () => {
-    beforeEach(() => vi.clearAllMocks());
-
-    it("preview() posts multipart/form-data with 'file' field", async () => {
-        (api.post as any).mockResolvedValue({ data: { data: { import_id: "u", total: 10, valid: 8, invalid: 2 } } });
-        const file = new File(["x"], "fg.csv", { type: "text/csv" });
-        await InventoryFGImportService.preview(file);
-        const [url, body, opts] = (api.post as any).mock.calls[0];
-        expect(url).toMatch(/\/inventory\/fg\/import\/preview$/);
-        expect(body).toBeInstanceOf(FormData);
-        expect(opts.headers["Content-Type"]).toBe("multipart/form-data");
-    });
-
-    it("execute() posts JSON { import_id }", async () => {
-        (api.post as any).mockResolvedValue({ data: { data: { import_id: "u", jobId: "u", state: "queued" } } });
-        await InventoryFGImportService.execute("u");
-        expect((api.post as any).mock.calls[0][1]).toEqual({ import_id: "u" });
-    });
-
-    it("status() returns parsed status dto", async () => {
-        (api.get as any).mockResolvedValue({ data: { data: { import_id: "u", state: "active", progress: 50 } } });
-        const res = await InventoryFGImportService.status("u");
-        expect(res.progress).toBe(50);
-    });
-});
-```
-
-### 8.2 Hook test — polling auto-stop + cross-scope invalidation
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useInventoryFGImport } from "@/app/(application)/inventory/fg/import/server/use.inventory.fg.import";
-import { InventoryFGImportService } from "@/app/(application)/inventory/fg/import/server/inventory.fg.import.service";
-
-vi.mock("@/app/(application)/inventory/fg/import/server/inventory.fg.import.service");
-
-const wrapper = ({ children }: { children: React.ReactNode }) => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-};
-
-describe("useInventoryFGImport", () => {
-    it("polls until completed; idle when import_id is null", async () => {
-        (InventoryFGImportService.status as any).mockResolvedValue({
-            import_id: "u", state: "completed", progress: 100, result: { import_id: "u", total: 5 },
-        });
-        const { result } = renderHook(() => useInventoryFGImport("u"), { wrapper });
-        await waitFor(() => expect(result.current.data?.state).toBe("completed"));
-
-        const idle = renderHook(() => useInventoryFGImport(null), { wrapper });
-        expect(idle.result.current.fetchStatus).toBe("idle");
-    });
-});
-```
-
-### 8.3 Component test — Upload step forwards import_id
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { FGImportUploadStep } from "@/components/pages/inventory/fg/import/steps/upload-step";
-
-const mutateAsync = vi.fn().mockResolvedValue({ import_id: "u", total: 1, valid: 1, invalid: 0 });
-vi.mock("@/app/(application)/inventory/fg/import/server/use.inventory.fg.import", () => ({
-    useFormInventoryFGImport: () => ({ preview: { mutateAsync, isPending: false } }),
-}));
-
-describe("FGImportUploadStep", () => {
-    it("calls preview.mutateAsync(file) then onSuccess(import_id)", async () => {
-        const onSuccess = vi.fn();
-        render(<FGImportUploadStep onSuccess={onSuccess} />);
-        const file = new File(["x"], "fg.csv", { type: "text/csv" });
-        const input = document.querySelector("input[type=file]") as HTMLInputElement;
-        fireEvent.change(input, { target: { files: [file] } });
-        fireEvent.click(screen.getByText(/Upload & Preview/));
-        await screen.findByText(/Upload & Preview/);
-        expect(mutateAsync).toHaveBeenCalledWith(file);
-        expect(onSuccess).toHaveBeenCalledWith("u");
-    });
-});
-```
-
----
-
-## 9. Cross-link
+## 8. Cross-link
 
 - BE scope doc: [./README.md](./README.md)
 - Module-level konvensi FE: [../../frontend-integration.md](../../frontend-integration.md)
 - Parent scope FG (CRUD inti): [../README.md](../README.md) + [../frontend-integration.md](../frontend-integration.md)
-- SOP FE canonical: [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md)
-- SOP FE testing: [frontend-testing](../../../../.claude/skills/frontend-testing/SKILL.md)
+- SOP FE component (wizard Upload/Preview/Progress): [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md)
+- SOP FE testing (Vitest + RTL): [frontend-testing](../../../../.claude/skills/frontend-testing/SKILL.md)
+- SOP FE query/mutation pattern: [frontend-query-mutation](../../../../.claude/skills/frontend-query-mutation/SKILL.md)
 - SOP BE BullMQ pipeline + header CSV: [dev-flow §1.H, §1.I](../../../../.claude/skills/dev-flow/SKILL.md)
 - Postman folder: `Inventory → FG → Import` di `docs/postman/erp-mandalika.postman_collection.json`.
 - Deployment & worker process: [DEPLOYMENT.md](../../../../DEPLOYMENT.md)
-</content>
-</invoke>

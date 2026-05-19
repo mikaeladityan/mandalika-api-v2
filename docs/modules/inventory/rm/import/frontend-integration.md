@@ -1,18 +1,18 @@
 # Inventory / RM / Import — Frontend Integration (Scope Level)
 
-End-to-end FE integration **lengkap** untuk scope `inventory/rm/import` (bulk upload Raw Material via CSV/XLSX). FE engineer cukup baca file ini saja untuk implement dari nol.
+Kontrak BE→FE untuk scope `inventory/rm/import` (bulk upload Raw Material via CSV/XLSX). Async wizard UI ke frontend-dev-flow.
 
 **Backend scope path**: `api/src/module/application/inventory/rm/import/`
 **Frontend scope path**: `app/src/app/(application)/inventory/rm/import/server/`
-**Component path**: `app/src/components/pages/inventory/rm/import/`
 **Endpoint base**: `/api/app/inventory/rm/import`
 **Status FE**: 🚧 TBD <!-- ubah ke ✅ Ready setelah file FE dibuat -->
 
-**Dependencies**:
+## 0. Dependencies
 
 - Konvensi global modul: [`../../frontend-integration.md`](../../frontend-integration.md) — CSRF policy, queryKey naming, error pattern, debounce, design tokens Gold/Zinc, status code expectation (201/202/200).
 - BE scope doc: [`./README.md`](./README.md) — Zod schema source, endpoint detail, error catalog, BullMQ worker flow.
-- SOP canonical: [frontend-dev-flow](../../../../../.claude/skills/frontend-dev-flow/SKILL.md).
+- SOP canonical: [frontend-dev-flow](../../../../../.claude/skills/frontend-dev-flow/SKILL.md) — wizard 3-step UI (Upload → Preview → Progress).
+- SOP testing: [frontend-testing](../../../../../.claude/skills/frontend-testing/SKILL.md).
 - Counterpart scope: [`../../fg/import/frontend-integration.md`](../../fg/import/frontend-integration.md) — pattern import async identik (RM mengikuti shape FG).
 
 Scope ini meng-handle wizard 3-langkah (Upload → Preview → Progress) untuk import Raw Material massal via Redis-cached preview + BullMQ worker async eksekusi. Header CSV canonical (`RM_IMPORT_HEADERS`) sudah enforced di BE untuk round-trip export ↔ import — tidak ada gap unifikasi seperti FG.
@@ -262,7 +262,31 @@ export type RMImportPreviewSnapshotDTO = ResponseRMImportDTO & {
 
 ---
 
-## 3. Service Class — FULL CODE
+## 3. Routing — Endpoint Table
+
+**Path prefix**: `/api/app/inventory/rm/import` (mounted di route loader BE)
+**Source BE**: `import.routes.ts` + `import.controller.ts`
+
+| Method | Path                     | Success Status | Body / Params                            | Response shape                  | CSRF | Catatan                                                                                  |
+| :----- | :----------------------- | :------------- | :--------------------------------------- | :------------------------------ | :--- | :--------------------------------------------------------------------------------------- |
+| POST   | `/preview`               | `201 Created`  | `multipart/form-data` field `file`       | `ResponseRMImportDTO`           | ✅   | Parse CSV/XLSX, validate per-row, simpan snapshot ke Redis (TTL 5 menit). Belum tulis DB. |
+| GET    | `/preview/:import_id`    | `200 OK`       | path param `import_id` (UUID)            | `RMImportPreviewSnapshotDTO`    | —    | Ambil snapshot preview dari Redis. 404 kalau TTL sudah expire.                            |
+| POST   | `/execute`               | `202 Accepted` | body `{ import_id: string }`             | `ResponseEnqueueRMImportDTO`    | ✅   | Acquire lock 60s + enqueue BullMQ. 409 kalau lock terpegang. 400 kalau snapshot expired.  |
+| GET    | `/status/:import_id`     | `200 OK`       | path param `import_id` (UUID)            | `ResponseRMImportStatusDTO`     | —    | Polling 1.5s sampai terminal state (`completed` / `failed`).                              |
+
+**Status code expectation (FE consumer)**:
+
+- `201` ↔ snapshot created — wizard transition Upload → Preview.
+- `200` ↔ idempotent read (preview snapshot / job status).
+- `202` ↔ async accepted — wizard transition Preview → Progress.
+- `400` ↔ validation/expired session (Zod / TTL) — tampil via `FetchError` + reset wizard.
+- `409` ↔ lock kontensi — disable tombol Eksekusi saat `execute.isPending`.
+- `413` ↔ file > `MAX_ROWS` (5000). Tampil via `FetchError`.
+- `415` ↔ mime/extension tidak didukung.
+
+---
+
+## 4. Service Class — FULL CODE
 
 **File**: `app/src/app/(application)/inventory/rm/import/server/inventory.rm.import.service.ts` 🚧 TBD
 
@@ -352,7 +376,7 @@ export class InventoryRMImportService {
 
 ---
 
-## 4. Hooks — 5 Hook Split FULL CODE
+## 5. Hooks — 5 Hook Split FULL CODE
 
 **File**: `app/src/app/(application)/inventory/rm/import/server/use.inventory.rm.import.ts` 🚧 TBD
 
@@ -377,7 +401,7 @@ const KEY = ["inventory.rm.import"] as const;
 const TERMINAL = new Set(["completed", "failed"]);
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.1 READ — status polling (mirror FG import)
+// 5.1 READ — status polling (mirror FG import)
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryRMImport(import_id: string | null, enabled = true) {
     return useQuery<ResponseRMImportStatusDTO, ResponseError>({
@@ -395,7 +419,7 @@ export function useInventoryRMImport(import_id: string | null, enabled = true) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.2 WRITE — preview + execute (wizard step 1 & step 2)
+// 5.2 WRITE — preview + execute (wizard step 1 & step 2)
 // ──────────────────────────────────────────────────────────────────────────────
 export function useFormInventoryRMImport() {
     const setErr = useSetAtom(errorAtom);
@@ -433,7 +457,7 @@ export function useFormInventoryRMImport() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.3 ACTION — fetch preview snapshot + retry helper
+// 5.3 ACTION — fetch preview snapshot + retry helper
 // ──────────────────────────────────────────────────────────────────────────────
 export function useActionInventoryRMImport() {
     const setErr = useSetAtom(errorAtom);
@@ -455,7 +479,7 @@ export function useActionInventoryRMImport() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.4 SessionState — wizard step + import_id (replaces TableState in CRUD scopes)
+// 5.4 SessionState — wizard step + import_id (replaces TableState in CRUD scopes)
 // ──────────────────────────────────────────────────────────────────────────────
 export type RMImportStep = "upload" | "preview" | "progress";
 
@@ -495,7 +519,7 @@ export function useInventoryRMImportSessionState() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.5 Query-wrapper — bundling sessionState + status query untuk page consumer
+// 5.5 Query-wrapper — bundling sessionState + status query untuk page consumer
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryRMImportQuery() {
     const session = useInventoryRMImportSessionState();
@@ -518,265 +542,6 @@ export function useInventoryRMImportQuery() {
     );
 
     return { ...session, status, isTerminal };
-}
-```
-
----
-
-## 5. Components — Wizard 3-step Snippets
-
-Wizard mirror FG import shape: Upload → Preview → Progress. Setiap step adalah komponen terpisah, dipasang di shell yang sama.
-
-### 5.1 Shell — `components/pages/inventory/rm/import/index.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useInventoryRMImportQuery } from "@/app/(application)/inventory/rm/import/server/use.inventory.rm.import";
-import { UploadStep } from "./steps/upload-step";
-import { PreviewStep } from "./steps/preview-step";
-import { ProgressStep } from "./steps/progress-step";
-import { WizardStepper } from "@/components/ui/wizard-stepper";
-
-export default function RMImportWizard() {
-    const session = useInventoryRMImportQuery();
-
-    return (
-        <section className="space-y-6">
-            <WizardStepper
-                steps={[
-                    { key: "upload", label: "Upload File" },
-                    { key: "preview", label: "Validasi" },
-                    { key: "progress", label: "Proses" },
-                ]}
-                active={session.step}
-            />
-            {session.step === "upload" && <UploadStep onSuccess={session.goPreview} />}
-            {session.step === "preview" && session.importId && (
-                <PreviewStep
-                    importId={session.importId}
-                    summary={session.previewSummary}
-                    snapshot={session.snapshot}
-                    onExecute={session.goProgress}
-                    onCancel={session.reset}
-                />
-            )}
-            {session.step === "progress" && session.importId && (
-                <ProgressStep
-                    status={session.status.data}
-                    isTerminal={session.isTerminal}
-                    onDone={session.reset}
-                />
-            )}
-        </section>
-    );
-}
-```
-
-### 5.2 Upload step — `components/pages/inventory/rm/import/steps/upload-step.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useState } from "react";
-import { useFormInventoryRMImport } from "@/app/(application)/inventory/rm/import/server/use.inventory.rm.import";
-import { RM_IMPORT_HEADERS } from "@/app/(application)/inventory/rm/import/server/inventory.rm.import.schema";
-import type { ResponseRMImportDTO } from "@/app/(application)/inventory/rm/import/server/inventory.rm.import.schema";
-import { Button } from "@/components/ui/button";
-
-const ACCEPT = ".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv";
-
-export function UploadStep({ onSuccess }: { onSuccess: (data: ResponseRMImportDTO) => void }) {
-    const { preview } = useFormInventoryRMImport();
-    const [file, setFile] = useState<File | null>(null);
-
-    const handleSubmit = async () => {
-        if (!file) return;
-        const data = await preview.mutateAsync(file);
-        onSuccess(data);
-    };
-
-    return (
-        <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-6">
-            <div>
-                <h2 className="text-lg font-medium text-zinc-900">Upload File Raw Material</h2>
-                <p className="mt-1 text-sm text-zinc-500">Format CSV / XLSX, maks 5000 baris.</p>
-            </div>
-
-            <details className="rounded-xl bg-zinc-50 p-3 text-sm">
-                <summary className="cursor-pointer font-medium">Kolom yang diharapkan</summary>
-                <ul className="mt-2 grid grid-cols-2 gap-1 font-mono text-xs text-zinc-700">
-                    {Object.values(RM_IMPORT_HEADERS).map((h) => (
-                        <li key={h}>{h}</li>
-                    ))}
-                </ul>
-            </details>
-
-            <input
-                type="file"
-                accept={ACCEPT}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="block w-full text-sm"
-            />
-
-            <div className="flex justify-end">
-                <Button onClick={handleSubmit} disabled={!file || preview.isPending}>
-                    {preview.isPending ? "Memvalidasi…" : "Validasi"}
-                </Button>
-            </div>
-        </div>
-    );
-}
-```
-
-### 5.3 Preview step — `components/pages/inventory/rm/import/steps/preview-step.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useFormInventoryRMImport } from "@/app/(application)/inventory/rm/import/server/use.inventory.rm.import";
-import type {
-    ResponseRMImportDTO,
-    RMImportPreviewSnapshotDTO,
-} from "@/app/(application)/inventory/rm/import/server/inventory.rm.import.schema";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-
-type Props = {
-    importId: string;
-    summary: ResponseRMImportDTO | null;
-    snapshot: RMImportPreviewSnapshotDTO | null;
-    onExecute: () => void;
-    onCancel: () => void;
-};
-
-export function PreviewStep({ importId, summary, snapshot, onExecute, onCancel }: Props) {
-    const { execute } = useFormInventoryRMImport();
-    const canExecute = (summary?.valid ?? 0) > 0;
-
-    const handleExecute = async () => {
-        await execute.mutateAsync({ import_id: importId });
-        onExecute();
-    };
-
-    return (
-        <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-6">
-            <header className="flex items-center justify-between">
-                <div>
-                    <h2 className="text-lg font-medium text-zinc-900">Validasi Preview</h2>
-                    <p className="text-sm text-zinc-500">Import ID: <span className="font-mono">{importId}</span></p>
-                </div>
-                <div className="flex gap-2">
-                    <Badge tone="zinc">Total {summary?.total ?? 0}</Badge>
-                    <Badge tone="emerald">Valid {summary?.valid ?? 0}</Badge>
-                    <Badge tone="rose">Invalid {summary?.invalid ?? 0}</Badge>
-                </div>
-            </header>
-
-            <div className="max-h-96 overflow-auto rounded-xl border border-zinc-200">
-                <table className="w-full text-sm">
-                    <thead className="bg-zinc-50 text-left text-xs uppercase text-zinc-500">
-                        <tr>
-                            {["Barcode", "Nama", "Kategori", "UOM", "MOQ", "Min Stock", "Supplier", "Source", "Price", "Error"].map((h) => (
-                                <th key={h} className="px-3 py-2">{h}</th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {(snapshot?.rows ?? []).map((row, idx) => {
-                            const invalid = row.errors.length > 0;
-                            return (
-                                <tr key={idx} className={invalid ? "bg-rose-50" : "odd:bg-white even:bg-zinc-50/50"}>
-                                    <td className="px-3 py-1.5 font-mono">{row.barcode || "—"}</td>
-                                    <td className="px-3 py-1.5">{row.name || "—"}</td>
-                                    <td className="px-3 py-1.5">{row.category || "—"}</td>
-                                    <td className="px-3 py-1.5">{row.unit || "—"}</td>
-                                    <td className="px-3 py-1.5 text-right">{row.min_buy}</td>
-                                    <td className="px-3 py-1.5 text-right">{row.min_stock}</td>
-                                    <td className="px-3 py-1.5">{row.supplier ?? "—"}</td>
-                                    <td className="px-3 py-1.5">{row.source}</td>
-                                    <td className="px-3 py-1.5 text-right font-mono">{row.price.toLocaleString("id-ID")}</td>
-                                    <td className="px-3 py-1.5 text-rose-600">{invalid ? row.errors.join("; ") : ""}</td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-            </div>
-
-            <footer className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={onCancel} disabled={execute.isPending}>
-                    Batal
-                </Button>
-                <Button onClick={handleExecute} disabled={!canExecute || execute.isPending}>
-                    {execute.isPending ? "Mengirim…" : `Eksekusi (${summary?.valid ?? 0} baris)`}
-                </Button>
-            </footer>
-        </div>
-    );
-}
-```
-
-### 5.4 Progress step — `components/pages/inventory/rm/import/steps/progress-step.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import type { ResponseRMImportStatusDTO } from "@/app/(application)/inventory/rm/import/server/inventory.rm.import.schema";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-
-type Props = {
-    status: ResponseRMImportStatusDTO | undefined;
-    isTerminal: boolean;
-    onDone: () => void;
-};
-
-export function ProgressStep({ status, isTerminal, onDone }: Props) {
-    const state = status?.state ?? "queued";
-    const pct = status?.progress ?? 0;
-
-    return (
-        <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-6">
-            <header className="space-y-1">
-                <h2 className="text-lg font-medium text-zinc-900">Proses Import</h2>
-                <p className="text-sm text-zinc-500">State: <span className="font-mono">{state}</span></p>
-            </header>
-
-            <Progress value={pct} />
-            <p className="text-right text-sm text-zinc-500">{pct}%</p>
-
-            {state === "completed" && status?.result && (
-                <div className="rounded-xl bg-emerald-50 p-4 text-emerald-900">
-                    Berhasil mengimport <strong>{status.result.total}</strong> raw material.
-                </div>
-            )}
-            {state === "failed" && (
-                <div className="rounded-xl bg-rose-50 p-4 text-rose-900">
-                    <p className="font-medium">Import gagal</p>
-                    <p className="text-sm">{status?.failedReason}</p>
-                    <p className="mt-1 text-xs text-rose-700">Attempts: {status?.attemptsMade}</p>
-                </div>
-            )}
-
-            {isTerminal && (
-                <div className="flex justify-end">
-                    <Button onClick={onDone}>Selesai</Button>
-                </div>
-            )}
-        </div>
-    );
-}
-```
-
-### 5.5 Page entry — `app/(application)/inventory/rm/import/page.tsx` 🚧 TBD
-
-```tsx
-import { Suspense } from "react";
-import RMImportWizard from "@/components/pages/inventory/rm/import";
-
-export default function RMImportPage() {
-    return (
-        <Suspense fallback={<div>Loading…</div>}>
-            <RMImportWizard />
-        </Suspense>
-    );
 }
 ```
 
@@ -882,120 +647,13 @@ sequenceDiagram
 
 ---
 
-## 8. Testing FE (Vitest + RTL)
+## 8. Cross-link
 
-**Lokasi**: `app/src/__tests__/inventory/rm/import/` 🚧 TBD. Mengikuti SOP `frontend-testing`.
-
-### 8.1 Service test
-
-```ts
-import { describe, it, expect, vi } from "vitest";
-import api from "@/lib/api";
-import { InventoryRMImportService } from "@/app/(application)/inventory/rm/import/server/inventory.rm.import.service";
-
-vi.mock("@/lib/api");
-vi.mock("@/shared/api/csrf", () => ({ setupCSRFToken: vi.fn() }));
-
-describe("InventoryRMImportService", () => {
-    it("preview posts multipart with CSRF", async () => {
-        (api.post as any).mockResolvedValue({ data: { data: { import_id: "u", total: 1, valid: 1, invalid: 0 } } });
-        const file = new File(["a"], "rm.csv", { type: "text/csv" });
-        await InventoryRMImportService.preview(file);
-        expect(api.post).toHaveBeenCalledWith(
-            expect.stringContaining("/preview"),
-            expect.any(FormData),
-            expect.objectContaining({ headers: { "Content-Type": "multipart/form-data" } }),
-        );
-    });
-
-    it("execute posts import_id body", async () => {
-        (api.post as any).mockResolvedValue({ data: { data: { import_id: "u", jobId: "u", state: "queued" } } });
-        await InventoryRMImportService.execute({ import_id: "uuid" });
-        expect(api.post).toHaveBeenCalledWith(expect.stringContaining("/execute"), { import_id: "uuid" });
-    });
-
-    it("status GET status path", async () => {
-        (api.get as any).mockResolvedValue({ data: { data: { import_id: "u", state: "active", progress: 33 } } });
-        const res = await InventoryRMImportService.status("uuid");
-        expect(res.state).toBe("active");
-        expect(api.get).toHaveBeenCalledWith(expect.stringContaining("/status/uuid"));
-    });
-});
-```
-
-### 8.2 Hook test (polling stops on terminal)
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useInventoryRMImport } from "@/app/(application)/inventory/rm/import/server/use.inventory.rm.import";
-import { InventoryRMImportService } from "@/app/(application)/inventory/rm/import/server/inventory.rm.import.service";
-
-vi.mock("@/app/(application)/inventory/rm/import/server/inventory.rm.import.service");
-
-const wrapper = ({ children }: { children: React.ReactNode }) => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-};
-
-describe("useInventoryRMImport", () => {
-    it("returns completed state and stops polling", async () => {
-        (InventoryRMImportService.status as any).mockResolvedValue({
-            import_id: "u",
-            state: "completed",
-            progress: 100,
-            result: { import_id: "u", total: 10 },
-        });
-        const { result } = renderHook(() => useInventoryRMImport("u"), { wrapper });
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-        expect(result.current.data?.state).toBe("completed");
-    });
-});
-```
-
-### 8.3 Component test (Upload step)
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { UploadStep } from "@/components/pages/inventory/rm/import/steps/upload-step";
-
-vi.mock("@/app/(application)/inventory/rm/import/server/use.inventory.rm.import", () => ({
-    useFormInventoryRMImport: () => ({
-        preview: { mutateAsync: vi.fn().mockResolvedValue({ import_id: "u", total: 1, valid: 1, invalid: 0 }), isPending: false },
-    }),
-}));
-
-describe("UploadStep", () => {
-    it("disables submit until file picked", () => {
-        render(<UploadStep onSuccess={vi.fn()} />);
-        const btn = screen.getByRole("button", { name: /validasi/i });
-        expect(btn).toBeDisabled();
-    });
-
-    it("invokes onSuccess with preview result", async () => {
-        const onSuccess = vi.fn();
-        render(<UploadStep onSuccess={onSuccess} />);
-        const file = new File(["x"], "rm.csv", { type: "text/csv" });
-        const input = screen.getByLabelText ? screen.getByLabelText("file") : screen.getByDisplayValue("");
-        fireEvent.change(input as HTMLElement, { target: { files: [file] } });
-        fireEvent.click(screen.getByRole("button", { name: /validasi/i }));
-        await new Promise((r) => setTimeout(r, 0));
-        expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ import_id: "u" }));
-    });
-});
-```
-
----
-
-## 9. Cross-link
-
-- BE scope doc: [./README.md](./README.md)
+- BE scope doc: [`./README.md`](./README.md)
 - Parent BE scope (RM CRUD + export): [`../README.md`](../README.md)
 - Module-level FE konvensi: [`../../frontend-integration.md`](../../frontend-integration.md)
-- Counterpart FG import: [`../../fg/import/README.md`](../../fg/import/README.md) (pattern identik)
-- SOP FE canonical: [frontend-dev-flow](../../../../../.claude/skills/frontend-dev-flow/SKILL.md)
-- SOP FE testing: [frontend-testing](../../../../../.claude/skills/frontend-testing/SKILL.md)
+- Counterpart FG import: [`../../fg/import/frontend-integration.md`](../../fg/import/frontend-integration.md) (pattern identik)
+- **Wizard 3-step UI** (Upload → Preview → Progress) ke SOP canonical: [frontend-dev-flow](../../../../../.claude/skills/frontend-dev-flow/SKILL.md) — section komponen wizard, Page entry, Shell, dan masing-masing step component (Upload / Preview / Progress) mengikuti template `frontend-dev-flow`.
+- **Testing FE** (Vitest + RTL untuk service, hooks, dan step components) ke SOP: [frontend-testing](../../../../../.claude/skills/frontend-testing/SKILL.md).
 - Postman folder: `Inventory → RM → Import` di `docs/postman/erp-mandalika.postman_collection.json`.
 - Worker process & deployment: [`../../../../DEPLOYMENT.md`](../../../../DEPLOYMENT.md).

@@ -1,10 +1,9 @@
 # Inventory / Monitoring / Stock Distribution — Frontend Integration (Scope Level)
 
-End-to-end FE integration **lengkap** untuk scope ini. FE engineer baca file ini saja → bisa implement dari nol.
+Kontrak BE→FE (read-only matrix view). Komponen matrix UI (kolom dinamis per lokasi, sticky header, period filter, export button) diserahkan ke frontend-dev-flow SOP.
 
 **Backend scope path**: `api/src/module/application/inventory/monitoring/stock-distribution/`
 **Frontend scope path**: `app/src/app/(application)/inventory/monitoring/stock-distribution/server/`
-**Component path**: `app/src/components/pages/inventory/monitoring/stock-distribution/`
 **Endpoint base**: `/api/app/inventory/monitoring/stock-distribution`
 **Status FE**: 🚧 TBD <!-- ubah ke ✅ Ready setelah file FE dibuat -->
 
@@ -259,7 +258,28 @@ export interface ResponseStockDistributionRMLocationDTO {
 
 ---
 
-## 3. Service Class — FULL CODE
+## 3. Routing — Endpoint Table
+
+Path prefix: `/api/app/inventory/monitoring/stock-distribution`. Semua endpoint **read-only `GET`** → tidak ada `setupCSRFToken()` di FE service (CSRF hanya untuk POST/PUT/PATCH/DELETE).
+
+| Method | Path             | Controller                                       | Query / Params                                 | Success Status | Response Body                                                                                                  |
+| :----- | :--------------- | :----------------------------------------------- | :--------------------------------------------- | :------------- | :------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/fg`            | `StockDistributionFGController.list`             | `QueryStockDistributionFGSchema`               | `200`          | `ApiSuccessResponse<{ data: ResponseStockDistributionFGDTO[]; len: number }>` — matrix list; `sortBy=total_stock` aktifkan cross-page sort path (`listSortedByTotal`). |
+| `GET`  | `/fg/locations`  | `StockDistributionFGController.listLocations`    | —                                              | `200`          | `ApiSuccessResponse<ResponseStockDistributionLocationDTO[]>` — sumber kolom dinamis (warehouse `FINISH_GOODS` + outlet). |
+| `GET`  | `/fg/export`     | `StockDistributionFGController.export`           | `QueryStockDistributionFGSchema`               | `200`          | **Dual response**: `text/csv; charset=utf-8` (Blob, `Content-Disposition: attachment`) saat ada data; `ApiSuccessResponse<{ message: string }>` (JSON) saat dataset kosong. |
+| `GET`  | `/rm`            | `StockDistributionRMController.list`             | `QueryStockDistributionRMSchema`               | `200`          | `ApiSuccessResponse<{ data: ResponseStockDistributionRMDTO[]; len: number }>` — matrix list; `sortBy=total_stock` cross-page sort. |
+| `GET`  | `/rm/locations`  | `StockDistributionRMController.listLocations`    | —                                              | `200`          | `ApiSuccessResponse<ResponseStockDistributionRMLocationDTO[]>` — warehouse `RAW_MATERIAL` only.                |
+| `GET`  | `/rm/export`     | `StockDistributionRMController.export`           | `QueryStockDistributionRMSchema`               | `200`          | **Dual response**: `text/csv; charset=utf-8` (Blob) saat ada data; `ApiSuccessResponse<{ message: string }>` (JSON) saat dataset kosong. |
+
+**Catatan integrasi FE**:
+
+- Tidak ada `POST` / `PUT` / `PATCH` / `DELETE` → **tidak panggil `setupCSRFToken()`** di service.
+- `*/export` endpoint perlu `responseType: "blob"` di axios. Defensive: cek `blob.type` / inspect `Content-Type` untuk membedakan blob CSV vs JSON empty message (lihat §7 Edge Cases).
+- Error path standar global modul (`401`/`403`/`422`/`500`) — handled via `FetchError(err, setErr)` di hook.
+
+---
+
+## 4. Service Class — FULL CODE
 
 **File**: `app/src/app/(application)/inventory/monitoring/stock-distribution/server/inventory.monitoring.stock-distribution.service.ts` 🚧 TBD
 
@@ -378,12 +398,12 @@ export function downloadBlob(blob: Blob, filename: string) {
 
 ---
 
-## 4. Hooks — Split per Sub-Scope (FG & RM)
+## 5. Hooks — Split per Sub-Scope (FG & RM)
 
 **File**: `app/src/app/(application)/inventory/monitoring/stock-distribution/server/use.inventory.monitoring.stock-distribution.ts` 🚧 TBD
 
 > **READ-only scope** — WRITE = **N/A (read-only)**, ACTION = **N/A (read-only)**.
-> Hook 4.2 dan 4.3 tidak ada. Replaced oleh export-csv mutation di hook 4.5 (Query wrapper).
+> Hook 5.2 dan 5.3 tidak ada. Replaced oleh export-csv mutation di hook 5.5 (Query wrapper).
 
 ```ts
 "use client";
@@ -415,7 +435,7 @@ const KEY_RM = ["inventory.monitoring.stock-distribution.rm"] as const;
 // FG
 // ════════════════════════════════════════════════════════════════════════════
 
-// 4.1.FG READ — list matrix
+// 5.1.FG READ — list matrix
 export function useInventoryMonitoringStockDistributionFG(
     params: QueryStockDistributionFGDTO,
     enabled = true,
@@ -431,7 +451,7 @@ export function useInventoryMonitoringStockDistributionFG(
     });
 }
 
-// 4.1.FG READ — list locations (dynamic columns source)
+// 5.1.FG READ — list locations (dynamic columns source)
 export function useInventoryMonitoringStockDistributionFGLocations(enabled = true) {
     return useQuery<ResponseStockDistributionLocationDTO[], ResponseError>({
         queryKey: [...KEY_FG, "locations"],
@@ -441,10 +461,10 @@ export function useInventoryMonitoringStockDistributionFGLocations(enabled = tru
     });
 }
 
-// 4.2.FG WRITE — N/A (read-only)
-// 4.3.FG ACTION — N/A (read-only)
+// 5.2.FG WRITE — N/A (read-only)
+// 5.3.FG ACTION — N/A (read-only)
 
-// 4.4.FG TableState — URL sync + debounce search + period filter
+// 5.4.FG TableState — URL sync + debounce search + period filter
 export function useInventoryMonitoringStockDistributionFGTableState() {
     const searchParams = useSearchParams();
     const { batchSet } = useQueryParams();
@@ -505,7 +525,7 @@ export function useInventoryMonitoringStockDistributionFGTableState() {
     };
 }
 
-// 4.5.FG Query wrapper — list + locations + exportCsv mutation
+// 5.5.FG Query wrapper — list + locations + exportCsv mutation
 export function useInventoryMonitoringStockDistributionFGQuery() {
     const tableState = useInventoryMonitoringStockDistributionFGTableState();
     const list       = useInventoryMonitoringStockDistributionFG(tableState.queryParams);
@@ -532,7 +552,7 @@ export function useInventoryMonitoringStockDistributionFGQuery() {
 // RM
 // ════════════════════════════════════════════════════════════════════════════
 
-// 4.1.RM READ — list matrix
+// 5.1.RM READ — list matrix
 export function useInventoryMonitoringStockDistributionRM(
     params: QueryStockDistributionRMDTO,
     enabled = true,
@@ -548,7 +568,7 @@ export function useInventoryMonitoringStockDistributionRM(
     });
 }
 
-// 4.1.RM READ — list locations
+// 5.1.RM READ — list locations
 export function useInventoryMonitoringStockDistributionRMLocations(enabled = true) {
     return useQuery<ResponseStockDistributionRMLocationDTO[], ResponseError>({
         queryKey: [...KEY_RM, "locations"],
@@ -558,10 +578,10 @@ export function useInventoryMonitoringStockDistributionRMLocations(enabled = tru
     });
 }
 
-// 4.2.RM WRITE — N/A (read-only)
-// 4.3.RM ACTION — N/A (read-only)
+// 5.2.RM WRITE — N/A (read-only)
+// 5.3.RM ACTION — N/A (read-only)
 
-// 4.4.RM TableState
+// 5.4.RM TableState
 export function useInventoryMonitoringStockDistributionRMTableState() {
     const searchParams = useSearchParams();
     const { batchSet } = useQueryParams();
@@ -622,7 +642,7 @@ export function useInventoryMonitoringStockDistributionRMTableState() {
     };
 }
 
-// 4.5.RM Query wrapper — list + locations + exportCsv mutation
+// 5.5.RM Query wrapper — list + locations + exportCsv mutation
 export function useInventoryMonitoringStockDistributionRMQuery() {
     const tableState = useInventoryMonitoringStockDistributionRMTableState();
     const list       = useInventoryMonitoringStockDistributionRM(tableState.queryParams);
@@ -654,261 +674,6 @@ export function useInventoryMonitoringStockDistributionRMQuery() {
 | `useInventoryMonitoringStockDistributionFGLocations()`          | `["inventory.monitoring.stock-distribution.fg", "locations"]`             |
 | `useInventoryMonitoringStockDistributionRM(params)`             | `["inventory.monitoring.stock-distribution.rm", params]`                  |
 | `useInventoryMonitoringStockDistributionRMLocations()`          | `["inventory.monitoring.stock-distribution.rm", "locations"]`             |
-
----
-
-## 5. Components — Matrix View (FG & RM)
-
-> Tidak ada Form, tidak ada Dialog (read-only). Hanya List page + filter bar + dynamic columns generator + Export CSV button.
-
-### 5.1 FG List page — `components/pages/inventory/monitoring/stock-distribution/fg/index.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useMemo } from "react";
-import { useInventoryMonitoringStockDistributionFGQuery } from "@/app/(application)/inventory/monitoring/stock-distribution/server/use.inventory.monitoring.stock-distribution";
-import { DataTable } from "@/components/ui/data-table";
-import { MonthYearPicker } from "@/components/ui/month-year-picker";
-import { SelectGender } from "@/components/ui/select-gender";
-import { SelectProductType } from "@/components/ui/select-product-type";
-import { buildFGColumns } from "./columns";
-
-export default function StockDistributionFGList() {
-    const {
-        search, setSearch,
-        month, year, setPeriod,
-        type_id, setTypeId,
-        gender, setGender,
-        list, locations, exportCsv,
-        queryParams,
-    } = useInventoryMonitoringStockDistributionFGQuery();
-
-    const columns = useMemo(
-        () => buildFGColumns(locations.data ?? []),
-        [locations.data],
-    );
-
-    return (
-        <section className="space-y-4">
-            <header className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                    <MonthYearPicker month={month} year={year} onChange={setPeriod} />
-                    <input
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Cari nama / SKU…"
-                        className="rounded-xl border-zinc-200 px-3 py-2"
-                    />
-                    <SelectProductType value={type_id} onChange={setTypeId} />
-                    <SelectGender value={gender} onChange={setGender} />
-                </div>
-                <button
-                    onClick={() => exportCsv.mutate(queryParams)}
-                    disabled={exportCsv.isPending}
-                    className="rounded-xl bg-amber-500 px-4 py-2 text-white"
-                >
-                    {exportCsv.isPending ? "Mengunduh…" : "Export CSV"}
-                </button>
-            </header>
-
-            <DataTable
-                tableId="stock-distribution-fg-table"
-                columns={columns}
-                data={list.data?.data ?? []}
-                total={list.data?.len ?? 0}
-                loading={list.isLoading || locations.isLoading}
-                stickyFirstColumn
-                horizontalScroll
-            />
-        </section>
-    );
-}
-```
-
-### 5.2 FG Columns generator — `components/pages/inventory/monitoring/stock-distribution/fg/columns.tsx` 🚧 TBD
-
-```tsx
-import type { ColumnDef } from "@tanstack/react-table";
-import type {
-    ResponseStockDistributionFGDTO,
-    ResponseStockDistributionLocationDTO,
-} from "@/app/(application)/inventory/monitoring/stock-distribution/server/inventory.monitoring.stock-distribution.schema";
-
-/**
- * FG matrix has 8 static columns + 1 dynamic column per location.
- * Locations come from `useInventoryMonitoringStockDistributionFGLocations`.
- */
-export function buildFGColumns(
-    locations: ResponseStockDistributionLocationDTO[],
-): ColumnDef<ResponseStockDistributionFGDTO>[] {
-    const staticCols: ColumnDef<ResponseStockDistributionFGDTO>[] = [
-        { accessorKey: "code",          header: "SKU / Code", enableSorting: true },
-        { accessorKey: "name",          header: "Nama Produk", enableSorting: true },
-        { accessorKey: "type",          header: "Tipe", enableSorting: true },
-        { accessorKey: "size",          header: "Size", enableSorting: true },
-        { accessorKey: "gender",        header: "Gender" },
-        { accessorKey: "uom",           header: "UOM" },
-        { accessorKey: "total_stock",   header: "Total Stok",   enableSorting: true },
-        { accessorKey: "total_missing", header: "Total Hilang", enableSorting: false },
-    ];
-
-    const dynamicCols: ColumnDef<ResponseStockDistributionFGDTO>[] = locations.map((loc) => ({
-        id: `loc_${loc.id}`,
-        header: () => (
-            <div className="flex flex-col">
-                <span>{loc.name}</span>
-                <span className="text-xs text-zinc-400">{loc.type}</span>
-            </div>
-        ),
-        accessorFn: (row) => row.location_stocks[loc.name] ?? 0,
-        cell: ({ row }) => (
-            <span className="font-mono">
-                {row.original.location_stocks[loc.name] ?? 0}
-            </span>
-        ),
-        enableSorting: false,
-    }));
-
-    return [...staticCols, ...dynamicCols];
-}
-```
-
-### 5.3 RM List page — `components/pages/inventory/monitoring/stock-distribution/rm/index.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useMemo } from "react";
-import { useInventoryMonitoringStockDistributionRMQuery } from "@/app/(application)/inventory/monitoring/stock-distribution/server/use.inventory.monitoring.stock-distribution";
-import { DataTable } from "@/components/ui/data-table";
-import { MonthYearPicker } from "@/components/ui/month-year-picker";
-import { SelectMaterialType } from "@/components/ui/select-material-type";
-import { SelectRMCategory } from "@/components/ui/select-rm-category";
-import { buildRMColumns } from "./columns";
-
-export default function StockDistributionRMList() {
-    const {
-        search, setSearch,
-        month, year, setPeriod,
-        category_id, setCategoryId,
-        material_type, setMaterialType,
-        list, locations, exportCsv,
-        queryParams,
-    } = useInventoryMonitoringStockDistributionRMQuery();
-
-    const columns = useMemo(
-        () => buildRMColumns(locations.data ?? []),
-        [locations.data],
-    );
-
-    return (
-        <section className="space-y-4">
-            <header className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                    <MonthYearPicker month={month} year={year} onChange={setPeriod} />
-                    <input
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Cari nama bahan baku…"
-                        className="rounded-xl border-zinc-200 px-3 py-2"
-                    />
-                    <SelectRMCategory value={category_id} onChange={setCategoryId} />
-                    <SelectMaterialType value={material_type} onChange={setMaterialType} />
-                </div>
-                <button
-                    onClick={() => exportCsv.mutate(queryParams)}
-                    disabled={exportCsv.isPending}
-                    className="rounded-xl bg-amber-500 px-4 py-2 text-white"
-                >
-                    {exportCsv.isPending ? "Mengunduh…" : "Export CSV"}
-                </button>
-            </header>
-
-            <DataTable
-                tableId="stock-distribution-rm-table"
-                columns={columns}
-                data={list.data?.data ?? []}
-                total={list.data?.len ?? 0}
-                loading={list.isLoading || locations.isLoading}
-                stickyFirstColumn
-                horizontalScroll
-            />
-        </section>
-    );
-}
-```
-
-### 5.4 RM Columns generator — `components/pages/inventory/monitoring/stock-distribution/rm/columns.tsx` 🚧 TBD
-
-```tsx
-import type { ColumnDef } from "@tanstack/react-table";
-import type {
-    ResponseStockDistributionRMDTO,
-    ResponseStockDistributionRMLocationDTO,
-} from "@/app/(application)/inventory/monitoring/stock-distribution/server/inventory.monitoring.stock-distribution.schema";
-
-/**
- * RM matrix has 6 static columns + 1 dynamic column per warehouse.
- * NOTE: RM has NO `total_missing` column (only FG does).
- */
-export function buildRMColumns(
-    locations: ResponseStockDistributionRMLocationDTO[],
-): ColumnDef<ResponseStockDistributionRMDTO>[] {
-    const staticCols: ColumnDef<ResponseStockDistributionRMDTO>[] = [
-        { accessorKey: "name",          header: "Nama Bahan Baku", enableSorting: true },
-        { accessorKey: "category",      header: "Kategori",        enableSorting: true },
-        { accessorKey: "unit",          header: "Satuan",          enableSorting: true },
-        { accessorKey: "material_type", header: "Tipe Material",   enableSorting: true,
-          cell: ({ row }) => row.original.material_type ?? "-" },
-        { accessorKey: "min_stock",     header: "Min Stock",
-          cell: ({ row }) => row.original.min_stock ?? "-" },
-        { accessorKey: "total_stock",   header: "Total Stok",      enableSorting: true },
-    ];
-
-    const dynamicCols: ColumnDef<ResponseStockDistributionRMDTO>[] = locations.map((loc) => ({
-        id: `loc_${loc.id}`,
-        header: loc.name,
-        accessorFn: (row) => row.location_stocks[loc.name] ?? 0,
-        cell: ({ row }) => (
-            <span className="font-mono">
-                {row.original.location_stocks[loc.name] ?? 0}
-            </span>
-        ),
-        enableSorting: false,
-    }));
-
-    return [...staticCols, ...dynamicCols];
-}
-```
-
-### 5.5 Page entries
-
-```tsx
-// app/(application)/inventory/monitoring/stock-distribution/fg/page.tsx 🚧 TBD
-import { Suspense } from "react";
-import StockDistributionFGList from "@/components/pages/inventory/monitoring/stock-distribution/fg";
-
-export default function Page() {
-    return (
-        <Suspense fallback={<div>Loading…</div>}>
-            <StockDistributionFGList />
-        </Suspense>
-    );
-}
-```
-
-```tsx
-// app/(application)/inventory/monitoring/stock-distribution/rm/page.tsx 🚧 TBD
-import { Suspense } from "react";
-import StockDistributionRMList from "@/components/pages/inventory/monitoring/stock-distribution/rm";
-
-export default function Page() {
-    return (
-        <Suspense fallback={<div>Loading…</div>}>
-            <StockDistributionRMList />
-        </Suspense>
-    );
-}
-```
 
 ---
 
@@ -1027,135 +792,11 @@ sequenceDiagram
 
 ---
 
-## 8. Testing FE (Vitest + RTL)
-
-**Lokasi**: `app/src/__tests__/inventory/monitoring/stock-distribution/` 🚧 TBD. Mengikuti SOP `frontend-testing`.
-
-### 8.1 Service test — blob response
-
-```ts
-import { describe, it, expect, vi } from "vitest";
-import api from "@/lib/api";
-import { InventoryMonitoringStockDistributionService } from "@/app/(application)/inventory/monitoring/stock-distribution/server/inventory.monitoring.stock-distribution.service";
-
-vi.mock("@/lib/api");
-
-describe("InventoryMonitoringStockDistributionService", () => {
-    it("listFG passes params to GET /fg", async () => {
-        (api.get as any).mockResolvedValue({ data: { data: { data: [], len: 0 } } });
-        await InventoryMonitoringStockDistributionService.listFG({ page: 1, month: 5, year: 2026 });
-        expect(api.get).toHaveBeenCalledWith(
-            expect.stringContaining("/fg"),
-            { params: { page: 1, month: 5, year: 2026 } },
-        );
-    });
-
-    it("listFGLocations calls GET /fg/locations", async () => {
-        (api.get as any).mockResolvedValue({ data: { data: [] } });
-        await InventoryMonitoringStockDistributionService.listFGLocations();
-        expect(api.get).toHaveBeenCalledWith(expect.stringContaining("/fg/locations"));
-    });
-
-    it("exportFG returns Blob with responseType=blob", async () => {
-        const blob = new Blob(["csv"], { type: "text/csv" });
-        (api.get as any).mockResolvedValue({ data: blob });
-        const result = await InventoryMonitoringStockDistributionService.exportFG({ page: 1 });
-        expect(api.get).toHaveBeenCalledWith(
-            expect.stringContaining("/fg/export"),
-            expect.objectContaining({ responseType: "blob" }),
-        );
-        expect(result).toBeInstanceOf(Blob);
-    });
-
-    it("listRM passes params to GET /rm", async () => {
-        (api.get as any).mockResolvedValue({ data: { data: { data: [], len: 0 } } });
-        await InventoryMonitoringStockDistributionService.listRM({ page: 1, material_type: "FO" });
-        expect(api.get).toHaveBeenCalledWith(
-            expect.stringContaining("/rm"),
-            { params: { page: 1, material_type: "FO" } },
-        );
-    });
-});
-```
-
-### 8.2 Hook test — QueryClientProvider
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useInventoryMonitoringStockDistributionFG } from "@/app/(application)/inventory/monitoring/stock-distribution/server/use.inventory.monitoring.stock-distribution";
-import { InventoryMonitoringStockDistributionService } from "@/app/(application)/inventory/monitoring/stock-distribution/server/inventory.monitoring.stock-distribution.service";
-
-vi.mock("@/app/(application)/inventory/monitoring/stock-distribution/server/inventory.monitoring.stock-distribution.service");
-
-const wrapper = ({ children }: { children: React.ReactNode }) => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-};
-
-describe("useInventoryMonitoringStockDistributionFG", () => {
-    it("fetches list via service", async () => {
-        (InventoryMonitoringStockDistributionService.listFG as any).mockResolvedValue({ data: [], len: 0 });
-        const { result } = renderHook(
-            () => useInventoryMonitoringStockDistributionFG({ page: 1, month: 5, year: 2026 }),
-            { wrapper },
-        );
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-        expect(InventoryMonitoringStockDistributionService.listFG).toHaveBeenCalledWith({
-            page: 1, month: 5, year: 2026,
-        });
-    });
-});
-```
-
-### 8.3 Columns generator test
-
-```tsx
-import { describe, it, expect } from "vitest";
-import { buildFGColumns } from "@/components/pages/inventory/monitoring/stock-distribution/fg/columns";
-import { buildRMColumns } from "@/components/pages/inventory/monitoring/stock-distribution/rm/columns";
-
-describe("buildFGColumns", () => {
-    it("returns 8 static columns + 1 column per location", () => {
-        const cols = buildFGColumns([
-            { id: 1, name: "WH-Bandung", type: "WAREHOUSE" },
-            { id: 2, name: "Outlet-Jakarta", type: "OUTLET" },
-        ]);
-        expect(cols).toHaveLength(8 + 2);
-        expect(cols[8].id).toBe("loc_1");
-        expect(cols[9].id).toBe("loc_2");
-    });
-
-    it("includes total_missing column", () => {
-        const cols = buildFGColumns([]);
-        expect(cols.some((c) => (c as any).accessorKey === "total_missing")).toBe(true);
-    });
-
-    it("dynamic accessor reads location_stocks[name] with default 0", () => {
-        const cols = buildFGColumns([{ id: 1, name: "WH-A", type: "WAREHOUSE" }]);
-        const dynCol = cols[8] as any;
-        expect(dynCol.accessorFn({ location_stocks: { "WH-A": 42 } })).toBe(42);
-        expect(dynCol.accessorFn({ location_stocks: {} })).toBe(0);
-    });
-});
-
-describe("buildRMColumns", () => {
-    it("returns 6 static columns + 1 column per warehouse (no total_missing)", () => {
-        const cols = buildRMColumns([{ id: 10, name: "RM-WH", type: "WAREHOUSE" }]);
-        expect(cols).toHaveLength(6 + 1);
-        expect(cols.some((c) => (c as any).accessorKey === "total_missing")).toBe(false);
-    });
-});
-```
-
----
-
-## 9. Cross-link
+## 8. Cross-link
 
 - BE scope doc: [./README.md](./README.md)
 - Module-level konvensi FE: [../../../frontend-integration.md](../../../frontend-integration.md)
-- SOP FE canonical: [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md)
-- SOP FE testing: [frontend-testing](../../../../.claude/skills/frontend-testing/SKILL.md)
+- SOP FE canonical (komponen, page entry, columns generator, filter bar, Export button, matrix view dengan sticky first column + dynamic location columns + `MonthYearPicker` filter bar): [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md)
+- SOP FE testing (service test untuk blob response, hook test dengan `QueryClientProvider`, columns generator test): [frontend-testing](../../../../.claude/skills/frontend-testing/SKILL.md)
 - Postman folder: `Inventory → Monitoring → Stock Distribution` di `docs/postman/erp-mandalika.postman_collection.json`.
 - Sibling scope BE: `api/src/module/application/inventory/monitoring/stock-distribution/_shared/{matrix.helpers,csv.helpers}.ts` — period default + dynamic CSV builder, reused by FG & RM.

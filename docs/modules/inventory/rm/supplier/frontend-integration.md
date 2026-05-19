@@ -1,18 +1,17 @@
 # Inventory / RM / Supplier — Frontend Integration (Scope Level)
 
-End-to-end FE integration **lengkap** untuk scope ini. FE engineer baca file ini saja → bisa implement dari nol.
+Kontrak BE→FE. Komponen ke frontend-dev-flow SOP.
 
 **Backend scope path**: `api/src/module/application/inventory/rm/supplier/`
 **Frontend scope path**: `app/src/app/(application)/inventory/rm/suppliers/server/`
-**Component path**: `app/src/components/pages/inventory/rm/suppliers/`
 **Endpoint base**: `/api/app/inventory/rm/suppliers`
-**Status FE**: 🚧 TBD <!-- ubah ke ✅ Ready setelah file FE dibuat -->
+**Status FE**: TBD
 
 **Dependencies**:
 
 - Konvensi global modul ([`../../frontend-integration.md`](../../frontend-integration.md)) — CSRF, queryKey naming, error pattern, debounce, design tokens, status code expectation.
 - BE scope doc ([`./README.md`](./README.md)) — Zod schema source, endpoint detail, error catalog.
-- SOP canonical: [frontend-dev-flow](../../../../../.claude/skills/frontend-dev-flow/SKILL.md).
+- SOP canonical FE: [frontend-dev-flow](../../../../../.claude/skills/frontend-dev-flow/SKILL.md).
 
 Master data Supplier — partner penyedia raw material. CRUD murni dengan **hard delete** (bukan soft) dan pre-check FK ke `supplier_materials` agar supplier yang masih dipakai oleh RM tidak boleh dihapus. Slug auto-generate server-side dari `name`.
 
@@ -41,11 +40,11 @@ export const RequestSupplierSchema = z.object({
 
 | Field       | Type                  | Required | Default   | Constraint                          | Error msg                              | Catatan                                                                |
 | :---------- | :-------------------- | :------- | :-------- | :---------------------------------- | :------------------------------------- | :--------------------------------------------------------------------- |
-| `name`      | `string`              | ✅       | —         | `min(1)`, `max(100)`                | `"Nama supplier wajib diisi"`          | Server-side `normalizeSlug(name)` setiap kali field ini di-set.        |
-| `addresses` | `string`              | ✅       | —         | `min(1)`                            | `"Alamat supplier wajib diisi"`        | Single free-text textarea (bukan array; nama field tetap `addresses`). |
-| `country`   | `string`              | ✅       | —         | `min(1)`, `max(100)`                | `"Negara wajib diisi"`                 | Free text (mis. `"ID"`, `"Indonesia"`). Tidak di-validate vs ISO list. |
-| `phone`     | `string \| null`      | ❌       | —         | `max(20)`, nullable, optional       | (default Zod)                          | `@unique` di DB. P2002 → 400 `"Nomor telepon supplier sudah digunakan"`. |
-| `source`    | `RawMaterialSource`   | ❌       | `"LOCAL"` | enum `RawMaterialSource`            | (default Zod)                          | `LOCAL` atau `IMPORT`.                                                 |
+| `name`      | `string`              | YA       | —         | `min(1)`, `max(100)`                | `"Nama supplier wajib diisi"`          | Server-side `normalizeSlug(name)` setiap kali field ini di-set.        |
+| `addresses` | `string`              | YA       | —         | `min(1)`                            | `"Alamat supplier wajib diisi"`        | Single free-text textarea (bukan array; nama field tetap `addresses`). |
+| `country`   | `string`              | YA       | —         | `min(1)`, `max(100)`                | `"Negara wajib diisi"`                 | Free text (mis. `"ID"`, `"Indonesia"`). Tidak di-validate vs ISO list. |
+| `phone`     | `string \| null`      | TIDAK    | —         | `max(20)`, nullable, optional       | (default Zod)                          | `@unique` di DB. P2002 → 400 `"Nomor telepon supplier sudah digunakan"`. |
+| `source`    | `RawMaterialSource`   | TIDAK    | `"LOCAL"` | enum `RawMaterialSource`            | (default Zod)                          | `LOCAL` atau `IMPORT`.                                                 |
 
 ### 1.2 `ResponseSupplierDTO` & shape
 
@@ -73,7 +72,7 @@ export type ResponseSupplierDTO = {
 | `phone`           | `Supplier.phone`        | `body.phone ?? null` — string kosong tidak diizinkan (Zod max 20). |
 | `created_at`, `updated_at` | `DateTime`     | JSON serialisasi → ISO string; FE parse via `z.coerce.date()`.   |
 
-> Endpoint `GET /` (list) mengembalikan shape yang lebih kaya (`SupplierListItem`) — include `supplier_materials` ringkas. Lihat §2.2.
+> Endpoint `GET /` (list) mengembalikan shape yang lebih kaya (`SupplierListItem`) — include `supplier_materials` ringkas. Lihat §2.
 
 ### 1.3 `QuerySupplierSchema` — GET /
 
@@ -109,7 +108,7 @@ export type BulkDeleteSupplierDTO = z.infer<typeof BulkDeleteSupplierSchema>;
 
 | Field | Type       | Required | Constraint                  | Error msg                              |
 | :---- | :--------- | :------- | :-------------------------- | :------------------------------------- |
-| `ids` | `number[]` | ✅       | `min(1)`, semua int positif | `"Minimal 1 supplier harus dipilih"`   |
+| `ids` | `number[]` | YA       | `min(1)`, semua int positif | `"Minimal 1 supplier harus dipilih"`   |
 
 ### 1.5 Enum referensi (Prisma)
 
@@ -126,7 +125,7 @@ Lokasi BE: `prisma/schema.prisma`. FE import via `@/shared/types` — **JANGAN d
 
 ## 2. FE Schema Mirror
 
-**File**: `app/src/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.schema.ts` 🚧 TBD
+**File**: `app/src/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.schema.ts` (TBD)
 
 ```ts
 import { z } from "zod";
@@ -176,9 +175,33 @@ export type BulkDeleteSupplierDTO = z.infer<typeof BulkDeleteSupplierSchema>;
 
 ---
 
-## 3. Service Class — FULL CODE
+## 3. Routing — Endpoint Table
 
-**File**: `app/src/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.service.ts` 🚧 TBD
+Path prefix: `/api/app/inventory/rm/suppliers`. Sumber: `supplier.routes.ts` + `supplier.controller.ts`.
+
+| Method | Path             | Success | Body / Params                                  | Catatan                                                                  |
+| :----- | :--------------- | :------ | :--------------------------------------------- | :----------------------------------------------------------------------- |
+| GET    | `/`              | 200     | Query: `QuerySupplierDTO`                      | List paginated. Response = `{ data: SupplierListItem[], len: number }`. |
+| POST   | `/`              | 201     | Body: `RequestSupplierDTO`                     | Create. BE auto-set `slug` dari `name`.                                  |
+| GET    | `/:id`           | 200     | Param: `id` (int positif)                      | Detail. Response = `ResponseSupplierDTO` flat (tanpa relasi).            |
+| PUT    | `/:id`           | 200     | Body: `Partial<RequestSupplierDTO>`            | Update. BE regen `slug` kalau `name` di-set.                             |
+| DELETE | `/:id`           | 200     | Param: `id`                                    | **HARD delete** (bukan soft). Pre-check `count(supplier_materials)`.     |
+| POST   | `/bulk-delete`   | 200     | Body: `BulkDeleteSupplierDTO` (`{ ids: [] }`)  | **HARD bulk delete**. Bukan PUT; bukan status toggle.                    |
+
+**Catatan penting**:
+
+- **TIDAK ADA `PATCH /:id/status`** atau endpoint status apapun — model `Supplier` tidak memiliki kolom `STATUS`.
+- **TIDAK ADA `POST /bulk-status`** atau bulk action enum — satu-satunya bulk yang tersedia adalah `bulk-delete`.
+- **TIDAK ADA `GET /export`** / CSV / Excel endpoint untuk scope ini.
+- **TIDAK ADA `POST /:id/restore`** / `DELETE /clean` — hard delete, tidak ada trash mode.
+- **Method choice `POST /bulk-delete`** (bukan `DELETE /` dengan body) karena beberapa HTTP client / proxy tidak mengizinkan body di method DELETE.
+- **Status code 201 vs 200**: `POST /` mengembalikan 201 Created; semua endpoint lain (termasuk `POST /bulk-delete`) mengembalikan 200 OK.
+
+---
+
+## 4. Service Class — FULL CODE
+
+**File**: `app/src/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.service.ts` (TBD)
 
 ```ts
 import api from "@/lib/api";
@@ -261,9 +284,9 @@ export class InventoryRMSupplierService {
 
 ---
 
-## 4. Hooks — 5 Hook Split FULL CODE
+## 5. Hooks — 5 Hook Split FULL CODE
 
-**File**: `app/src/app/(application)/inventory/rm/suppliers/server/use.inventory.rm.supplier.ts` 🚧 TBD
+**File**: `app/src/app/(application)/inventory/rm/suppliers/server/use.inventory.rm.supplier.ts` (TBD)
 
 ```ts
 "use client";
@@ -285,7 +308,7 @@ import type {
 const KEY = ["inventory.rm.supplier"] as const;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.1 READ — useQuery wrapper
+// 5.1 READ — useQuery wrapper
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryRMSupplier(params: QuerySupplierDTO, enabled = true) {
     return useQuery<{ data: ResponseSupplierDTO[]; len: number }, ResponseError>({
@@ -305,7 +328,7 @@ export function useInventoryRMSupplierDetail(id: number, enabled = true) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.2 WRITE — create + update mutations
+// 5.2 WRITE — create + update mutations
 // ──────────────────────────────────────────────────────────────────────────────
 export function useFormInventoryRMSupplier() {
     const setErr = useSetAtom(errorAtom);
@@ -343,7 +366,7 @@ export function useFormInventoryRMSupplier() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.3 ACTION — hard delete + bulk delete (NO status / NO restore / NO clean)
+// 5.3 ACTION — hard delete + bulk delete (NO status / NO restore / NO clean)
 // ──────────────────────────────────────────────────────────────────────────────
 export function useActionInventoryRMSupplier() {
     const setErr = useSetAtom(errorAtom);
@@ -376,7 +399,7 @@ export function useActionInventoryRMSupplier() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.4 TableState — URL sync + debounce search (NO trash toggle — hard delete)
+// 5.4 TableState — URL sync + debounce search (NO trash toggle — hard delete)
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryRMSupplierTableState() {
     const searchParams = useSearchParams();
@@ -408,253 +431,12 @@ export function useInventoryRMSupplierTableState() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.5 Query-wrapper — bundling list + tableState untuk page consumer
+// 5.5 Query-wrapper — bundling list + tableState untuk page consumer
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryRMSupplierQuery() {
     const tableState = useInventoryRMSupplierTableState();
     const query = useInventoryRMSupplier(tableState.queryParams);
     return { ...tableState, query };
-}
-```
-
----
-
-## 5. Components — Snippets
-
-### 5.1 List page — `components/pages/inventory/rm/suppliers/index.tsx` 🚧 TBD
-
-NO trash mode toggle (hard delete saja). Bulk bar hanya tombol "Hapus".
-
-```tsx
-"use client";
-import {
-    useInventoryRMSupplierQuery,
-    useActionInventoryRMSupplier,
-} from "@/app/(application)/inventory/rm/suppliers/server/use.inventory.rm.supplier";
-import { DataTable } from "@/components/ui/data-table";
-import { columns } from "./table/columns";
-import { SupplierFormDialog } from "./form/supplier-form-dialog";
-
-export default function SupplierList() {
-    const { query, search, setSearch } = useInventoryRMSupplierQuery();
-    const { bulkDelete } = useActionInventoryRMSupplier();
-
-    return (
-        <section className="space-y-4">
-            <header className="flex items-center justify-between gap-2">
-                <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Cari nama / phone / negara…"
-                    className="rounded-xl border-zinc-200 px-3 py-2"
-                />
-                <SupplierFormDialog mode="create" />
-            </header>
-            <DataTable
-                tableId="inventory-rm-supplier-table"
-                columns={columns}
-                data={query.data?.data ?? []}
-                total={query.data?.len ?? 0}
-                loading={query.isLoading}
-                enableMultiSelect
-                onBulkAction={(ids) => bulkDelete.mutate(ids)}
-            />
-        </section>
-    );
-}
-```
-
-### 5.2 Form create — `components/pages/inventory/rm/suppliers/form/create.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Form } from "@/components/ui/form/main";
-import { InputForm, SelectForm, TextareaForm } from "@/components/ui/form";
-import {
-    RequestSupplierSchema,
-    type RequestSupplierDTO,
-} from "@/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.schema";
-import { useFormInventoryRMSupplier } from "@/app/(application)/inventory/rm/suppliers/server/use.inventory.rm.supplier";
-
-const SOURCE_OPTIONS = [
-    { label: "Lokal", value: "LOCAL" },
-    { label: "Impor", value: "IMPORT" },
-];
-
-export function CreateSupplierForm({ onSuccess }: { onSuccess?: () => void }) {
-    const form = useForm<RequestSupplierDTO>({
-        resolver: zodResolver(RequestSupplierSchema),
-        defaultValues: { source: "LOCAL" },
-    });
-    const { create } = useFormInventoryRMSupplier();
-
-    const handleSubmit = form.handleSubmit(async (body) => {
-        await create.mutateAsync(body);
-        form.reset();
-        onSuccess?.();
-    });
-
-    return (
-        <Form methods={form}>
-            <form onSubmit={handleSubmit} className="space-y-3">
-                <InputForm name="name" label="Nama Supplier" required />
-                <InputForm name="country" label="Negara" required />
-                <InputForm name="phone" label="No. Telepon (opsional)" />
-                <TextareaForm name="addresses" label="Alamat" required />
-                <SelectForm name="source" label="Source" options={SOURCE_OPTIONS} />
-                <button type="submit" disabled={create.isPending}>
-                    {create.isPending ? "Menyimpan…" : "Simpan"}
-                </button>
-            </form>
-        </Form>
-    );
-}
-```
-
-### 5.3 Form edit — `components/pages/inventory/rm/suppliers/form/edit.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Form } from "@/components/ui/form/main";
-import { InputForm, SelectForm, TextareaForm } from "@/components/ui/form";
-import {
-    RequestSupplierSchema,
-    type RequestSupplierDTO,
-    type ResponseSupplierDTO,
-} from "@/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.schema";
-import { useFormInventoryRMSupplier } from "@/app/(application)/inventory/rm/suppliers/server/use.inventory.rm.supplier";
-
-export function EditSupplierForm({
-    initial,
-    onSuccess,
-}: {
-    initial: ResponseSupplierDTO;
-    onSuccess?: () => void;
-}) {
-    const form = useForm<RequestSupplierDTO>({
-        resolver: zodResolver(RequestSupplierSchema.partial()),
-        defaultValues: {
-            name: initial.name,
-            addresses: initial.addresses,
-            country: initial.country,
-            phone: initial.phone ?? undefined,
-            source: initial.source,
-        },
-    });
-    const { update } = useFormInventoryRMSupplier();
-
-    const handleSubmit = form.handleSubmit(async (body) => {
-        await update.mutateAsync({ id: initial.id, body });
-        onSuccess?.();
-    });
-
-    return (
-        <Form methods={form}>
-            <form onSubmit={handleSubmit} className="space-y-3">
-                <InputForm name="name" label="Nama Supplier" />
-                <InputForm name="country" label="Negara" />
-                <InputForm name="phone" label="No. Telepon" />
-                <TextareaForm name="addresses" label="Alamat" />
-                <SelectForm
-                    name="source"
-                    label="Source"
-                    options={[
-                        { label: "Lokal", value: "LOCAL" },
-                        { label: "Impor", value: "IMPORT" },
-                    ]}
-                />
-                <button type="submit" disabled={update.isPending}>
-                    {update.isPending ? "Menyimpan…" : "Simpan"}
-                </button>
-            </form>
-        </Form>
-    );
-}
-```
-
-### 5.4 Dialog wrapper — `components/pages/inventory/rm/suppliers/form/supplier-form-dialog.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useState } from "react";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
-import { CreateSupplierForm } from "./create";
-import { EditSupplierForm } from "./edit";
-import type { ResponseSupplierDTO } from "@/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.schema";
-
-type Props =
-    | { mode: "create" }
-    | { mode: "edit"; initial: ResponseSupplierDTO };
-
-export function SupplierFormDialog(props: Props) {
-    const [open, setOpen] = useState(false);
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <button className="rounded-xl bg-gold-500 px-3 py-2 text-white">
-                    {props.mode === "create" ? "Tambah Supplier" : "Edit"}
-                </button>
-            </DialogTrigger>
-            <DialogContent>
-                {props.mode === "create" ? (
-                    <CreateSupplierForm onSuccess={() => setOpen(false)} />
-                ) : (
-                    <EditSupplierForm initial={props.initial} onSuccess={() => setOpen(false)} />
-                )}
-            </DialogContent>
-        </Dialog>
-    );
-}
-```
-
-### 5.5 Columns — `components/pages/inventory/rm/suppliers/table/columns.tsx` 🚧 TBD
-
-```tsx
-import type { ColumnDef } from "@tanstack/react-table";
-import type { ResponseSupplierDTO } from "@/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.schema";
-import { Badge } from "@/components/ui/badge";
-
-export const columns: ColumnDef<ResponseSupplierDTO>[] = [
-    { accessorKey: "name", header: "Nama" },
-    { accessorKey: "country", header: "Negara" },
-    {
-        accessorKey: "phone",
-        header: "Telepon",
-        cell: ({ row }) => row.original.phone ?? "—",
-    },
-    {
-        accessorKey: "source",
-        header: "Source",
-        cell: ({ row }) => (
-            <Badge variant={row.original.source === "IMPORT" ? "gold" : "zinc"}>
-                {row.original.source}
-            </Badge>
-        ),
-    },
-    {
-        accessorKey: "updated_at",
-        header: "Diperbarui",
-        cell: ({ row }) => new Date(row.original.updated_at).toLocaleDateString("id-ID"),
-    },
-];
-```
-
-### 5.6 Page entry — `app/(application)/inventory/rm/suppliers/page.tsx` 🚧 TBD
-
-```tsx
-import { Suspense } from "react";
-import SupplierList from "@/components/pages/inventory/rm/suppliers";
-
-export default function SupplierPage() {
-    return (
-        <Suspense fallback={<div>Loading…</div>}>
-            <SupplierList />
-        </Suspense>
-    );
 }
 ```
 
@@ -781,136 +563,11 @@ sequenceDiagram
 
 ---
 
-## 8. Testing FE (Vitest + RTL)
-
-**Lokasi**: `app/src/__tests__/inventory/rm/supplier/` 🚧 TBD. Mengikuti SOP `frontend-testing`.
-
-### 8.1 Service test
-
-```ts
-import { describe, it, expect, vi } from "vitest";
-import api from "@/lib/api";
-import { InventoryRMSupplierService } from "@/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.service";
-
-vi.mock("@/lib/api");
-vi.mock("@/shared/api/csrf", () => ({ setupCSRFToken: vi.fn() }));
-
-describe("InventoryRMSupplierService", () => {
-    it("list passes params to GET", async () => {
-        (api.get as any).mockResolvedValue({ data: { data: { data: [], len: 0 } } });
-        await InventoryRMSupplierService.list({
-            page: 1,
-            take: 25,
-            sortBy: "updated_at",
-            sortOrder: "desc",
-        });
-        expect(api.get).toHaveBeenCalledWith(
-            expect.stringContaining("/api/app/inventory/rm/suppliers"),
-            { params: expect.objectContaining({ page: 1 }) },
-        );
-    });
-
-    it("create calls setupCSRFToken before POST", async () => {
-        (api.post as any).mockResolvedValue({});
-        await InventoryRMSupplierService.create({
-            name: "PT A",
-            addresses: "Jl. X",
-            country: "ID",
-            source: "LOCAL",
-        });
-        expect(api.post).toHaveBeenCalledWith(
-            expect.stringContaining("/api/app/inventory/rm/suppliers"),
-            expect.objectContaining({ name: "PT A", source: "LOCAL" }),
-        );
-    });
-
-    it("remove sends DELETE /:id (HARD delete)", async () => {
-        (api.delete as any).mockResolvedValue({});
-        await InventoryRMSupplierService.remove(7);
-        expect(api.delete).toHaveBeenCalledWith(
-            expect.stringMatching(/\/api\/app\/inventory\/rm\/suppliers\/7$/),
-        );
-    });
-
-    it("bulkDelete POSTs to /bulk-delete with { ids }", async () => {
-        (api.post as any).mockResolvedValue({});
-        await InventoryRMSupplierService.bulkDelete([1, 2, 3]);
-        expect(api.post).toHaveBeenCalledWith(
-            expect.stringMatching(/\/bulk-delete$/),
-            { ids: [1, 2, 3] },
-        );
-    });
-});
-```
-
-### 8.2 Hook test
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useInventoryRMSupplier } from "@/app/(application)/inventory/rm/suppliers/server/use.inventory.rm.supplier";
-import { InventoryRMSupplierService } from "@/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.service";
-
-vi.mock("@/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.service");
-
-const wrapper = ({ children }: { children: React.ReactNode }) => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-};
-
-describe("useInventoryRMSupplier", () => {
-    it("fetches list via service", async () => {
-        (InventoryRMSupplierService.list as any).mockResolvedValue({ data: [], len: 0 });
-        const { result } = renderHook(
-            () =>
-                useInventoryRMSupplier({
-                    page: 1,
-                    take: 25,
-                    sortBy: "updated_at",
-                    sortOrder: "desc",
-                }),
-            { wrapper },
-        );
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-        expect(InventoryRMSupplierService.list).toHaveBeenCalled();
-    });
-});
-```
-
-### 8.3 Component test
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { CreateSupplierForm } from "@/components/pages/inventory/rm/suppliers/form/create";
-
-vi.mock(
-    "@/app/(application)/inventory/rm/suppliers/server/use.inventory.rm.supplier",
-    () => ({
-        useFormInventoryRMSupplier: () => ({
-            create: { mutateAsync: vi.fn(), isPending: false },
-        }),
-    }),
-);
-
-describe("CreateSupplierForm", () => {
-    it("renders required fields", () => {
-        render(<CreateSupplierForm />);
-        expect(screen.getByLabelText("Nama Supplier")).toBeInTheDocument();
-        expect(screen.getByLabelText("Negara")).toBeInTheDocument();
-        expect(screen.getByLabelText("Alamat")).toBeInTheDocument();
-    });
-});
-```
-
----
-
-## 9. Cross-link
+## 8. Cross-link
 
 - BE scope doc: [./README.md](./README.md)
 - Parent BE scope (RM): [../README.md](../README.md)
 - Module-level konvensi FE: [../../frontend-integration.md](../../frontend-integration.md)
-- SOP FE canonical: [frontend-dev-flow](../../../../../.claude/skills/frontend-dev-flow/SKILL.md)
-- SOP FE testing: [frontend-testing](../../../../../.claude/skills/frontend-testing/SKILL.md)
+- SOP FE canonical (komponen, page, columns, form, dialog): [frontend-dev-flow](../../../../../.claude/skills/frontend-dev-flow/SKILL.md)
+- SOP FE testing (Vitest + RTL untuk service / hook / component): [frontend-testing](../../../../../.claude/skills/frontend-testing/SKILL.md)
 - Postman folder: `Inventory → RM → Suppliers` di `docs/postman/erp-mandalika.postman_collection.json`.

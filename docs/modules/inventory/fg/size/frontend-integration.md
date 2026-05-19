@@ -1,6 +1,6 @@
 # Inventory / FG / Size — Frontend Integration (Scope Level)
 
-End-to-end FE integration **lengkap** untuk scope ini. FE engineer baca file ini saja → bisa implement dari nol.
+Kontrak BE→FE. Komponen Form (integer-only ML field) ke frontend-dev-flow SOP.
 
 **Backend scope path**: `api/src/module/application/inventory/fg/size/`
 **Frontend scope path**: `app/src/app/(application)/inventory/fg/sizes/server/` 🚧 TBD
@@ -127,7 +127,26 @@ export type QueryFGSizeDTO = z.infer<typeof QueryFGSizeSchema>;
 
 ---
 
-## 3. Service Class — FULL CODE
+## 3. Routing — Endpoint Table
+
+**Path prefix**: `/api/app/inventory/fg/sizes`
+
+| Method | Path        | Status | Body                                      | Query              | Response                                   | Deskripsi                                              |
+| :----- | :---------- | :----- | :---------------------------------------- | :----------------- | :----------------------------------------- | :----------------------------------------------------- |
+| GET    | `/`         | `200`  | —                                         | `QueryFGSizeDTO`   | `{ data: ResponseFGSizeDTO[], len }`       | List size paginated, `orderBy: { size: "asc" }`.       |
+| POST   | `/`         | `201`  | `RequestFGSizeDTO`                        | —                  | `ResponseFGSizeDTO`                        | Create size. P2002 → 400 "Ukuran {size} sudah tersedia". |
+| PUT    | `/:id`      | `200`  | `Partial<RequestFGSizeDTO>`               | —                  | `ResponseFGSizeDTO`                        | Update size by id. P2025 → 404, P2002 → 400.            |
+| DELETE | `/:id`      | `200`  | —                                         | —                  | `{}`                                       | Hard delete. FK products > 0 → 400.                    |
+
+**Sumber verifikasi**:
+
+- Routes: `api/src/module/application/inventory/fg/size/size.routes.ts` (4 handler — GET/POST/PUT/DELETE).
+- Controller status codes: `api/src/module/application/inventory/fg/size/size.controller.ts` — `create` → `sendSuccess(c, result, 201)`, `list/update/delete` → `200`.
+- Validation: `validateBody(RequestFGSizeSchema)` pada POST, `validateBody(RequestFGSizeSchema.partial())` pada PUT, `id` divalidasi `Number.isInteger(id) && id >= 1` di controller.
+
+---
+
+## 4. Service Class — FULL CODE
 
 **File**: `app/src/app/(application)/inventory/fg/sizes/server/inventory.fg.size.service.ts` 🚧 TBD
 
@@ -201,7 +220,7 @@ export class InventoryFGSizeService {
 
 ---
 
-## 4. Hooks — 5 Hook Split FULL CODE
+## 5. Hooks — 5 Hook Split FULL CODE
 
 **File**: `app/src/app/(application)/inventory/fg/sizes/server/use.inventory.fg.size.ts` 🚧 TBD
 
@@ -225,7 +244,7 @@ import type {
 const KEY = ["inventory.fg.size"] as const;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.1 READ — useQuery wrapper
+// 5.1 READ — useQuery wrapper
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryFGSize(params: QueryFGSizeDTO, enabled = true) {
     return useQuery<
@@ -240,7 +259,7 @@ export function useInventoryFGSize(params: QueryFGSizeDTO, enabled = true) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.2 WRITE — create + update mutations
+// 5.2 WRITE — create + update mutations
 // ──────────────────────────────────────────────────────────────────────────────
 export function useFormInventoryFGSize() {
     const setErr = useSetAtom(errorAtom);
@@ -287,7 +306,7 @@ export function useFormInventoryFGSize() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.3 ACTION — delete only (no status / no bulk / no clean)
+// 5.3 ACTION — delete only (no status / no bulk / no clean)
 // ──────────────────────────────────────────────────────────────────────────────
 export function useActionInventoryFGSize() {
     const setErr = useSetAtom(errorAtom);
@@ -315,7 +334,7 @@ export function useActionInventoryFGSize() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.4 TableState — URL sync + debounce search + filter
+// 5.4 TableState — URL sync + debounce search + filter
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryFGSizeTableState() {
     const searchParams = useSearchParams();
@@ -353,248 +372,12 @@ export function useInventoryFGSizeTableState() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.5 Query-wrapper — bundling list + tableState untuk page consumer
+// 5.5 Query-wrapper — bundling list + tableState untuk page consumer
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryFGSizeQuery() {
     const tableState = useInventoryFGSizeTableState();
     const query = useInventoryFGSize(tableState.queryParams);
     return { ...tableState, query };
-}
-```
-
----
-
-## 5. Components — Snippets
-
-### 5.1 List page — `components/pages/inventory/fg/sizes/index.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import {
-    useInventoryFGSizeQuery,
-    useActionInventoryFGSize,
-} from "@/app/(application)/inventory/fg/sizes/server/use.inventory.fg.size";
-import { DataTable } from "@/components/ui/data-table";
-import { columns } from "./table/columns";
-import { FGSizeFormDialog } from "./form/fg-size-form-dialog";
-
-export default function FGSizeList() {
-    const { query, search, setSearch } = useInventoryFGSizeQuery();
-    const { remove } = useActionInventoryFGSize();
-
-    return (
-        <section className="space-y-4">
-            <header className="flex items-center justify-between gap-2">
-                <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Cari ukuran (ML)…"
-                    inputMode="numeric"
-                    className="rounded-xl border-zinc-200 px-3 py-2"
-                />
-                <FGSizeFormDialog mode="create" />
-            </header>
-            <DataTable
-                tableId="fg-size-table"
-                columns={columns({ onDelete: (id) => remove.mutate({ id }) })}
-                data={query.data?.data ?? []}
-                total={query.data?.len ?? 0}
-                loading={query.isLoading}
-            />
-        </section>
-    );
-}
-```
-
-### 5.2 Form create — `components/pages/inventory/fg/sizes/form/create.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Form } from "@/components/ui/form/main";
-import { InputForm } from "@/components/ui/form";
-import {
-    RequestFGSizeSchema,
-    type RequestFGSizeDTO,
-} from "@/app/(application)/inventory/fg/sizes/server/inventory.fg.size.schema";
-import { useFormInventoryFGSize } from "@/app/(application)/inventory/fg/sizes/server/use.inventory.fg.size";
-
-export function CreateFGSizeForm({ onSuccess }: { onSuccess?: () => void }) {
-    const form = useForm<RequestFGSizeDTO>({
-        resolver: zodResolver(RequestFGSizeSchema),
-    });
-    const { create } = useFormInventoryFGSize();
-
-    const handleSubmit = form.handleSubmit(async (body) => {
-        await create.mutateAsync(body);
-        form.reset();
-        onSuccess?.();
-    });
-
-    return (
-        <Form methods={form}>
-            <form onSubmit={handleSubmit} className="space-y-3">
-                <InputForm
-                    name="size"
-                    label="Ukuran (ML)"
-                    type="number"
-                    inputMode="numeric"
-                    min={1}
-                    step={1}
-                    required
-                />
-                <button type="submit" disabled={create.isPending}>
-                    {create.isPending ? "Menyimpan…" : "Simpan"}
-                </button>
-            </form>
-        </Form>
-    );
-}
-```
-
-### 5.3 Form edit — `components/pages/inventory/fg/sizes/form/edit.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Form } from "@/components/ui/form/main";
-import { InputForm } from "@/components/ui/form";
-import {
-    RequestFGSizeSchema,
-    type RequestFGSizeDTO,
-    type ResponseFGSizeDTO,
-} from "@/app/(application)/inventory/fg/sizes/server/inventory.fg.size.schema";
-import { useFormInventoryFGSize } from "@/app/(application)/inventory/fg/sizes/server/use.inventory.fg.size";
-
-export function EditFGSizeForm({
-    row,
-    onSuccess,
-}: {
-    row: ResponseFGSizeDTO;
-    onSuccess?: () => void;
-}) {
-    const form = useForm<RequestFGSizeDTO>({
-        resolver: zodResolver(RequestFGSizeSchema),
-        defaultValues: { size: row.size },
-    });
-    const { update } = useFormInventoryFGSize();
-
-    const handleSubmit = form.handleSubmit(async (body) => {
-        await update.mutateAsync({ id: row.id, body });
-        onSuccess?.();
-    });
-
-    return (
-        <Form methods={form}>
-            <form onSubmit={handleSubmit} className="space-y-3">
-                <InputForm
-                    name="size"
-                    label="Ukuran (ML)"
-                    type="number"
-                    inputMode="numeric"
-                    min={1}
-                    step={1}
-                    required
-                />
-                <button type="submit" disabled={update.isPending}>
-                    {update.isPending ? "Menyimpan…" : "Update"}
-                </button>
-            </form>
-        </Form>
-    );
-}
-```
-
-### 5.4 Dialog wrapper — `components/pages/inventory/fg/sizes/form/fg-size-form-dialog.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useState } from "react";
-import { Dialog, DialogTrigger, DialogContent } from "@/components/ui/dialog";
-import { CreateFGSizeForm } from "./create";
-import { EditFGSizeForm } from "./edit";
-import type { ResponseFGSizeDTO } from "@/app/(application)/inventory/fg/sizes/server/inventory.fg.size.schema";
-
-type Props =
-    | { mode: "create" }
-    | { mode: "edit"; row: ResponseFGSizeDTO };
-
-export function FGSizeFormDialog(props: Props) {
-    const [open, setOpen] = useState(false);
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <button className="rounded-xl bg-amber-500 px-3 py-2 text-white">
-                    {props.mode === "create" ? "Tambah Ukuran" : "Edit"}
-                </button>
-            </DialogTrigger>
-            <DialogContent>
-                {props.mode === "create" ? (
-                    <CreateFGSizeForm onSuccess={() => setOpen(false)} />
-                ) : (
-                    <EditFGSizeForm
-                        row={props.row}
-                        onSuccess={() => setOpen(false)}
-                    />
-                )}
-            </DialogContent>
-        </Dialog>
-    );
-}
-```
-
-### 5.5 Columns — `components/pages/inventory/fg/sizes/table/columns.tsx` 🚧 TBD
-
-```tsx
-import type { ColumnDef } from "@tanstack/react-table";
-import type { ResponseFGSizeDTO } from "@/app/(application)/inventory/fg/sizes/server/inventory.fg.size.schema";
-import { FGSizeFormDialog } from "../form/fg-size-form-dialog";
-
-export const columns = ({
-    onDelete,
-}: {
-    onDelete: (id: number) => void;
-}): ColumnDef<ResponseFGSizeDTO>[] => [
-    { accessorKey: "id", header: "ID" },
-    {
-        accessorKey: "size",
-        header: "Ukuran",
-        cell: ({ row }) => (
-            <span className="font-mono">{row.original.size} ML</span>
-        ),
-    },
-    {
-        id: "actions",
-        header: "Aksi",
-        cell: ({ row }) => (
-            <div className="flex gap-2">
-                <FGSizeFormDialog mode="edit" row={row.original} />
-                <button
-                    onClick={() => onDelete(row.original.id)}
-                    className="text-red-600"
-                >
-                    Hapus
-                </button>
-            </div>
-        ),
-    },
-];
-```
-
-### 5.6 Page entry — `app/(application)/inventory/fg/sizes/page.tsx` 🚧 TBD
-
-```tsx
-import { Suspense } from "react";
-import FGSizeList from "@/components/pages/inventory/fg/sizes";
-
-export default function FGSizePage() {
-    return (
-        <Suspense fallback={<div>Loading…</div>}>
-            <FGSizeList />
-        </Suspense>
-    );
 }
 ```
 
@@ -699,135 +482,12 @@ sequenceDiagram
 
 ---
 
-## 8. Testing FE (Vitest + RTL)
-
-**Lokasi**: `app/src/__tests__/inventory/fg/sizes/` 🚧 TBD. Mengikuti SOP `frontend-testing`.
-
-### 8.1 Service test
-
-```ts
-import { describe, it, expect, vi } from "vitest";
-import api from "@/lib/api";
-import { InventoryFGSizeService } from "@/app/(application)/inventory/fg/sizes/server/inventory.fg.size.service";
-
-vi.mock("@/lib/api");
-vi.mock("@/shared/api/csrf", () => ({ setupCSRFToken: vi.fn() }));
-
-describe("InventoryFGSizeService", () => {
-    it("list passes params to GET", async () => {
-        (api.get as any).mockResolvedValue({
-            data: { data: { data: [], len: 0 } },
-        });
-        await InventoryFGSizeService.list({ page: 1, take: 25 });
-        expect(api.get).toHaveBeenCalledWith(expect.any(String), {
-            params: { page: 1, take: 25 },
-        });
-    });
-
-    it("create calls setupCSRFToken before POST", async () => {
-        (api.post as any).mockResolvedValue({
-            data: { data: { id: 1, size: 110 } },
-        });
-        const result = await InventoryFGSizeService.create({ size: 110 });
-        expect(api.post).toHaveBeenCalledWith(expect.any(String), { size: 110 });
-        expect(result).toEqual({ id: 1, size: 110 });
-    });
-
-    it("update sends PUT /:id", async () => {
-        (api.put as any).mockResolvedValue({
-            data: { data: { id: 1, size: 120 } },
-        });
-        await InventoryFGSizeService.update(1, { size: 120 });
-        expect(api.put).toHaveBeenCalledWith(
-            expect.stringContaining("/1"),
-            { size: 120 },
-        );
-    });
-
-    it("remove sends DELETE /:id", async () => {
-        (api.delete as any).mockResolvedValue({});
-        await InventoryFGSizeService.remove(1);
-        expect(api.delete).toHaveBeenCalledWith(expect.stringContaining("/1"));
-    });
-});
-```
-
-### 8.2 Hook test
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useInventoryFGSize } from "@/app/(application)/inventory/fg/sizes/server/use.inventory.fg.size";
-import { InventoryFGSizeService } from "@/app/(application)/inventory/fg/sizes/server/inventory.fg.size.service";
-
-vi.mock(
-    "@/app/(application)/inventory/fg/sizes/server/inventory.fg.size.service",
-);
-
-const wrapper = ({ children }: { children: React.ReactNode }) => {
-    const client = new QueryClient({
-        defaultOptions: { queries: { retry: false } },
-    });
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-};
-
-describe("useInventoryFGSize", () => {
-    it("fetches list via service", async () => {
-        (InventoryFGSizeService.list as any).mockResolvedValue({
-            data: [{ id: 1, size: 110 }],
-            len: 1,
-        });
-        const { result } = renderHook(
-            () => useInventoryFGSize({ page: 1, take: 25 }),
-            { wrapper },
-        );
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-        expect(InventoryFGSizeService.list).toHaveBeenCalledWith({
-            page: 1,
-            take: 25,
-        });
-    });
-});
-```
-
-### 8.3 Component test
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { CreateFGSizeForm } from "@/components/pages/inventory/fg/sizes/form/create";
-
-vi.mock(
-    "@/app/(application)/inventory/fg/sizes/server/use.inventory.fg.size",
-    () => ({
-        useFormInventoryFGSize: () => ({
-            create: { mutateAsync: vi.fn(), isPending: false },
-        }),
-    }),
-);
-
-describe("CreateFGSizeForm", () => {
-    it("renders the size (ML) field", () => {
-        render(<CreateFGSizeForm />);
-        expect(screen.getByLabelText("Ukuran (ML)")).toBeInTheDocument();
-    });
-
-    it("rejects non-integer input via Zod", async () => {
-        // Lihat frontend-testing SOP: pakai userEvent.type lalu submit form,
-        // verify form.formState.errors.size.message === "Ukuran harus bilangan bulat".
-    });
-});
-```
-
----
-
-## 9. Cross-link
+## 8. Cross-link
 
 - BE scope doc: [./README.md](./README.md)
 - Module-level konvensi FE: [../../frontend-integration.md](../../frontend-integration.md)
 - Parent FG scope: [../README.md](../README.md)
 - Sibling scope: [../type/README.md](../type/README.md), [../import/README.md](../import/README.md)
-- SOP FE canonical: [frontend-dev-flow](../../../../../.claude/skills/frontend-dev-flow/SKILL.md)
-- SOP FE testing: [frontend-testing](../../../../../.claude/skills/frontend-testing/SKILL.md)
+- SOP FE canonical — **component implementation pattern** (List page, Form create/edit dengan integer-only `InputForm`, Dialog wrapper, Columns, Page entry): [frontend-dev-flow](../../../../../.claude/skills/frontend-dev-flow/SKILL.md)
+- SOP FE testing — **service/hook/component test pattern** (Vitest + RTL, mock api & CSRF, RHF integer validation assertion): [frontend-testing](../../../../../.claude/skills/frontend-testing/SKILL.md)
 - Postman folder: `Inventory → FG → Size` di `docs/postman/erp-mandalika.postman_collection.json`.

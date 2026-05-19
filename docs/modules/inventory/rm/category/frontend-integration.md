@@ -1,12 +1,10 @@
 # Inventory / RM / Category — Frontend Integration (Scope Level)
 
-End-to-end FE integration **lengkap** untuk scope ini. FE engineer baca file ini saja → bisa implement dari nol.
+Kontrak BE→FE. Komponen ke frontend-dev-flow SOP.
 
 **Backend scope path**: `api/src/module/application/inventory/rm/category/`
 **Frontend scope path**: `app/src/app/(application)/inventory/rm/categories/server/`
-**Component path**: `app/src/components/pages/inventory/rm/categories/`
 **Endpoint base**: `/api/app/inventory/rm/categories`
-**Status FE**: 🚧 TBD <!-- ubah ke ✅ Ready setelah file FE dibuat -->
 
 **Dependencies**:
 
@@ -142,7 +140,7 @@ Lokasi BE: `prisma/schema.prisma:1338`. FE import via `@/shared/types` — **JAN
 
 ## 2. FE Schema Mirror
 
-**File**: `app/src/app/(application)/inventory/rm/categories/server/inventory.rm.category.schema.ts` 🚧 TBD
+**File**: `app/src/app/(application)/inventory/rm/categories/server/inventory.rm.category.schema.ts`
 
 ```ts
 import { z } from "zod";
@@ -202,9 +200,29 @@ export type QueryRawMatCategoryDTO = z.infer<typeof QueryRawMatCategorySchema>;
 
 ---
 
-## 3. Service Class — FULL CODE
+## 3. Routing — Endpoint Table
 
-**File**: `app/src/app/(application)/inventory/rm/categories/server/inventory.rm.category.service.ts` 🚧 TBD
+**Path prefix**: `/api/app/inventory/rm/categories`
+
+Source BE routes: `src/module/application/inventory/rm/category/category.routes.ts`.
+
+| Method     | Path           | Middleware                                  | Controller                              | Body Schema                        | Success Status | Response Shape                                                  | Catatan                                                                                  |
+| :--------- | :------------- | :------------------------------------------ | :-------------------------------------- | :--------------------------------- | :------------- | :-------------------------------------------------------------- | :--------------------------------------------------------------------------------------- |
+| **GET**    | `/`            | —                                           | `RawMatCategoryController.list`         | — (querystring `QueryRawMatCategorySchema`) | `200`          | `{ data: ResponseRawMatCategoryDTO[]; len: number }` (+ meta `params`) | List + pagination + search/status filter + sort whitelist (`created_at`/`updated_at`/`name`). |
+| **POST**   | `/`            | `validateBody(RequestRawMatCategorySchema)` | `RawMatCategoryController.create`       | `RequestRawMatCategorySchema`      | `201`          | `ResponseRawMatCategoryDTO`                                     | Slug auto-generated `normalizeSlug(name)`. `status` default `ACTIVE` di service. CSRF wajib. |
+| **GET**    | `/:id`         | —                                           | `RawMatCategoryController.detail`       | — (param `IdParamSchema`)          | `200`          | `ResponseRawMatCategoryDTO`                                     | `400 "ID category tidak valid"` kalau param non-int. `404` kalau tidak ketemu.            |
+| **PUT**    | `/:id`         | `validateBody(UpdateRawMatCategorySchema)`  | `RawMatCategoryController.update`       | `UpdateRawMatCategorySchema`       | `200`          | `ResponseRawMatCategoryDTO`                                     | Mount ke handler yang sama dengan PATCH. `.refine` minimal 1 field. CSRF wajib.            |
+| **PATCH**  | `/:id`         | `validateBody(UpdateRawMatCategorySchema)`  | `RawMatCategoryController.update`       | `UpdateRawMatCategorySchema`       | `200`          | `ResponseRawMatCategoryDTO`                                     | **Alias** PUT. FE service cukup pakai PUT untuk konsistensi.                              |
+| **PATCH**  | `/:id/status`  | `validateBody(ChangeStatusRawMatCategorySchema)` | `RawMatCategoryController.changeStatus` | `ChangeStatusRawMatCategorySchema` | `200`          | `ResponseRawMatCategoryDTO`                                     | Body `{ status }` JSON. Tidak men-trigger slug regen. CSRF wajib.                          |
+| **DELETE** | `/:id`         | —                                           | `RawMatCategoryController.delete`       | —                                  | `200`          | `{ deleted: number }`                                            | **HARD delete**. `400 "Category masih digunakan oleh beberapa Raw Material"` bila FK ke `RawMaterial.raw_mat_categories_id` masih ada. CSRF wajib. |
+
+> Tidak ada bulk-status, bulk-delete, import, atau export pada scope ini. Tidak ada soft-delete / trash.
+
+---
+
+## 4. Service Class — FULL CODE
+
+**File**: `app/src/app/(application)/inventory/rm/categories/server/inventory.rm.category.service.ts`
 
 ```ts
 import api from "@/lib/api";
@@ -300,9 +318,9 @@ export class InventoryRMCategoryService {
 
 ---
 
-## 4. Hooks — 5 Hook Split FULL CODE
+## 5. Hooks — 5 Hook Split FULL CODE
 
-**File**: `app/src/app/(application)/inventory/rm/categories/server/use.inventory.rm.category.ts` 🚧 TBD
+**File**: `app/src/app/(application)/inventory/rm/categories/server/use.inventory.rm.category.ts`
 
 ```ts
 "use client";
@@ -326,7 +344,7 @@ import type {
 const KEY = ["inventory.rm.category"] as const;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.1 READ — useQuery wrapper
+// 5.1 READ — useQuery wrapper
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryRMCategory(params: QueryRawMatCategoryDTO, enabled = true) {
     return useQuery<{ data: ResponseRawMatCategoryDTO[]; len: number }, ResponseError>({
@@ -346,7 +364,7 @@ export function useInventoryRMCategoryDetail(id: number, enabled = true) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.2 WRITE — create + update mutations
+// 5.2 WRITE — create + update mutations
 // ──────────────────────────────────────────────────────────────────────────────
 export function useFormInventoryRMCategory() {
     const setErr = useSetAtom(errorAtom);
@@ -384,7 +402,7 @@ export function useFormInventoryRMCategory() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.3 ACTION — changeStatus + remove (hard delete)
+// 5.3 ACTION — changeStatus + remove (hard delete)
 // ──────────────────────────────────────────────────────────────────────────────
 export function useActionInventoryRMCategory() {
     const setErr = useSetAtom(errorAtom);
@@ -422,7 +440,7 @@ export function useActionInventoryRMCategory() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.4 TableState — URL sync + debounce search + filter status
+// 5.4 TableState — URL sync + debounce search + filter status
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryRMCategoryTableState() {
     const searchParams = useSearchParams();
@@ -472,7 +490,7 @@ export function useInventoryRMCategoryTableState() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 4.5 Query-wrapper — bundling list + tableState untuk page consumer
+// 5.5 Query-wrapper — bundling list + tableState untuk page consumer
 // ──────────────────────────────────────────────────────────────────────────────
 export function useInventoryRMCategoryQuery() {
     const tableState = useInventoryRMCategoryTableState();
@@ -482,246 +500,6 @@ export function useInventoryRMCategoryQuery() {
 ```
 
 > queryKey base: `["inventory.rm.category", params]`. Invalidate `type: "all"` agar list, detail, dan custom variants ikut ter-refresh setelah mutasi.
-
----
-
-## 5. Components — Snippets
-
-### 5.1 List page — `components/pages/inventory/rm/categories/index.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import {
-    useInventoryRMCategoryQuery,
-    useActionInventoryRMCategory,
-} from "@/app/(application)/inventory/rm/categories/server/use.inventory.rm.category";
-import { DataTable } from "@/components/ui/data-table";
-import { columns } from "./table/columns";
-import { CategoryFormDialog } from "./form/category-form-dialog";
-import { STATUS } from "@/shared/types";
-
-export default function CategoryList() {
-    const { query, search, setSearch, statusFilter, setStatusFilter } =
-        useInventoryRMCategoryQuery();
-    const { changeStatus, remove } = useActionInventoryRMCategory();
-
-    return (
-        <section className="space-y-4">
-            <header className="flex items-center justify-between gap-2">
-                <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Cari kategori…"
-                    className="rounded-xl border-zinc-200 px-3 py-2"
-                />
-                <div className="flex gap-2">
-                    <select
-                        value={statusFilter ?? ""}
-                        onChange={(e) =>
-                            setStatusFilter(
-                                (e.target.value || null) as (typeof STATUS)[number] | null,
-                            )
-                        }
-                        className="rounded-xl border-zinc-200 px-3 py-2"
-                    >
-                        <option value="">Semua Status</option>
-                        {STATUS.map((s) => (
-                            <option key={s} value={s}>
-                                {s}
-                            </option>
-                        ))}
-                    </select>
-                    <CategoryFormDialog mode="create" />
-                </div>
-            </header>
-            <DataTable
-                tableId="rm-category-table"
-                columns={columns({ onChangeStatus: changeStatus.mutate, onRemove: remove.mutate })}
-                data={query.data?.data ?? []}
-                total={query.data?.len ?? 0}
-                loading={query.isLoading}
-            />
-        </section>
-    );
-}
-```
-
-### 5.2 Form create/edit — `components/pages/inventory/rm/categories/form/category-form.tsx` 🚧 TBD
-
-Single `name` field + status via `SelectForm STATUS`. Reuse untuk create dan edit; pakai `mode` prop.
-
-```tsx
-"use client";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Form } from "@/components/ui/form/main";
-import { InputForm, SelectForm } from "@/components/ui/form";
-import {
-    RequestRawMatCategorySchema,
-    UpdateRawMatCategorySchema,
-    type RequestRawMatCategoryDTO,
-    type UpdateRawMatCategoryDTO,
-    type ResponseRawMatCategoryDTO,
-} from "@/app/(application)/inventory/rm/categories/server/inventory.rm.category.schema";
-import { useFormInventoryRMCategory } from "@/app/(application)/inventory/rm/categories/server/use.inventory.rm.category";
-import { STATUS } from "@/shared/types";
-
-type Props =
-    | { mode: "create"; onSuccess?: () => void }
-    | { mode: "edit"; initial: ResponseRawMatCategoryDTO; onSuccess?: () => void };
-
-export function CategoryForm(props: Props) {
-    const isEdit = props.mode === "edit";
-    const form = useForm<RequestRawMatCategoryDTO | UpdateRawMatCategoryDTO>({
-        resolver: zodResolver(isEdit ? UpdateRawMatCategorySchema : RequestRawMatCategorySchema),
-        defaultValues: isEdit
-            ? { name: props.initial.name, status: props.initial.status }
-            : { name: "" },
-    });
-    const { create, update } = useFormInventoryRMCategory();
-
-    const handleSubmit = form.handleSubmit(async (body) => {
-        if (isEdit) {
-            await update.mutateAsync({ id: props.initial.id, body });
-        } else {
-            await create.mutateAsync(body as RequestRawMatCategoryDTO);
-        }
-        form.reset();
-        props.onSuccess?.();
-    });
-
-    const pending = isEdit ? update.isPending : create.isPending;
-
-    return (
-        <Form methods={form}>
-            <form onSubmit={handleSubmit} className="space-y-3">
-                <InputForm name="name" label="Nama Kategori" required />
-                <SelectForm
-                    name="status"
-                    label="Status"
-                    options={STATUS.map((s) => ({ value: s, label: s }))}
-                />
-                <button type="submit" disabled={pending}>
-                    {pending ? "Menyimpan…" : isEdit ? "Simpan Perubahan" : "Simpan"}
-                </button>
-            </form>
-        </Form>
-    );
-}
-```
-
-### 5.3 Form dialog — `components/pages/inventory/rm/categories/form/category-form-dialog.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useState } from "react";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
-import { CategoryForm } from "./category-form";
-import type { ResponseRawMatCategoryDTO } from "@/app/(application)/inventory/rm/categories/server/inventory.rm.category.schema";
-
-type Props =
-    | { mode: "create" }
-    | { mode: "edit"; initial: ResponseRawMatCategoryDTO; trigger?: React.ReactNode };
-
-export function CategoryFormDialog(props: Props) {
-    const [open, setOpen] = useState(false);
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                {props.mode === "create" ? (
-                    <button className="rounded-xl bg-amber-500 px-4 py-2 text-white">
-                        Tambah Kategori
-                    </button>
-                ) : (
-                    (props.trigger ?? <button>Edit</button>)
-                )}
-            </DialogTrigger>
-            <DialogContent>
-                {props.mode === "create" ? (
-                    <CategoryForm mode="create" onSuccess={() => setOpen(false)} />
-                ) : (
-                    <CategoryForm
-                        mode="edit"
-                        initial={props.initial}
-                        onSuccess={() => setOpen(false)}
-                    />
-                )}
-            </DialogContent>
-        </Dialog>
-    );
-}
-```
-
-### 5.4 Columns — `components/pages/inventory/rm/categories/table/columns.tsx` 🚧 TBD
-
-```tsx
-import type { ColumnDef } from "@tanstack/react-table";
-import type { ResponseRawMatCategoryDTO } from "@/app/(application)/inventory/rm/categories/server/inventory.rm.category.schema";
-import { STATUS } from "@/shared/types";
-
-export const columns = ({
-    onChangeStatus,
-    onRemove,
-}: {
-    onChangeStatus: (p: { id: number; status: (typeof STATUS)[number] }) => void;
-    onRemove: (id: number) => void;
-}): ColumnDef<ResponseRawMatCategoryDTO>[] => [
-    { accessorKey: "name", header: "Nama" },
-    {
-        accessorKey: "slug",
-        header: "Slug",
-        cell: ({ row }) => <span className="font-mono text-zinc-500">{row.original.slug}</span>,
-    },
-    {
-        accessorKey: "status",
-        header: "Status",
-        cell: ({ row }) => (
-            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs">{row.original.status}</span>
-        ),
-    },
-    { accessorKey: "updated_at", header: "Diubah" },
-    {
-        id: "actions",
-        header: "Aksi",
-        cell: ({ row }) => (
-            <div className="flex gap-1">
-                <button
-                    onClick={() =>
-                        onChangeStatus({
-                            id: row.original.id,
-                            status: row.original.status === "ACTIVE" ? "BLOCK" : "ACTIVE",
-                        })
-                    }
-                >
-                    Toggle
-                </button>
-                <button
-                    onClick={() => {
-                        if (confirm("Hapus kategori permanen?")) onRemove(row.original.id);
-                    }}
-                >
-                    Hapus
-                </button>
-            </div>
-        ),
-    },
-];
-```
-
-### 5.5 Page entry — `app/(application)/inventory/rm/categories/page.tsx` 🚧 TBD
-
-```tsx
-import { Suspense } from "react";
-import CategoryList from "@/components/pages/inventory/rm/categories";
-
-export default function CategoryPage() {
-    return (
-        <Suspense fallback={<div>Loading…</div>}>
-            <CategoryList />
-        </Suspense>
-    );
-}
-```
 
 ---
 
@@ -844,122 +622,14 @@ flowchart TD
 
 ---
 
-## 8. Testing FE (Vitest + RTL)
-
-**Lokasi**: `app/src/__tests__/inventory/rm/categories/` 🚧 TBD. Mengikuti SOP `frontend-testing`.
-
-### 8.1 Service test
-
-```ts
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import api from "@/lib/api";
-import { InventoryRMCategoryService } from "@/app/(application)/inventory/rm/categories/server/inventory.rm.category.service";
-
-vi.mock("@/lib/api");
-vi.mock("@/shared/api/csrf", () => ({ setupCSRFToken: vi.fn() }));
-
-describe("InventoryRMCategoryService", () => {
-    beforeEach(() => vi.clearAllMocks());
-
-    it("list passes params to GET", async () => {
-        (api.get as any).mockResolvedValue({ data: { data: { data: [], len: 0 } } });
-        await InventoryRMCategoryService.list({ page: 1, take: 25 });
-        expect(api.get).toHaveBeenCalledWith(expect.any(String), {
-            params: { page: 1, take: 25 },
-        });
-    });
-
-    it("create calls setupCSRFToken before POST", async () => {
-        const { setupCSRFToken } = await import("@/shared/api/csrf");
-        (api.post as any).mockResolvedValue({});
-        await InventoryRMCategoryService.create({ name: "Fragrance Oil" });
-        expect(setupCSRFToken).toHaveBeenCalled();
-        expect(api.post).toHaveBeenCalledWith(expect.any(String), { name: "Fragrance Oil" });
-    });
-
-    it("changeStatus posts body JSON to :id/status", async () => {
-        (api.patch as any).mockResolvedValue({});
-        await InventoryRMCategoryService.changeStatus(1, "BLOCK");
-        expect(api.patch).toHaveBeenCalledWith(
-            expect.stringMatching(/\/1\/status$/),
-            { status: "BLOCK" },
-        );
-    });
-
-    it("remove sends DELETE", async () => {
-        (api.delete as any).mockResolvedValue({});
-        await InventoryRMCategoryService.remove(42);
-        expect(api.delete).toHaveBeenCalledWith(expect.stringMatching(/\/42$/));
-    });
-});
-```
-
-### 8.2 Hook test
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useInventoryRMCategory } from "@/app/(application)/inventory/rm/categories/server/use.inventory.rm.category";
-import { InventoryRMCategoryService } from "@/app/(application)/inventory/rm/categories/server/inventory.rm.category.service";
-
-vi.mock("@/app/(application)/inventory/rm/categories/server/inventory.rm.category.service");
-
-const wrapper = ({ children }: { children: React.ReactNode }) => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-};
-
-describe("useInventoryRMCategory", () => {
-    it("fetches list via service", async () => {
-        (InventoryRMCategoryService.list as any).mockResolvedValue({ data: [], len: 0 });
-        const { result } = renderHook(() => useInventoryRMCategory({ page: 1 }), { wrapper });
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-        expect(InventoryRMCategoryService.list).toHaveBeenCalledWith({ page: 1 });
-    });
-});
-```
-
-### 8.3 Component test
-
-```tsx
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { CategoryForm } from "@/components/pages/inventory/rm/categories/form/category-form";
-
-vi.mock(
-    "@/app/(application)/inventory/rm/categories/server/use.inventory.rm.category",
-    () => ({
-        useFormInventoryRMCategory: () => ({
-            create: { mutateAsync: vi.fn(), isPending: false },
-            update: { mutateAsync: vi.fn(), isPending: false },
-        }),
-    }),
-);
-
-describe("CategoryForm", () => {
-    it("renders name field on create", () => {
-        render(<CategoryForm mode="create" />);
-        expect(screen.getByLabelText("Nama Kategori")).toBeInTheDocument();
-    });
-
-    it("shows refine error when both name and status absent", async () => {
-        // Submit empty form → zodResolver(UpdateRawMatCategorySchema) on edit mode
-        // should surface "Minimal satu field (name/status) wajib diisi" via .refine.
-    });
-});
-```
-
----
-
-## 9. Cross-link
+## 8. Cross-link
 
 - BE scope doc: [./README.md](./README.md)
 - Module-level konvensi FE: [../../frontend-integration.md](../../frontend-integration.md)
 - Parent scope (RM): [../README.md](../README.md)
 - Module index (Inventory): [../../README.md](../../README.md)
-- SOP FE canonical: [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md)
-- SOP FE testing: [frontend-testing](../../../../.claude/skills/frontend-testing/SKILL.md)
+- **SOP komponen FE (page, form, dialog, columns, list)** → [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md). Schema mirror, service, dan hooks di file ini adalah kontrak BE→FE; implementasi komponen ikut SOP tersebut.
+- **SOP testing FE (Vitest + RTL untuk service, hook, component)** → [frontend-testing](../../../../.claude/skills/frontend-testing/SKILL.md).
 - Postman folder: `Inventory → RM → Categories` di `docs/postman/erp-mandalika.postman_collection.json`.
 - Modul terkait FE:
     - `inventory/rm` — RM list/detail menampilkan `raw_mat_category.name` (consider cross-invalidate setelah mutasi kategori).

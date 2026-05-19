@@ -1,10 +1,9 @@
 # Inventory / RM / Unit — Frontend Integration (Scope Level)
 
-End-to-end FE integration **lengkap** untuk scope ini. FE engineer baca file ini saja → bisa implement dari nol.
+Kontrak BE→FE untuk scope ini: schema mirror, endpoint routing, service class, hooks, flow Mermaid, edge cases. Komponen React (List/Form/Dialog/Columns) **diserahkan ke SOP [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md)** saat FE engineer kerja di `app/`.
 
 **Backend scope path**: `api/src/module/application/inventory/rm/unit/`
 **Frontend scope path**: `app/src/app/(application)/inventory/rm/units/server/`
-**Component path**: `app/src/components/pages/inventory/rm/units/`
 **Endpoint base**: `/api/app/inventory/rm/units`
 **Status FE**: 🚧 TBD <!-- ubah ke ✅ Ready setelah file FE dibuat -->
 
@@ -78,7 +77,7 @@ export const ResponseRawMaterialUnitSchema = z.object({
 | `sortBy`    | `"name" \| "slug" \| "id"` | `"name"` | whitelist                 | Dropdown FE wajib match.                         |
 | `sortOrder` | `"asc" \| "desc"`          | `"asc"`  | enum                      | —                                                |
 
-**`ResponseRawMaterialUnitSchema`** — fields `id`, `name`, `slug` saja. **TIDAK** ada `created_at`/`updated_at`/`deleted_at`/`status` (model `UnitRawMaterial` tidak punya kolom tersebut). Lihat §7.
+**`ResponseRawMaterialUnitSchema`** — fields `id`, `name`, `slug` saja. **TIDAK** ada `created_at`/`updated_at`/`deleted_at`/`status` (model `UnitRawMaterial` tidak punya kolom tersebut). Lihat §6.
 
 ### 1.3 DTO export & enum
 
@@ -100,9 +99,34 @@ Enum: scope ini **tidak memakai enum** (tidak ada `status`/`gender`). Tidak perl
 
 Copy block §1.1 + §1.3 verbatim ke file FE (hilangkan `IdParamSchema` jika tidak dipakai — path param di-handle axios). Diff vs BE = **empty**.
 
+Response tidak memuat `created_at`/`updated_at`/`deleted_at`/`status`. FE jangan mendeklarasikan kolom timestamp/status di DTO / column tabel — model `UnitRawMaterial` di Prisma tidak punya field tersebut.
+
 ---
 
-## 3. Service Class — FULL CODE
+## 3. Routing — Endpoint Table
+
+Path prefix: `/api/app/inventory/rm/units`. Sumber: `unit.routes.ts` + status code dari `unit.controller.ts` (`ApiResponse.sendSuccess(c, data, <code>)`).
+
+| #   | Method        | Path        | Body / Query                            | Response (status) | Error utama                                                                                                                  |
+| :-- | :------------ | :---------- | :-------------------------------------- | :---------------- | :--------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `GET`         | `/`         | Query `QueryRawMaterialUnitDTO`         | `200` `{ data: ResponseRawMaterialUnitDTO[], len: number }` | 400 (Zod fail di `QueryRawMaterialUnitSchema.parse`)                                                                          |
+| 2   | `POST`        | `/`         | Body `RequestRawMaterialUnitDTO`        | `201` `ResponseRawMaterialUnitDTO` | 400 `"Unit dengan nama tersebut sudah tersedia"` (P2002 slug dup) / 400 Zod (`"Nama unit tidak boleh kosong"` / `"Nama unit maksimal 100 karakter"`) |
+| 3   | `GET`         | `/:id`      | Path `id` (int)                         | `200` `ResponseRawMaterialUnitDTO` | 400 `"ID unit tidak valid"` / 404 `"Unit tidak ditemukan"` (P2025)                                                              |
+| 4   | `PUT`         | `/:id`      | Body `UpdateRawMaterialUnitDTO`         | `200` `ResponseRawMaterialUnitDTO` | 400 `"Field name wajib diisi"` (refine) / 400 `"Nama unit wajib diisi"` (service defense) / 400 P2002 / 404 P2025               |
+| 4b  | `PATCH`       | `/:id`      | Body `UpdateRawMaterialUnitDTO`         | `200` `ResponseRawMaterialUnitDTO` | Sama persis dengan PUT — handler & schema identik (alias).                                                                    |
+| 5   | `DELETE`      | `/:id`      | Path `id` (int)                         | `200` `{ deleted: number }` | 400 `"Satuan masih digunakan oleh beberapa Raw Material"` (FK pre-check di `rawMaterial.count({ where: { unit_id } })`) / 404 P2025 |
+
+Catatan:
+
+- **Hard delete** — tidak ada `?trash=1` filter, tidak ada `restore`. FK pre-check 400 = bukan 409.
+- **Tidak ada endpoint `/status`** — model `UnitRawMaterial` tidak punya kolom `status`. Tidak ada `changeStatus` / `bulkStatus`.
+- **Tidak ada endpoint `/bulk`** — belum ada bulk operasi di scope ini.
+- **Tidak ada `/export` / `/import`** — scope minimal CRUD.
+- 201 hanya pada `POST /`. Read / update / delete = 200.
+
+---
+
+## 4. Service Class — FULL CODE
 
 **File**: `app/src/app/(application)/inventory/rm/units/server/inventory.rm.unit.service.ts` 🚧 TBD
 
@@ -165,7 +189,7 @@ export class InventoryRMUnitService {
 
 ---
 
-## 4. Hooks — 5 Hook Split FULL CODE
+## 5. Hooks — 5 Hook Split FULL CODE
 
 **File**: `app/src/app/(application)/inventory/rm/units/server/use.inventory.rm.unit.ts` 🚧 TBD
 
@@ -188,7 +212,7 @@ import type {
 
 const KEY = ["inventory.rm.unit"] as const;
 
-// 4.1 READ
+// 5.1 READ
 export function useInventoryRMUnit(params: QueryRawMaterialUnitDTO, enabled = true) {
     return useQuery<{ data: ResponseRawMaterialUnitDTO[]; len: number }, ResponseError>({
         queryKey: [...KEY, params],
@@ -205,7 +229,7 @@ export function useInventoryRMUnitDetail(id: number, enabled = true) {
     });
 }
 
-// 4.2 WRITE — create + update
+// 5.2 WRITE — create + update
 export function useFormInventoryRMUnit() {
     const setErr = useSetAtom(errorAtom);
     const setNotif = useSetAtom(notificationAtom);
@@ -227,7 +251,7 @@ export function useFormInventoryRMUnit() {
     return { create, update };
 }
 
-// 4.3 ACTION — delete only (NO status — model UnitRawMaterial tidak punya kolom status)
+// 5.3 ACTION — delete only (NO status — model UnitRawMaterial tidak punya kolom status)
 export function useActionInventoryRMUnit() {
     const setErr = useSetAtom(errorAtom);
     const setNotif = useSetAtom(notificationAtom);
@@ -243,7 +267,7 @@ export function useActionInventoryRMUnit() {
     return { remove };
 }
 
-// 4.4 TableState — URL sync + debounce
+// 5.4 TableState — URL sync + debounce
 export function useInventoryRMUnitTableState() {
     const sp = useSearchParams();
     const { batchSet } = useQueryParams();
@@ -264,7 +288,7 @@ export function useInventoryRMUnitTableState() {
     return { search, setSearch, page, take, sortBy, sortOrder, queryParams };
 }
 
-// 4.5 Query-wrapper
+// 5.5 Query-wrapper
 export function useInventoryRMUnitQuery() {
     const tableState = useInventoryRMUnitTableState();
     const query = useInventoryRMUnit(tableState.queryParams);
@@ -273,135 +297,6 @@ export function useInventoryRMUnitQuery() {
 ```
 
 queryKey root: `["inventory.rm.unit", params]`. Tidak ada `changeStatus`/`bulkStatus`/`trash mode` — lihat §7.
-
----
-
-## 5. Components — Snippets
-
-### 5.1 List page — `components/pages/inventory/rm/units/index.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useInventoryRMUnitQuery, useActionInventoryRMUnit } from "@/app/(application)/inventory/rm/units/server/use.inventory.rm.unit";
-import { DataTable } from "@/components/ui/data-table";
-import { columns } from "./table/columns";
-import { UnitFormDialog } from "./form/unit-form-dialog";
-
-export default function UnitList() {
-    const { query, search, setSearch } = useInventoryRMUnitQuery();
-    const { remove } = useActionInventoryRMUnit();
-    return (
-        <section className="space-y-4">
-            <header className="flex items-center justify-between gap-2">
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari nama atau slug satuan…" className="rounded-xl border-zinc-200 px-3 py-2" />
-                <UnitFormDialog mode="create" />
-            </header>
-            <DataTable tableId="rm-unit-table" columns={columns({ onDelete: (id) => remove.mutate({ id }) })} data={query.data?.data ?? []} total={query.data?.len ?? 0} loading={query.isLoading} />
-        </section>
-    );
-}
-```
-
-### 5.2 Form create+edit — `components/pages/inventory/rm/units/form/unit-form.tsx` 🚧 TBD
-
-```tsx
-"use client";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Form } from "@/components/ui/form/main";
-import { InputForm } from "@/components/ui/form";
-import { RequestRawMaterialUnitSchema, type RequestRawMaterialUnitDTO, type ResponseRawMaterialUnitDTO } from "@/app/(application)/inventory/rm/units/server/inventory.rm.unit.schema";
-import { useFormInventoryRMUnit } from "@/app/(application)/inventory/rm/units/server/use.inventory.rm.unit";
-
-type Props =
-    | { mode: "create"; onSuccess?: () => void }
-    | { mode: "edit"; initial: ResponseRawMaterialUnitDTO; onSuccess?: () => void };
-
-export function UnitForm(props: Props) {
-    const form = useForm<RequestRawMaterialUnitDTO>({
-        resolver: zodResolver(RequestRawMaterialUnitSchema),
-        defaultValues: { name: props.mode === "edit" ? props.initial.name : "" },
-    });
-    const { create, update } = useFormInventoryRMUnit();
-    const pending = create.isPending || update.isPending;
-
-    const handleSubmit = form.handleSubmit(async (body) => {
-        if (props.mode === "create") await create.mutateAsync(body);
-        else await update.mutateAsync({ id: props.initial.id, body });
-        form.reset();
-        props.onSuccess?.();
-    });
-
-    return (
-        <Form methods={form}>
-            <form onSubmit={handleSubmit} className="space-y-3">
-                <InputForm name="name" label="Nama Satuan" placeholder="Contoh: Kilogram, ML, PCS" required />
-                <p className="text-xs text-zinc-500">Slug akan dibuat otomatis dari nama (mis. <code>Kilogram</code> → <code>kilogram</code>).</p>
-                <button type="submit" disabled={pending}>{pending ? "Menyimpan…" : props.mode === "create" ? "Simpan" : "Perbarui"}</button>
-            </form>
-        </Form>
-    );
-}
-```
-
-### 5.3 Dialog + Columns — `form/unit-form-dialog.tsx` & `table/columns.tsx` 🚧 TBD
-
-```tsx
-// unit-form-dialog.tsx
-"use client";
-import { useState } from "react";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
-import type { ResponseRawMaterialUnitDTO } from "@/app/(application)/inventory/rm/units/server/inventory.rm.unit.schema";
-import { UnitForm } from "./unit-form";
-
-type Props = { mode: "create" } | { mode: "edit"; initial: ResponseRawMaterialUnitDTO; trigger?: React.ReactNode };
-
-export function UnitFormDialog(props: Props) {
-    const [open, setOpen] = useState(false);
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>{props.mode === "edit" && props.trigger ? props.trigger : <button>{props.mode === "create" ? "Tambah Satuan" : "Edit"}</button>}</DialogTrigger>
-            <DialogContent>
-                {props.mode === "create"
-                    ? <UnitForm mode="create" onSuccess={() => setOpen(false)} />
-                    : <UnitForm mode="edit" initial={props.initial} onSuccess={() => setOpen(false)} />}
-            </DialogContent>
-        </Dialog>
-    );
-}
-```
-
-```tsx
-// table/columns.tsx
-import type { ColumnDef } from "@tanstack/react-table";
-import type { ResponseRawMaterialUnitDTO } from "@/app/(application)/inventory/rm/units/server/inventory.rm.unit.schema";
-import { UnitFormDialog } from "../form/unit-form-dialog";
-
-export const columns = ({ onDelete }: { onDelete: (id: number) => void }): ColumnDef<ResponseRawMaterialUnitDTO>[] => [
-    { accessorKey: "id", header: "ID", size: 60 },
-    { accessorKey: "name", header: "Nama" },
-    { accessorKey: "slug", header: "Slug", cell: ({ row }) => <span className="font-mono text-xs">{row.original.slug}</span> },
-    // NO created_at/updated_at column — model tidak punya timestamp.
-    // NO status badge — model tidak punya kolom status.
-    {
-        id: "actions", header: "Aksi",
-        cell: ({ row }) => (
-            <div className="flex gap-2">
-                <UnitFormDialog mode="edit" initial={row.original} trigger={<button>Edit</button>} />
-                <button onClick={() => { if (confirm(`Hapus satuan "${row.original.name}"?`)) onDelete(row.original.id); }}>Hapus</button>
-            </div>
-        ),
-    },
-];
-```
-
-### 5.4 Page entry — `app/(application)/inventory/rm/units/page.tsx` 🚧 TBD
-
-```tsx
-import { Suspense } from "react";
-import UnitList from "@/components/pages/inventory/rm/units";
-export default function UnitPage() { return <Suspense fallback={<div>Loading…</div>}><UnitList /></Suspense>; }
-```
 
 ---
 
@@ -502,46 +397,11 @@ sequenceDiagram
 
 ---
 
-## 8. Testing FE (Vitest + RTL)
-
-**Lokasi**: `app/src/__tests__/inventory/rm/unit/` 🚧 TBD. Mengikuti SOP `frontend-testing`.
-
-```ts
-// Service stub
-import { describe, it, expect, vi } from "vitest";
-import api from "@/lib/api";
-import { InventoryRMUnitService } from "@/app/(application)/inventory/rm/units/server/inventory.rm.unit.service";
-
-vi.mock("@/lib/api");
-vi.mock("@/shared/api/csrf", () => ({ setupCSRFToken: vi.fn() }));
-
-describe("InventoryRMUnitService", () => {
-    it("list passes params to GET", async () => {
-        (api.get as any).mockResolvedValue({ data: { data: { data: [], len: 0 } } });
-        await InventoryRMUnitService.list({ page: 1, take: 25, sortBy: "name", sortOrder: "asc" });
-        expect(api.get).toHaveBeenCalledWith(expect.stringContaining("/api/app/inventory/rm/units"), { params: expect.objectContaining({ sortBy: "name" }) });
-    });
-    it("create posts body after CSRF", async () => {
-        (api.post as any).mockResolvedValue({});
-        await InventoryRMUnitService.create({ name: "Kilogram" });
-        expect(api.post).toHaveBeenCalledWith(expect.any(String), { name: "Kilogram" });
-    });
-    it("remove returns { deleted } on success", async () => {
-        (api.delete as any).mockResolvedValue({ data: { data: { deleted: 1 } } });
-        expect(await InventoryRMUnitService.remove(1)).toEqual({ deleted: 1 });
-    });
-});
-```
-
-Hook test pakai `renderHook` + `QueryClientProvider` (mock service). Component test render `<UnitForm mode="create" />` & assert `getByLabelText(/Nama Satuan/i)` ada — full pattern lihat module-level FE doc.
-
----
-
-## 9. Cross-link
+## 8. Cross-link
 
 - BE scope doc: [./README.md](./README.md)
 - Module-level konvensi FE: [../../frontend-integration.md](../../frontend-integration.md)
 - Sibling scope FE doc: [`../category/frontend-integration.md`](../category/frontend-integration.md) (pola identik)
-- SOP FE canonical: [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md)
-- SOP FE testing: [frontend-testing](../../../../.claude/skills/frontend-testing/SKILL.md)
+- SOP FE canonical (component implementation — List page, Form, Dialog, Columns markup): [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md). **No status badge / timestamp columns** untuk scope ini — pakai variant component di SOP yang minimal (id · name · slug · actions).
+- SOP FE testing (Vitest + RTL untuk service stub, hook render, form interaction): [frontend-testing](../../../../.claude/skills/frontend-testing/SKILL.md). Lokasi test: `app/src/__tests__/inventory/rm/unit/` 🚧 TBD.
 - Postman folder: `Inventory → RM → Units` di `docs/postman/erp-mandalika.postman_collection.json`.
