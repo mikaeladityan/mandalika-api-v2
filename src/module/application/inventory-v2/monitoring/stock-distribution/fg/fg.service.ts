@@ -27,11 +27,11 @@ export class StockDistributionFGService {
         const where: Prisma.ProductWhereInput = {
             deleted_at: null,
             ...(type_id ? { type_id } : {}),
-            ...(gender ? { gender } : {}),
+            ...(gender ? { gender: gender as Prisma.ProductWhereInput["gender"] } : {}),
             ...(search ? {
                 OR: [
-                    { name: { contains: search, mode: "insensitive" } },
-                    { code: { contains: search, mode: "insensitive" } },
+                    { name: { contains: search, mode: "insensitive" as const } },
+                    { code: { contains: search, mode: "insensitive" as const } },
                 ],
             } : {}),
         };
@@ -109,6 +109,7 @@ export class StockDistributionFGService {
             entry.total += q;
         }
         for (const ma of missAgg) {
+            if (ma.product_id === null) continue;
             const entry = byProduct.get(ma.product_id);
             if (entry) entry.missing = Number(ma._sum.quantity_missing ?? 0);
         }
