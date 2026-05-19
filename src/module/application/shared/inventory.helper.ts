@@ -18,6 +18,50 @@ export interface StockItem {
 }
 
 export class InventoryHelper {
+    /** Returns the current month (1-12) and year used for inventory period rows. */
+    static getCurrentInventoryPeriod(): { month: number; year: number } {
+        const now = new Date();
+        return { month: now.getMonth() + 1, year: now.getFullYear() };
+    }
+
+    private static async resolveOutletInventoryRecord(
+        tx: Prisma.TransactionClient,
+        outlet_id: number,
+        product_id: number,
+        month: number,
+        year: number,
+    ): Promise<{ qtyBefore: number; targetRecord: { id: number } | null }> {
+        const latest = (await tx.outletInventory.findMany({
+            where: { outlet_id, product_id },
+            orderBy: [{ year: "desc" }, { month: "desc" }],
+            take: 1,
+        }))[0] ?? null;
+
+        const qtyBefore = latest ? Number(latest.quantity) : 0;
+        const targetRecord = latest && latest.month === month && latest.year === year
+            ? { id: latest.id }
+            : null;
+        return { qtyBefore, targetRecord };
+    }
+
+    private static async writeOutletInventoryRecord(
+        tx: Prisma.TransactionClient,
+        outlet_id: number,
+        product_id: number,
+        targetRecord: { id: number } | null,
+        qtyAfter: number,
+        month: number,
+        year: number,
+    ): Promise<void> {
+        if (targetRecord) {
+            await tx.outletInventory.update({ where: { id: targetRecord.id }, data: { quantity: qtyAfter } });
+        } else {
+            await tx.outletInventory.create({
+                data: { outlet_id, product_id, quantity: qtyAfter, month, year },
+            });
+        }
+    }
+
     private static getInventoryTable(tx: Prisma.TransactionClient, entity_type: MovementEntityType) {
         return entity_type === MovementEntityType.PRODUCT
             ? (tx as any).productInventory
@@ -158,28 +202,30 @@ export class InventoryHelper {
         movement_type: MovementType,
         userId: string,
     ): Promise<void> {
+        const { month, year } = this.getCurrentInventoryPeriod();
+
         for (const item of items) {
             if (!item.product_id) throw new ApiError(400, "Product ID is required for outlet deduction");
 
-            const oi = await tx.outletInventory.findUnique({
-                where: { outlet_id_product_id: { outlet_id, product_id: item.product_id } },
-            });
+            const { qtyBefore, targetRecord } = await this.resolveOutletInventoryRecord(
+                tx, outlet_id, item.product_id, month, year,
+            );
 
-            if (!oi || Number(oi.quantity) < item.quantity) {
+            if (qtyBefore < item.quantity) {
                 const pName = item.product?.name ?? `ID:${item.product_id}`;
                 throw new ApiError(400, `Stok tidak mencukupi di Outlet untuk produk ${pName}`);
             }
 
-            const qty_before = Number(oi.quantity);
-            const qty_after = qty_before - item.quantity;
-
-            await tx.outletInventory.update({ where: { id: oi.id }, data: { quantity: qty_after } });
+            const qty_after = qtyBefore - item.quantity;
+            await this.writeOutletInventoryRecord(
+                tx, outlet_id, item.product_id, targetRecord, qty_after, month, year,
+            );
 
             await tx.stockMovement.create({
                 data: {
                     entity_type: MovementEntityType.PRODUCT, entity_id: item.product_id,
                     location_type: MovementLocationType.OUTLET, location_id: outlet_id,
-                    movement_type, quantity: item.quantity, qty_before, qty_after,
+                    movement_type, quantity: item.quantity, qty_before: qtyBefore, qty_after,
                     reference_id: ref_id, reference_type: ref_type, created_by: userId,
                 },
             });
@@ -196,27 +242,25 @@ export class InventoryHelper {
         userId: string,
         notes?: string,
     ): Promise<void> {
+        const { month, year } = this.getCurrentInventoryPeriod();
+
         for (const item of items) {
             if (!item.product_id) throw new ApiError(400, "Product ID is required for outlet addition");
 
-            const oi = await tx.outletInventory.findUnique({
-                where: { outlet_id_product_id: { outlet_id, product_id: item.product_id } },
-            });
+            const { qtyBefore, targetRecord } = await this.resolveOutletInventoryRecord(
+                tx, outlet_id, item.product_id, month, year,
+            );
 
-            const qty_before = oi ? Number(oi.quantity) : 0;
-            const qty_after = qty_before + item.quantity;
-
-            if (oi) {
-                await tx.outletInventory.update({ where: { id: oi.id }, data: { quantity: qty_after } });
-            } else {
-                await tx.outletInventory.create({ data: { outlet_id, product_id: item.product_id, quantity: qty_after } });
-            }
+            const qty_after = qtyBefore + item.quantity;
+            await this.writeOutletInventoryRecord(
+                tx, outlet_id, item.product_id, targetRecord, qty_after, month, year,
+            );
 
             await tx.stockMovement.create({
                 data: {
                     entity_type: MovementEntityType.PRODUCT, entity_id: item.product_id,
                     location_type: MovementLocationType.OUTLET, location_id: outlet_id,
-                    movement_type, quantity: item.quantity, qty_before, qty_after,
+                    movement_type, quantity: item.quantity, qty_before: qtyBefore, qty_after,
                     reference_id: ref_id, reference_type: ref_type, created_by: userId,
                     ...(notes ? { notes } : {}),
                 },
