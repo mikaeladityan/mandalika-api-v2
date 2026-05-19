@@ -64,6 +64,15 @@ export async function bulkUpsertSupplierMaterials(
 ): Promise<number> {
     if (!rows.length) return 0;
 
+    // Imported (RM, supplier) jadi canonical preferred — reset preferred lama untuk RM yang sama
+    // agar tidak ada >1 baris is_preferred=true per raw_material_id setelah upsert.
+    const rmIds = Array.from(new Set(rows.map((r) => r.raw_material_id)));
+    await tx.$executeRaw`
+        UPDATE "supplier_materials"
+        SET is_preferred = false, updated_at = NOW()
+        WHERE raw_material_id = ANY(${rmIds}::int[]) AND is_preferred = true
+    `;
+
     const values = rows.map(
         (r) => Prisma.sql`(
             ${r.supplier_id},
@@ -88,6 +97,7 @@ export async function bulkUpsertSupplierMaterials(
             unit_price = EXCLUDED.unit_price,
             min_buy = EXCLUDED.min_buy,
             lead_time = EXCLUDED.lead_time,
+            is_preferred = true,
             updated_at = NOW()
     `;
 }

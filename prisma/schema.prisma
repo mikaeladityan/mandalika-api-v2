@@ -188,6 +188,9 @@ model RawMatCategories {
   slug       String        @unique @db.VarChar(255)
   raw_mat    RawMaterial[]
 
+  @@index([status])
+  @@index([name])
+  @@index([updated_at])
   @@map("raw_mat_categories")
 }
 
@@ -197,6 +200,7 @@ model UnitRawMaterial {
   name         String        @db.VarChar(100)
   raw_material RawMaterial[]
 
+  @@index([name])
   @@map("unit_raw_materials")
 }
 
@@ -233,6 +237,8 @@ model RawMaterial {
   @@index([unit_id])
   @@index([raw_mat_categories_id])
   @@index([updated_at])
+  @@index([name])
+  @@index([deleted_at, updated_at])
   @@map("raw_materials")
 }
 

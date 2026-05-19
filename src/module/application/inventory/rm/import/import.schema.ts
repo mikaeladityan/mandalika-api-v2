@@ -36,7 +36,7 @@ export const RMImportRowSchema = z.object({
     [RM_IMPORT_HEADERS.barcode]: z.string().min(1, "Barcode wajib diisi").max(50),
     [RM_IMPORT_HEADERS.name]: z.string().min(1, "Material name wajib diisi").max(255),
     [RM_IMPORT_HEADERS.category]: z.string().min(1, "Kategori wajib diisi").max(255),
-    [RM_IMPORT_HEADERS.unit]: z.preprocess(sanitizeString, z.string().max(100).optional()),
+    [RM_IMPORT_HEADERS.unit]: z.preprocess(sanitizeString, z.string().min(1, "UOM wajib diisi").max(100)),
     [RM_IMPORT_HEADERS.moq]: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
     [RM_IMPORT_HEADERS.minStock]: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
     [RM_IMPORT_HEADERS.leadTime]: z.preprocess(sanitizeNumber, z.coerce.number().int().min(0).optional().default(0)),

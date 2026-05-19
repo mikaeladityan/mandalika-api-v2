@@ -17,7 +17,11 @@ Sub-modul inventaris terpadu untuk ERP Mandalika.
 | FG / Import  | `/api/app/inventory/fg/import`          | `src/module/application/inventory/fg/import`        | ✅ Ready | [fg/import/README.md](./fg/import/README.md) |
 | FG / Sizes   | `/api/app/inventory/fg/sizes`           | `src/module/application/inventory/fg/size`          | ✅ Ready | [fg/size/README.md](./fg/size/README.md) |
 | FG / Types   | `/api/app/inventory/fg/types`           | `src/module/application/inventory/fg/type`          | ✅ Ready | [fg/type/README.md](./fg/type/README.md) |
-| RM           | `/api/app/inventory/rm`                 | `src/module/application/inventory/rm`               | ✅ Ready | _(TBD)_                                  |
+| RM           | `/api/app/inventory/rm`                 | `src/module/application/inventory/rm`               | ✅ Ready | [rm/README.md](./rm/README.md)           |
+| RM / Import  | `/api/app/inventory/rm/import`          | `src/module/application/inventory/rm/import`        | ✅ Ready | [rm/import/README.md](./rm/import/README.md) |
+| RM / Suppliers | `/api/app/inventory/rm/suppliers`     | `src/module/application/inventory/rm/supplier`      | ✅ Ready | [rm/supplier/README.md](./rm/supplier/README.md) |
+| RM / Categories | `/api/app/inventory/rm/categories`   | `src/module/application/inventory/rm/category`      | ✅ Ready | [rm/category/README.md](./rm/category/README.md) |
+| RM / Units      | `/api/app/inventory/rm/units`        | `src/module/application/inventory/rm/unit`          | ✅ Ready | [rm/unit/README.md](./rm/unit/README.md)         |
 
 > Dokumen flat lama `fg.md` masih ada untuk referensi; sumber kebenaran tunggal sekarang `fg/README.md` + sub-modul.
 
@@ -46,4 +50,4 @@ Frontend modul `inventory` mirror struktur backend:
 - Components: `app/src/components/pages/inventory/`
 - Schema/Service/Hooks: di folder `server/` masing-masing sub-module (dot-chain naming: `inventory.fg.schema.ts`, `inventory.fg.import.schema.ts`, dst.).
 
-Status saat ini: **🚧 FE belum diimplementasikan** (per 2026-05-18). Dokumen [`./frontend-integration.md`](./frontend-integration.md) menyiapkan rencana lengkap mengikuti SOP [`frontend-dev-flow`](../../../.claude/skills/frontend-dev-flow/SKILL.md) — schema mirror per scope, service registry, hooks registry (5 hook split), component map, end-to-end flow Mermaid.
+Status saat ini: **🚧 FE belum diimplementasikan** (per 2026-05-19; BE sudah lengkap untuk FG + RM + sub-modul). Dokumen [`./frontend-integration.md`](./frontend-integration.md) menyiapkan rencana lengkap mengikuti SOP [`frontend-dev-flow`](../../../.claude/skills/frontend-dev-flow/SKILL.md) — schema mirror per scope, service registry, hooks registry (5 hook split), component map, end-to-end flow Mermaid.

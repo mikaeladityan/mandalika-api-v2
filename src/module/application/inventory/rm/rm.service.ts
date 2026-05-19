@@ -1,9 +1,10 @@
 import ExcelJS from "exceljs";
 import prisma from "../../../../config/prisma.js";
-import { MaterialType, Prisma } from "../../../../generated/prisma/client.js";
+import { Prisma } from "../../../../generated/prisma/client.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { getOrCreateSlug } from "../../../../lib/utils/upsert-slug.js";
+import { RM_IMPORT_HEADERS } from "./import/import.schema.js";
 import {
     BulkActionDTO,
     QueryRMDTO,
@@ -21,11 +22,6 @@ const RM_INCLUDE = {
 } satisfies Prisma.RawMaterialInclude;
 
 type RMWithRelations = Prisma.RawMaterialGetPayload<{ include: typeof RM_INCLUDE }>;
-
-const MATERIAL_TYPE_LABEL: Record<MaterialType, string> = {
-    FO: "FO",
-    PCKG: "PCKG",
-};
 
 const SUPPLIER_EXPORT_GROUP = new Set([
     "supplier",
@@ -279,24 +275,27 @@ export class RMService {
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet("Data Raw Materials");
 
-        const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : [];
+        const visibleCols = query.visibleColumns
+            ? query.visibleColumns.split(",").map((s) => s.trim()).filter(Boolean)
+            : [];
         const expandSupplierGroup = visibleCols.includes("supplier_details");
         const hasVisibility = visibleCols.length > 0;
 
+        // Header export selaras dengan RM_IMPORT_HEADERS agar round-trip export → import valid (SOP §1.I).
         const allColumns = [
             { header: "ID", key: "id", width: 10, id: "id" },
-            { header: "BARCODE", key: "barcode", width: 20, id: "barcode" },
-            { header: "CATEGORY", key: "category", width: 25, id: "category" },
-            { header: "MATERIAL NAME", key: "name", width: 40, id: "name" },
-            { header: "UOM", key: "unit", width: 15, id: "unit" },
-            { header: "SUPPLIER", key: "supplier", width: 25, id: "supplier" },
-            { header: "PRICE", key: "price", width: 15, id: "price" },
-            { header: "MOQ", key: "min_buy", width: 12, id: "min_buy" },
-            { header: "LEAD TIME", key: "lead_time", width: 12, id: "lead_time" },
+            { header: RM_IMPORT_HEADERS.barcode, key: "barcode", width: 20, id: "barcode" },
+            { header: RM_IMPORT_HEADERS.category, key: "category", width: 25, id: "category" },
+            { header: RM_IMPORT_HEADERS.name, key: "name", width: 40, id: "name" },
+            { header: RM_IMPORT_HEADERS.unit, key: "unit", width: 15, id: "unit" },
+            { header: RM_IMPORT_HEADERS.supplier, key: "supplier", width: 25, id: "supplier" },
+            { header: RM_IMPORT_HEADERS.price, key: "price", width: 15, id: "price" },
+            { header: RM_IMPORT_HEADERS.moq, key: "min_buy", width: 12, id: "min_buy" },
+            { header: RM_IMPORT_HEADERS.leadTime, key: "lead_time", width: 12, id: "lead_time" },
             { header: "UTAMA?", key: "is_preferred", width: 10, id: "is_preferred" },
-            { header: "SOURCE", key: "supplier_source", width: 15, id: "supplier_source" },
-            { header: "NEGARA", key: "supplier_country", width: 15, id: "supplier_country" },
-            { header: "MIN STOCK", key: "min_stock", width: 12, id: "min_stock" },
+            { header: RM_IMPORT_HEADERS.source, key: "supplier_source", width: 15, id: "supplier_source" },
+            { header: RM_IMPORT_HEADERS.country, key: "supplier_country", width: 15, id: "supplier_country" },
+            { header: RM_IMPORT_HEADERS.minStock, key: "min_stock", width: 12, id: "min_stock" },
             { header: "TIPE", key: "type", width: 15, id: "type" },
             { header: "DIBUAT", key: "created_at", width: 15, id: "created_at" },
             { header: "UPDATE", key: "updated_at", width: 15, id: "updated_at" },
@@ -314,7 +313,6 @@ export class RMService {
         sheet.columns = filteredColumns.map(({ header, key, width }) => ({ header, key, width }));
 
         for (const item of data) {
-            const typeLabel = item.type ? MATERIAL_TYPE_LABEL[item.type] : "";
             const supplierRows =
                 item.suppliers && item.suppliers.length > 0 ? item.suppliers : [null];
 
@@ -326,7 +324,7 @@ export class RMService {
                     category: item.raw_mat_category?.name ?? "",
                     supplier: sup?.supplier_name ?? "",
                     unit: item.unit_raw_material.name,
-                    type: typeLabel,
+                    type: item.type ?? "",
                     supplier_source: sup?.supplier_source ?? item.source ?? "",
                     supplier_country: sup?.supplier_country ?? "",
                     price: sup?.unit_price ?? 0,

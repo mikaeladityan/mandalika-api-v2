@@ -19,6 +19,7 @@ import type { RMImportJobData } from "./rm-import.queue.js";
 const CACHE_PREFIX = "rm:import:";
 const PROCESSING_TTL_SECONDS = 30 * 60;
 const CHUNK_SIZE = 500;
+const DEFAULT_SUPPLIER_ADDRESS = "-";
 
 type ImportCachePayload = {
     createdAt: number;
@@ -88,7 +89,7 @@ async function upsertSuppliers(
 
     const upserted = await tx.$queryRaw<Array<{ id: number; slug: string }>>`
         INSERT INTO suppliers (name, slug, addresses, country, source, created_at, updated_at)
-        SELECT t.name, t.slug, '-', t.country, t.source::"RawMaterialSource", NOW(), NOW()
+        SELECT t.name, t.slug, ${DEFAULT_SUPPLIER_ADDRESS}, t.country, t.source::"RawMaterialSource", NOW(), NOW()
         FROM unnest(
             ${names}::text[],
             ${slugs}::text[],

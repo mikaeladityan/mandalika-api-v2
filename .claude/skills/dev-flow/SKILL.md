@@ -400,6 +400,248 @@ return new Response(buffer, {
 
 ---
 
+## 🗄️ 1.J Service Layer: Schema, ORM, Raw SQL, dan Anti-Bug (SOP Wajib)
+
+Service adalah satu-satunya layer yang menyentuh database. Salah desain di sini → N+1 query, race condition, SQL injection, atau index miss yang tidak ketahuan sampai produksi melambat. SOP ini mengikat **sebelum** menulis method service baru atau memodifikasi yang ada.
+
+### A. Schema-First: Selalu Cek `prisma/schema.prisma` Sebelum Query
+
+**Setiap kali** menulis `findMany` / `findUnique` / `findFirst` / raw SQL baru, **buka `prisma/schema.prisma`** dan jawab dua pertanyaan:
+
+1. Apakah kolom yang ada di `where` / `orderBy` / `join` sudah ada index (`@@index`, `@unique`, `@id`, atau composite `@@unique`)?
+2. Apakah selectivity index masuk akal untuk pola query baru? (mis. filter `status = 'ACTIVE'` di tabel 10jt row → index `status` saja tidak cukup, butuh composite `[status, updated_at]`.)
+
+**Bila jawaban "tidak"** — tambahkan `@@index` di model **dan** generate migration **sebelum** merge. Jangan tunda dengan "nanti optimize".
+
+| Pola query                                                    | Index minimum yang wajib ada                                       |
+| :------------------------------------------------------------ | :----------------------------------------------------------------- |
+| `where: { unique_column: x }`                                 | `@unique` di kolom tsb (Prisma auto-create).                       |
+| `where: { fk_id: x }`                                         | `@@index([fk_id])` di model child.                                 |
+| `orderBy: { updated_at: "desc" }` di list dengan pagination   | `@@index([updated_at])` (atau composite kalau ada filter).         |
+| `where: { status: x }` + `orderBy: { updated_at }`            | `@@index([status, updated_at])` (composite, urutan = filter→sort). |
+| `where: { deleted_at: null }` (soft delete pattern)           | `@@index([deleted_at])` — partial index PostgreSQL lebih ideal.    |
+| `where: { name: { contains: q, mode: "insensitive" } }`       | Trigram GIN: `CREATE INDEX … USING GIN (name gin_trgm_ops)`.        |
+| `where: { name: { startsWith: q } }`                          | B-tree biasa cukup (anchored prefix sargable).                     |
+
+**Migration untuk index baru** (lewat `prisma migrate dev --create-only` lalu edit kalau butuh raw SQL seperti GIN):
+
+```sql
+-- prisma/migrations/<ts>_add_rm_search_indexes/migration.sql
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS "raw_materials_name_trgm" ON "raw_materials" USING GIN (name gin_trgm_ops);
+```
+
+### B. ORM Default, Raw SQL Hanya untuk Optimasi yang Terukur
+
+**Default = Prisma Client** (type-safe, mendukung relation include, auto-prepared statement). Pindah ke `$queryRaw` / `$executeRaw` **hanya kalau salah satu dari**:
+
+1. ORM menghasilkan query yang **demonstrably** lebih lambat (sudah `EXPLAIN ANALYZE`-kan dan bandingkan).
+2. Butuh fitur SQL yang Prisma tidak ekspos (window function, `ON CONFLICT … DO UPDATE`, CTE recursive, full-text search dengan ranking, `unnest` array param).
+3. Bulk operation (>100 row) yang ORM-nya N+1 atau memicu transaction timeout.
+
+**Bila pakai raw SQL, semua aturan ini berlaku tanpa kecuali**:
+
+| Aturan                            | Wajib                                                                                 | Anti-pattern                                                |
+| :-------------------------------- | :------------------------------------------------------------------------------------ | :---------------------------------------------------------- |
+| **Parametrize semua input**       | `prisma.$queryRaw\`… WHERE id = ${id}\`` (tagged template — Prisma auto-bind)         | `prisma.$queryRawUnsafe(\`… WHERE id = ${id}\`)` (SQL injection) |
+| **Tipe hasil eksplisit**          | `prisma.$queryRaw<Array<{ id: number; name: string }>>\`…\``                          | `prisma.$queryRaw<any[]>`                                   |
+| **Identifier whitelist**          | Validasi `sortBy` lewat `z.enum([...])` sebelum disisipkan via `Prisma.sql`            | Interpolasi string `${sortBy}` ke nama kolom mentah         |
+| **Array param**                   | `${Prisma.join(values)}` atau `${ids}::int[]` + `ANY(...)`                            | Loop `for (const id of ids) await tx.$executeRaw\`…\``       |
+| **Cocokkan tipe dengan Prisma**   | Cast eksplisit `::"STATUS"`, `::int[]`, `::text[]`, `::numeric` di SQL                | Andalkan auto-cast PostgreSQL — bisa gagal di driver.       |
+| **Selalu di dalam `$transaction`**| Untuk multi-statement upsert (mis. reset preferred → insert ON CONFLICT)              | Dua `$executeRaw` berurutan di luar transaction              |
+| **Komentar 1 baris**              | Jelaskan **alasan pakai raw** + skema yang disentuh (untuk reviewer + future-you)     | Raw SQL panjang tanpa konteks                                |
+
+**Contoh: bulk upsert dengan `unnest` + `ON CONFLICT` (lihat `inventory/rm/import/queue/rm-import.worker.ts`)**:
+
+```ts
+// unnest 4 array sejajar → 1 INSERT, hindari N+1; ON CONFLICT (slug) bikin upsert idempotent.
+const upserted = await tx.$queryRaw<Array<{ id: number; slug: string }>>`
+    INSERT INTO suppliers (name, slug, addresses, country, source, created_at, updated_at)
+    SELECT t.name, t.slug, ${DEFAULT_ADDRESS}, t.country, t.source::"RawMaterialSource", NOW(), NOW()
+    FROM unnest(
+        ${names}::text[],
+        ${slugs}::text[],
+        ${countries}::text[],
+        ${sources}::text[]
+    ) AS t(name, slug, country, source)
+    ON CONFLICT (slug) DO UPDATE SET
+        source = EXCLUDED.source,
+        country = EXCLUDED.country,
+        updated_at = NOW()
+    RETURNING id, slug
+`;
+```
+
+**Aturan baca**: setiap baris raw SQL harus bisa dibaca tanpa stack trace mental. Bila >20 baris dan kompleks, pecah jadi helper function dengan nama deskriptif (`bulkUpsertRawMaterials`, `backfillSupplierSlugs`).
+
+### C. Service yang Optimal, Simple, dan Mudah Dibaca
+
+Service yang baik **terbaca dalam 1 napas**. Optimasi tidak berarti rumit — sering kali optimasi = menghapus query dan loop.
+
+**Aturan readability**:
+
+1. **Top-down**: handler publik di atas, helper privat di bawah. Reviewer baca file dari atas → langsung paham flow.
+2. **Helper privat eksplisit**: `private static toDTO(row)`, `private static normalizeX(input)`, `private static rethrowPrismaError(e)`. Jangan inline mapping panjang di tengah `create` / `update`.
+3. **Satu `$transaction` per request**: kumpulkan semua mutasi terkait di dalam satu `prisma.$transaction(async (tx) => { … })` — jangan beberapa transaction berurutan.
+4. **Early-return validasi**: cek ID exist / state valid **sebelum** masuk transaction. `findUnique({ where, select: { id: true } })` jauh lebih murah daripada rollback transaction yang sudah berjalan.
+5. **`select` hemat**: gunakan `select` (atau `Prisma.<Model>Select satisfies`) untuk read-only path. `include` hanya kalau benar-benar butuh seluruh row + relasi.
+6. **Konstanta bermakna**: `EXPORT_MAX_ROWS = 50_000`, `CHUNK_SIZE = 500`, `LOCK_TTL_SECONDS = 60`. Bukan magic number tersebar.
+7. **Nama method = nama domain**: `bulkStatus`, `clean`, `restore`, `getPreview` — bukan `doUpdate2`, `handleStuff`.
+8. **`satisfies` untuk shape**: `const INCLUDE = { … } satisfies Prisma.RawMaterialInclude;` — tetap typed tanpa lebar literal hilang.
+
+**Anti-pattern**:
+
+| Anti-pattern                                                    | Fix                                                                          |
+| :-------------------------------------------------------------- | :--------------------------------------------------------------------------- |
+| 200 baris method dengan 5 level if nested                       | Pecah ke helper privat. Setiap helper < 40 baris.                            |
+| `prisma.x.findMany(...)` lalu `for (const r of rows) prisma.y…` | Lihat §1.J.D — ini N+1. Gabungkan via `include` atau bulk fetch dengan `IN`. |
+| Mapping field di tengah handler (`return { id: row.id, … }` 30 baris) | Pindah ke `private static toDTO(row): ResponseDTO`.                  |
+| Magic number `50000`, `300`, `60` di tengah code                | `const EXPORT_MAX_ROWS = 50_000;` di top-of-file.                             |
+| `try/catch` membungkus seluruh method tanpa narrow              | `try` hanya di sekitar operasi yang spesifik gagal; lempar `ApiError` typed. |
+| `as any` di tengah service                                      | Lihat §1.F — pakai tipe Prisma generated atau type literal eksplisit.        |
+
+### D. Anti-Bug: N+1, Race Condition, dan Teman-temannya
+
+Bug-bug ini **diam-diam** di test (test pakai 2 row) tapi membakar production (10rb row). Wajib dicek sebelum merge.
+
+#### D.1 N+1 query
+
+**Gejala**: loop yang setiap iterasi panggil DB.
+
+```ts
+// ❌ ANTI: N+1 — 1 query list + N query detail per row
+const products = await prisma.product.findMany();
+for (const p of products) {
+    p.type = await prisma.productType.findUnique({ where: { id: p.type_id } });
+}
+
+// ✅ Cara 1 — gunakan include (1 query JOIN)
+const products = await prisma.product.findMany({ include: { product_type: true } });
+
+// ✅ Cara 2 — kalau JOIN tidak cocok (relasi banyak / opsional), batch dengan IN
+const products = await prisma.product.findMany();
+const typeIds = [...new Set(products.map((p) => p.type_id).filter(Boolean))];
+const types = await prisma.productType.findMany({ where: { id: { in: typeIds } } });
+const typeMap = new Map(types.map((t) => [t.id, t]));
+// merge in memory → O(N) tanpa query tambahan
+```
+
+**Wajib cek**: tiap `for`/`map`/`forEach` yang isinya `await prisma.*` = N+1. Refactor ke include / batch.
+
+#### D.2 Race condition (TOCTOU — Time Of Check, Time Of Use)
+
+**Gejala**: cek dulu lalu mutasi — antara cek & mutasi, request lain bisa menyelip.
+
+```ts
+// ❌ ANTI: TOCTOU — request paralel sama-sama lolos cek, lalu duplikat
+const existing = await prisma.product.findFirst({ where: { code: body.code } });
+if (existing) throw new ApiError(400, "Kode sudah dipakai");
+return prisma.product.create({ data: body });  // P2002 race-prone
+
+// ✅ Cara 1 — Race-safe: andalkan unique constraint, tangkap P2002
+try {
+    return await prisma.product.create({ data: body });
+} catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        throw new ApiError(400, "Kode sudah dipakai");
+    }
+    throw e;
+}
+
+// ✅ Cara 2 — Untuk decrement stock / counter: gunakan atomic update, bukan read-modify-write
+await prisma.product.update({
+    where: { id, stock: { gte: qty } },   // guard via where
+    data: { stock: { decrement: qty } },
+});
+```
+
+**Pola race-safe yang wajib dipakai**:
+
+- **Unique violation**: tangkap `P2002` daripada pre-check `findFirst`.
+- **Counter / stock**: `{ decrement: n }` / `{ increment: n }` + guard `where: { stock: { gte: n } }` — atomic di SQL.
+- **Lock proses (BullMQ, import session)**: Redis `SET key val EX ttl NX` — return `"OK"` artinya dapat lock; release di `finally`.
+- **Read-then-write yang complex**: bungkus dalam `prisma.$transaction` dengan `isolationLevel: "Serializable"` kalau benar-benar butuh — biasanya level default cukup kalau pakai unique constraint.
+
+#### D.3 Cross-table consistency
+
+**Gejala**: dua tabel terkait, hanya satu yang ter-update saat error.
+
+```ts
+// ❌ ANTI: dua mutasi tidak atomic
+await prisma.order.create({ data: order });
+await prisma.stockMovement.create({ data: movement });   // gagal → order yatim
+
+// ✅ Wajib: satu transaction
+await prisma.$transaction(async (tx) => {
+    const order = await tx.order.create({ data: orderData });
+    await tx.stockMovement.create({ data: { ...movement, order_id: order.id } });
+    return order;
+}, { maxWait: 5_000, timeout: 30_000 });
+```
+
+#### D.4 Implicit transaction timeout di bulk operation
+
+**Gejala**: import 5000 row → `Transaction API error: Transaction already closed`.
+
+```ts
+// ❌ ANTI: 1 transaction untuk semua chunk → timeout default 5s
+await prisma.$transaction(async (tx) => {
+    for (const row of allRows) await tx.raw.create({ data: row });
+});
+
+// ✅ Pecah ke chunk, transaction per chunk + timeout eksplisit
+const chunks = chunkArray(rows, 500);
+for (const chunk of chunks) {
+    await prisma.$transaction(
+        async (tx) => bulkUpsertRawMaterials(tx, chunk, maps),
+        { maxWait: 60_000, timeout: 120_000 },
+    );
+}
+```
+
+#### D.5 Serial promise yang seharusnya paralel
+
+```ts
+// ❌ ANTI: serial — 3x latency
+const unitId = await getOrCreateSlug(tx.unit, body.unit);
+const categoryId = await getOrCreateSlug(tx.category, body.category);
+const supplierIds = await upsertSuppliers(tx, body.suppliers);
+
+// ✅ Paralel — Promise.all (tetap dalam 1 transaction)
+const [unitId, categoryId, supplierIds] = await Promise.all([
+    getOrCreateSlug(tx.unit, body.unit),
+    getOrCreateSlug(tx.category, body.category),
+    upsertSuppliers(tx, body.suppliers),
+]);
+```
+
+**Catatan**: paralel **hanya** aman bila operasi tidak menulis ke row yang sama. Bila iya, harus serial untuk hindari deadlock.
+
+#### D.6 Forgotten `await`
+
+```ts
+// ❌ ANTI: tanpa await → unhandled promise + race ke response
+prisma.logging.create({ data: log });    // return Promise yang dilempar ke event loop
+return ApiResponse.sendSuccess(c, data);
+
+// ✅ Tunggu sebelum return
+await prisma.logging.create({ data: log });
+return ApiResponse.sendSuccess(c, data);
+```
+
+ESLint rule `@typescript-eslint/no-floating-promises` wajib aktif di config — bila tidak, scan manual.
+
+### E. Verifikasi Sebelum Commit
+
+1. **Buka `prisma/schema.prisma`** — pastikan kolom di `where` / `orderBy` baru sudah ada `@@index` / `@unique`. Bila belum, tambahkan + migration.
+2. **Grep N+1 candidates**: `grep -nE "for .*await|map.*async.*await" src/module/application/<scope>/`. Tiap match harus dijustifikasi (atau di-refactor jadi `include` / batch `IN`).
+3. **`EXPLAIN ANALYZE`** untuk query baru di endpoint list/search high-traffic — pastikan plan pakai index (`Index Scan`, bukan `Seq Scan` di tabel besar).
+4. **`rtk tsc --noEmit`** hijau — terutama untuk raw SQL yang tipe row-nya manual.
+5. **Test race condition**: kalau ada unique constraint baru, tulis 1 integration test yang fire 2 request paralel — harus 1 sukses + 1 error 400 (bukan crash / duplikat).
+6. **Cek lock & transaction**: setiap `acquireLock` punya `releaseLock` di `finally`. Setiap `$transaction` panjang punya `timeout` eksplisit.
+
+---
+
 ## 🧪 2. Fase Testing (Vitest)
 
 Setelah seluruh lapisan backend (Service, Controller, Routes) selesai dibuat, tulis unit test dan integration test **sebelum** melanjutkan ke Frontend. Ini memastikan kontrak API stabil dan bug tertangkap lebih awal.

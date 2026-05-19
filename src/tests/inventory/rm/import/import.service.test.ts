@@ -60,18 +60,21 @@ describe("RMImportService", () => {
                     BARCODE: "RM-A",
                     "MATERIAL NAME": "A",
                     CATEGORY: "C",
+                    UOM: "PCS",
                     "LOCAL/IMPORT": "IMPORT",
                 },
                 {
                     BARCODE: "RM-B",
                     "MATERIAL NAME": "B",
                     CATEGORY: "C",
+                    UOM: "PCS",
                     "LOCAL/IMPORT": "lokal",
                 },
                 {
                     BARCODE: "RM-C",
                     "MATERIAL NAME": "C",
                     CATEGORY: "C",
+                    UOM: "PCS",
                 },
             ];
 

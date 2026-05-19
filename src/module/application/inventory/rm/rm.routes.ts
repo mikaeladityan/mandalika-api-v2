@@ -4,11 +4,15 @@ import { RMController } from "./rm.controller.js";
 import { BulkStatusRMSchema, RequestRMSchema } from "./rm.schema.js";
 import { RMImportRoutes } from "./import/import.routes.js";
 import { SupplierRoutes } from "./supplier/supplier.routes.js";
+import { RawMatCategoryRoutes } from "./category/category.routes.js";
+import { UnitRawMaterialRoutes } from "./unit/unit.routes.js";
 
 export const RMRoutes = new Hono();
 
 RMRoutes.route("/import", RMImportRoutes);
 RMRoutes.route("/suppliers", SupplierRoutes);
+RMRoutes.route("/categories", RawMatCategoryRoutes);
+RMRoutes.route("/units", UnitRawMaterialRoutes);
 
 RMRoutes.get("/export", RMController.export);
 RMRoutes.delete("/clean", RMController.clean);

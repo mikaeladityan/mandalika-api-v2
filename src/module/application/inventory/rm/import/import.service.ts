@@ -63,7 +63,7 @@ function parseRow(raw: Record<string, unknown>): RMImportPreviewDTO {
         barcode: d[RM_IMPORT_HEADERS.barcode].trim(),
         name: d[RM_IMPORT_HEADERS.name].trim(),
         category: d[RM_IMPORT_HEADERS.category].toUpperCase().trim(),
-        unit: (d[RM_IMPORT_HEADERS.unit] ?? "UNIT").toUpperCase().trim(),
+        unit: d[RM_IMPORT_HEADERS.unit].toUpperCase().trim(),
         min_buy: d[RM_IMPORT_HEADERS.moq],
         min_stock: d[RM_IMPORT_HEADERS.minStock],
         lead_time: d[RM_IMPORT_HEADERS.leadTime],
@@ -86,6 +86,22 @@ async function releaseLock(importId: string): Promise<void> {
 }
 
 const TERMINAL_STATES = new Set<ImportJobState>(["completed", "failed"]);
+
+const STATE_MAP: Record<string, ImportJobState> = {
+    waiting: "queued",
+    delayed: "delayed",
+    active: "active",
+    completed: "completed",
+    failed: "failed",
+    "waiting-children": "waiting-children",
+    prioritized: "prioritized",
+};
+
+function isImportJobResult(v: unknown): v is { import_id: string; total: number } {
+    if (typeof v !== "object" || v === null) return false;
+    const r = v as Record<string, unknown>;
+    return typeof r.import_id === "string" && typeof r.total === "number";
+}
 
 export class RMImportService {
     static async preview(rows: Array<Record<string, unknown>>): Promise<ResponseRMImportDTO> {
@@ -137,8 +153,7 @@ export class RMImportService {
             throw new ApiError(404, "Import job tidak ditemukan");
         }
         const rawState = await job.getState();
-        const state: ImportJobState =
-            rawState === "waiting" ? "queued" : (rawState as ImportJobState);
+        const state: ImportJobState = STATE_MAP[rawState] ?? "unknown";
 
         const progressNum = typeof job.progress === "number" ? job.progress : 0;
         const response: ResponseRMImportStatusDTO = {
@@ -147,8 +162,8 @@ export class RMImportService {
             progress: progressNum,
         };
 
-        if (state === "completed" && job.returnvalue) {
-            response.result = job.returnvalue as { import_id: string; total: number };
+        if (state === "completed" && isImportJobResult(job.returnvalue)) {
+            response.result = job.returnvalue;
         }
         if (state === "failed") {
             response.failedReason = job.failedReason ?? "Unknown error";

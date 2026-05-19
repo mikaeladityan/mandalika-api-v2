@@ -1,6 +1,6 @@
 # Inventory — Frontend Integration Flow
 
-Dokumen **level modul** untuk seluruh kontrak FE ↔ BE modul `inventory`. Berlaku untuk sub-modul `fg`, `fg/import`, `fg/sizes`, `fg/types`, dan `rm` (RM didokumentasikan terpisah, tabel di sini menyiapkan slot-nya).
+Dokumen **level modul** untuk seluruh kontrak FE ↔ BE modul `inventory`. Berlaku untuk sub-modul `fg`, `fg/import`, `fg/sizes`, `fg/types`, `rm`, `rm/import`, `rm/suppliers`, `rm/categories`, dan `rm/units`.
 
 Mengikuti SOP canonical [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md) — path mirror BE↔FE, naming dot-chain di sub-module, pemisahan READ/WRITE/ACTION/TableState/Query-wrapper untuk hook.
 
@@ -8,7 +8,7 @@ Mengikuti SOP canonical [frontend-dev-flow](../../../../.claude/skills/frontend-
 **Frontend base path**: `app/src/app/(application)/inventory/`
 **Component base path**: `app/src/components/pages/inventory/`
 
-> **Status FE**: per 2026-05-18, modul FE `inventory/*` **belum diimplementasikan** di `app/src/app/(application)/`. Dokumen ini mendefinisikan **rencana** struktur FE yang harus dibangun saat FE mulai. Tandai baris `🚧 TBD` di tabel sampai file dibuat. Konvensi global (§7) tetap berlaku saat implementasi dimulai.
+> **Status FE**: per 2026-05-19, modul FE `inventory/*` **belum diimplementasikan** di `app/src/app/(application)/`. Dokumen ini mendefinisikan **rencana** struktur FE yang harus dibangun saat FE mulai. Tandai baris `🚧 TBD` di tabel sampai file dibuat. Konvensi global (§7) tetap berlaku saat implementasi dimulai. BE sudah lengkap untuk FG (+ import/sizes/types) dan RM (+ import/suppliers).
 
 ---
 
@@ -23,6 +23,10 @@ Mengikuti SOP canonical [frontend-dev-flow](../../../../.claude/skills/frontend-
 | FG / Sizes  | `api/src/module/application/inventory/fg/size/`                          | `app/src/app/(application)/inventory/fg/sizes/server/` 🚧 TBD                         |
 | FG / Types  | `api/src/module/application/inventory/fg/type/`                          | `app/src/app/(application)/inventory/fg/types/server/` 🚧 TBD                         |
 | RM scope    | `api/src/module/application/inventory/rm/`                               | `app/src/app/(application)/inventory/rm/server/` 🚧 TBD                               |
+| RM / Import | `api/src/module/application/inventory/rm/import/`                        | `app/src/app/(application)/inventory/rm/import/server/` 🚧 TBD                        |
+| RM / Suppliers | `api/src/module/application/inventory/rm/supplier/`                   | `app/src/app/(application)/inventory/rm/suppliers/server/` 🚧 TBD                     |
+| RM / Categories | `api/src/module/application/inventory/rm/category/`                  | `app/src/app/(application)/inventory/rm/categories/server/` 🚧 TBD                    |
+| RM / Units     | `api/src/module/application/inventory/rm/unit/`                       | `app/src/app/(application)/inventory/rm/units/server/` 🚧 TBD                         |
 | Components  | —                                                                        | `app/src/components/pages/inventory/<scope>/` 🚧 TBD                                  |
 | Page entry  | —                                                                        | `app/src/app/(application)/inventory/<scope>/page.tsx` (Suspense saja) 🚧 TBD          |
 
@@ -45,7 +49,11 @@ Mengikuti SOP canonical [frontend-dev-flow](../../../../.claude/skills/frontend-
 | `fg/import`  | `src/module/application/inventory/fg/import/import.schema.ts` → `FGImportRowSchema` / `RequestExecuteFGImportSchema`     | `app/src/app/(application)/inventory/fg/import/server/inventory.fg.import.schema.ts` → `FGImportRowDTO` / `RequestExecuteFGImportDTO` / `ResponseFGImportDTO` / `ResponseEnqueueFGImportDTO` / `ResponseImportStatusDTO` | `@/shared/types` (`GENDER`, `ImportJobState`) | 🚧 TBD | FE belum ada |
 | `fg/sizes`   | `src/module/application/inventory/fg/size/size.schema.ts` → `RequestFGSizeSchema` / `QueryFGSizeSchema` / `ResponseFGSizeSchema` | `app/src/app/(application)/inventory/fg/sizes/server/inventory.fg.size.schema.ts` → `RequestFGSizeDTO` / `QueryFGSizeDTO` / `ResponseFGSizeDTO`     | —                                          | 🚧 TBD     | FE belum ada |
 | `fg/types`   | `src/module/application/inventory/fg/type/type.schema.ts` → `RequestFGTypeSchema` / `QueryFGTypeSchema` / `ResponseFGTypeSchema` | `app/src/app/(application)/inventory/fg/types/server/inventory.fg.type.schema.ts` → `RequestFGTypeDTO` / `QueryFGTypeDTO` / `ResponseFGTypeDTO`     | —                                          | 🚧 TBD     | FE belum ada |
-| `rm`         | `src/module/application/inventory/rm/rm.schema.ts`                                                                     | `app/src/app/(application)/inventory/rm/server/inventory.rm.schema.ts`                                                                              | `@/shared/types` (`STATUS`)                | 🚧 TBD     | _(RM dokumentasi terpisah)_ |
+| `rm`         | `src/module/application/inventory/rm/rm.schema.ts` → `RequestRMSchema` / `ResponseRMSchema` / `QueryRMSchema` / `BulkStatusRMSchema` / `RequestSupplierMaterialSchema` | `app/src/app/(application)/inventory/rm/server/inventory.rm.schema.ts` → `RequestRMDTO` / `ResponseRMDTO` / `QueryRMDTO` / `BulkStatusRMDTO` / `RequestSupplierMaterialDTO` | `@/shared/types` (`STATUS`, `MaterialType`, `RawMaterialSource`) | 🚧 TBD | FE belum ada. RM `BulkActionEnum` hanya `["ACTIVE","DELETE"]` — beda dengan FG yang pakai full `STATUS`. |
+| `rm/import`  | `src/module/application/inventory/rm/import/import.schema.ts` → `RMImportRowSchema` / `RequestExecuteRMImportSchema` (+ `RM_IMPORT_HEADERS`) | `app/src/app/(application)/inventory/rm/import/server/inventory.rm.import.schema.ts` → `RMImportPreviewDTO` / `RequestExecuteRMImportDTO` / `ResponseRMImportDTO` / `ResponseEnqueueRMImportDTO` / `ResponseRMImportStatusDTO` / `ImportJobState` | `@/shared/types` (`RawMaterialSource`, `ImportJobState`) | 🚧 TBD | FE belum ada. Header CSV via konstanta `RM_IMPORT_HEADERS` (BARCODE, MATERIAL NAME, CATEGORY, UOM, MOQ, MIN STOCK, LEAD TIME, SUPPLIER, LOCAL/IMPORT, COUNTRY, PRICE). Header export RM **sudah** selaras dengan import. |
+| `rm/suppliers` | `src/module/application/inventory/rm/supplier/supplier.schema.ts` → `RequestSupplierSchema` / `QuerySupplierSchema` / `BulkDeleteSupplierSchema` | `app/src/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.schema.ts` → `RequestSupplierDTO` / `QuerySupplierDTO` / `BulkDeleteSupplierDTO` / `ResponseSupplierDTO` | `@/shared/types` (`RawMaterialSource`) | 🚧 TBD | FE belum ada. `ResponseSupplierDTO` plain (tidak via Zod). `slug` nullable di BE — mirror sebagai `string \| null`. |
+| `rm/categories` | `src/module/application/inventory/rm/category/category.schema.ts` → `RequestRawMatCategorySchema` / `UpdateRawMatCategorySchema` / `ChangeStatusRawMatCategorySchema` / `QueryRawMatCategorySchema` / `ResponseRawMatCategorySchema` | `app/src/app/(application)/inventory/rm/categories/server/inventory.rm.category.schema.ts` → `RequestRawMatCategoryDTO` / `UpdateRawMatCategoryDTO` / `ChangeStatusRawMatCategoryDTO` / `QueryRawMatCategoryDTO` / `ResponseRawMatCategoryDTO` | `@/shared/types` (`STATUS`) | 🚧 TBD | FE belum ada. `UpdateRawMatCategorySchema` pakai `.refine` (minimal 1 field). Default `status = "ACTIVE"` di service (bukan Zod). |
+| `rm/units`      | `src/module/application/inventory/rm/unit/unit.schema.ts` → `RequestRawMaterialUnitSchema` / `UpdateRawMaterialUnitSchema` / `QueryRawMaterialUnitSchema` / `ResponseRawMaterialUnitSchema` | `app/src/app/(application)/inventory/rm/units/server/inventory.rm.unit.schema.ts` → `RequestRawMaterialUnitDTO` / `UpdateRawMaterialUnitDTO` / `QueryRawMaterialUnitDTO` / `ResponseRawMaterialUnitDTO` | — | 🚧 TBD | FE belum ada. `UpdateRawMaterialUnitSchema` pakai `.refine` (field `name` wajib). Response **tanpa** timestamp (model belum punya `created_at`/`updated_at`). |
 
 **Aturan turunan**:
 
@@ -68,6 +76,11 @@ Class statis. `setupCSRFToken()` **wajib** sebelum POST/PUT/PATCH/DELETE. Setiap
 | `fg/import`  | `InventoryFGImportService`| `app/src/app/(application)/inventory/fg/import/server/inventory.fg.import.service.ts` 🚧 TBD | `/api/app/inventory/fg/import`             | `preview(file: File)` (multipart), `getPreview(import_id)`, `execute(import_id)`, `status(import_id)`                                                                                                                                |
 | `fg/sizes`   | `InventoryFGSizeService`  | `app/src/app/(application)/inventory/fg/sizes/server/inventory.fg.size.service.ts` 🚧 TBD   | `/api/app/inventory/fg/sizes`              | `list(params)`, `create(body)`, `update(id, body)`, `remove(id)`                                                                                                                                                                     |
 | `fg/types`   | `InventoryFGTypeService`  | `app/src/app/(application)/inventory/fg/types/server/inventory.fg.type.service.ts` 🚧 TBD   | `/api/app/inventory/fg/types`              | `list(params)`, `create(body)`, `update(id, body)`, `remove(id)`                                                                                                                                                                     |
+| `rm`         | `InventoryRMService`      | `app/src/app/(application)/inventory/rm/server/inventory.rm.service.ts` 🚧 TBD              | `/api/app/inventory/rm`                    | `list(params)`, `detail(id)`, `create(body)`, `update(id, body)`, `remove(id)` (soft-delete), `restore(id)`, `bulkStatus(ids, "ACTIVE"\|"DELETE")`, `clean()`, `exportCsv(params)` (responseType `blob`) |
+| `rm/import`  | `InventoryRMImportService`| `app/src/app/(application)/inventory/rm/import/server/inventory.rm.import.service.ts` 🚧 TBD | `/api/app/inventory/rm/import`             | `preview(file: File)` (multipart), `getPreview(import_id)`, `execute(import_id)`, `status(import_id)`                                                                                                                                |
+| `rm/suppliers` | `InventoryRMSupplierService` | `app/src/app/(application)/inventory/rm/suppliers/server/inventory.rm.supplier.service.ts` 🚧 TBD | `/api/app/inventory/rm/suppliers`     | `list(params)`, `detail(id)`, `create(body)`, `update(id, body)`, `remove(id)` (**hard delete**), `bulkDelete(ids)` (POST `/bulk-delete`)                                                                              |
+| `rm/categories` | `InventoryRMCategoryService` | `app/src/app/(application)/inventory/rm/categories/server/inventory.rm.category.service.ts` 🚧 TBD | `/api/app/inventory/rm/categories` | `list(params)`, `detail(id)`, `create(body)`, `update(id, body)` (PUT/PATCH), `changeStatus(id, status)` (PATCH `/:id/status`), `remove(id)` (**hard delete**, 400 jika masih dipakai RM)                              |
+| `rm/units`      | `InventoryRMUnitService`     | `app/src/app/(application)/inventory/rm/units/server/inventory.rm.unit.service.ts` 🚧 TBD          | `/api/app/inventory/rm/units`      | `list(params)`, `detail(id)`, `create(body)`, `update(id, body)` (PUT/PATCH), `remove(id)` (**hard delete**, 400 jika masih dipakai RM)                                                                                |
 
 **Pola implementasi** (ringkas — detail di [frontend-dev-flow](../../../../.claude/skills/frontend-dev-flow/SKILL.md) Step 2):
 
@@ -151,6 +164,11 @@ WAJIB pisah lima hook per scope. Campur = SOP `frontend-dev-flow` dilanggar.
 | `fg/import`  | `useInventoryFGImport` *(status polling — refetchInterval-based)* | `useFormInventoryFGImport` *(preview + execute mutations)* | `useActionInventoryFGImport` *(retry / cancel — placeholder)* | `useInventoryFGImportSessionState` *(import_id state + step)* | `useInventoryFGImportQuery` *(status polling wrapper)* |
 | `fg/sizes`   | `useInventoryFGSize`     | `useFormInventoryFGSize`    | `useActionInventoryFGSize` *(delete)* | `useInventoryFGSizeTableState`      | `useInventoryFGSizeQuery`    |
 | `fg/types`   | `useInventoryFGType`     | `useFormInventoryFGType`    | `useActionInventoryFGType` *(delete)* | `useInventoryFGTypeTableState`      | `useInventoryFGTypeQuery`    |
+| `rm`         | `useInventoryRM`         | `useFormInventoryRM` *(supports `suppliers[]` field-array + legacy single `supplier_id`)* | `useActionInventoryRM` *(soft-delete/restore/bulkStatus ACTIVE\|DELETE/clean)* | `useInventoryRMTableState` *(filter type/category/supplier/unit)* | `useInventoryRMQuery`        |
+| `rm/import`  | `useInventoryRMImport` *(status polling — refetchInterval)* | `useFormInventoryRMImport` *(preview + execute mutations)* | `useActionInventoryRMImport` *(retry / cancel — placeholder)* | `useInventoryRMImportSessionState` *(import_id state + step)* | `useInventoryRMImportQuery` |
+| `rm/suppliers` | `useInventoryRMSupplier` | `useFormInventoryRMSupplier` | `useActionInventoryRMSupplier` *(delete + bulkDelete)* | `useInventoryRMSupplierTableState` | `useInventoryRMSupplierQuery` |
+| `rm/categories` | `useInventoryRMCategory` | `useFormInventoryRMCategory` | `useActionInventoryRMCategory` *(changeStatus + delete)* | `useInventoryRMCategoryTableState` *(filter status)* | `useInventoryRMCategoryQuery` |
+| `rm/units`      | `useInventoryRMUnit`     | `useFormInventoryRMUnit`     | `useActionInventoryRMUnit` *(delete)*                  | `useInventoryRMUnitTableState`     | `useInventoryRMUnitQuery`     |
 
 **File**: `app/src/app/(application)/inventory/<scope>/server/use.inventory.<scope>.ts`.
 
@@ -166,6 +184,18 @@ WAJIB pisah lima hook per scope. Campur = SOP `frontend-dev-flow` dilanggar.
 | Import preview                           | mutationKey `["inventory.fg.import", "preview"]`  | —                                                                                             |
 | Import execute                           | mutationKey `["inventory.fg.import", "execute"]`  | —                                                                                             |
 | Import status (polling)                  | `["inventory.fg.import.status", import_id]`       | Saat `state === "completed"` → invalidate `["inventory.fg"]`.                                 |
+| List `rm`                                | `["inventory.rm", params]`                        | —                                                                                             |
+| Detail `rm`                              | `["inventory.rm", id]`                            | —                                                                                             |
+| Create / Update / Delete / Restore / Bulk / Clean RM | mutationKey `["inventory.rm", "<verb>"]` | `queryClient.invalidateQueries({ queryKey: ["inventory.rm"], type: "all" })`                  |
+| RM import preview                        | mutationKey `["inventory.rm.import", "preview"]`  | —                                                                                             |
+| RM import execute                        | mutationKey `["inventory.rm.import", "execute"]`  | —                                                                                             |
+| RM import status (polling)               | `["inventory.rm.import.status", import_id]`       | Saat `state === "completed"` → invalidate `["inventory.rm"]`.                                 |
+| List `rm/suppliers`                      | `["inventory.rm.supplier", params]`               | —                                                                                             |
+| Mutasi `rm/suppliers`                    | mutationKey `["inventory.rm.supplier", "<verb>"]` | invalidate `["inventory.rm.supplier"]` **dan** `["inventory.rm"]` (RM list menampilkan nama supplier preferred). |
+| List `rm/categories`                     | `["inventory.rm.category", params]`               | —                                                                                             |
+| Mutasi `rm/categories`                   | mutationKey `["inventory.rm.category", "<verb>"]` | invalidate `["inventory.rm.category"]` **dan** `["inventory.rm"]` (RM list/detail menampilkan nama kategori). |
+| List `rm/units`                          | `["inventory.rm.unit", params]`                   | —                                                                                             |
+| Mutasi `rm/units`                        | mutationKey `["inventory.rm.unit", "<verb>"]`     | invalidate `["inventory.rm.unit"]` **dan** `["inventory.rm"]` (RM list/detail menampilkan unit). |
 
 ### Pola READ + polling (FG / Import)
 
@@ -302,6 +332,11 @@ export function useInventoryFGTableState() {
 | `fg/import`  | `components/pages/inventory/fg/import/index.tsx` 🚧 TBD *(wizard 3 step)* | `components/pages/inventory/fg/import/form/upload.tsx` 🚧 TBD *(dropzone)*                  | `components/pages/inventory/fg/import/dialog.tsx` 🚧 TBD *(wizard wrapper)*    | `components/pages/inventory/fg/import/table/preview-columns.tsx` 🚧 TBD | —                                            |
 | `fg/sizes`   | `components/pages/inventory/fg/sizes/index.tsx` 🚧 TBD              | `components/pages/inventory/fg/sizes/form/{create,edit}.tsx` 🚧 TBD                        | `components/pages/inventory/fg/sizes/form/size-form-dialog.tsx` 🚧 TBD        | `components/pages/inventory/fg/sizes/table/columns.tsx` 🚧 TBD   | —                                                  |
 | `fg/types`   | `components/pages/inventory/fg/types/index.tsx` 🚧 TBD              | `components/pages/inventory/fg/types/form/{create,edit}.tsx` 🚧 TBD                        | `components/pages/inventory/fg/types/form/type-form-dialog.tsx` 🚧 TBD        | `components/pages/inventory/fg/types/table/columns.tsx` 🚧 TBD   | —                                                  |
+| `rm`         | `components/pages/inventory/rm/index.tsx` 🚧 TBD                    | `components/pages/inventory/rm/form/{create,edit}.tsx` 🚧 TBD *(suppliers field-array + nested form)* | `components/pages/inventory/rm/form/rm-form-dialog.tsx` 🚧 TBD                | `components/pages/inventory/rm/table/columns.tsx` 🚧 TBD         | `components/pages/inventory/rm/detail.tsx` 🚧 TBD  |
+| `rm/import`  | `components/pages/inventory/rm/import/index.tsx` 🚧 TBD *(wizard 3 step)* | `components/pages/inventory/rm/import/form/upload.tsx` 🚧 TBD *(dropzone)*                  | `components/pages/inventory/rm/import/dialog.tsx` 🚧 TBD *(wizard wrapper)*    | `components/pages/inventory/rm/import/table/preview-columns.tsx` 🚧 TBD | —                                            |
+| `rm/suppliers` | `components/pages/inventory/rm/suppliers/index.tsx` 🚧 TBD        | `components/pages/inventory/rm/suppliers/form/{create,edit}.tsx` 🚧 TBD                    | `components/pages/inventory/rm/suppliers/form/supplier-form-dialog.tsx` 🚧 TBD | `components/pages/inventory/rm/suppliers/table/columns.tsx` 🚧 TBD | —                                                  |
+| `rm/categories` | `components/pages/inventory/rm/categories/index.tsx` 🚧 TBD      | `components/pages/inventory/rm/categories/form/{create,edit}.tsx` 🚧 TBD                   | `components/pages/inventory/rm/categories/form/category-form-dialog.tsx` 🚧 TBD | `components/pages/inventory/rm/categories/table/columns.tsx` 🚧 TBD | —                                                  |
+| `rm/units`      | `components/pages/inventory/rm/units/index.tsx` 🚧 TBD            | `components/pages/inventory/rm/units/form/{create,edit}.tsx` 🚧 TBD                        | `components/pages/inventory/rm/units/form/unit-form-dialog.tsx` 🚧 TBD          | `components/pages/inventory/rm/units/table/columns.tsx` 🚧 TBD     | —                                                  |
 
 **Aturan komponen** (lihat detail di [frontend-dev-flow Step 6-8](../../../../.claude/skills/frontend-dev-flow/SKILL.md)):
 
@@ -523,7 +558,11 @@ Berlaku untuk semua scope. **Detail di** [frontend-dev-flow](../../../../.claude
     - [./fg/import/README.md](./fg/import/README.md) — bulk import via BullMQ
     - [./fg/size/README.md](./fg/size/README.md) — master `product_size`
     - [./fg/type/README.md](./fg/type/README.md) — master `product_types`
-    - _(RM scope — dok terpisah, TBD)_
+    - [./rm/README.md](./rm/README.md) — RM inti (CRUD multi-supplier, bulk, export)
+    - [./rm/import/README.md](./rm/import/README.md) — RM bulk import via BullMQ
+    - [./rm/supplier/README.md](./rm/supplier/README.md) — master `Supplier`
+    - [./rm/category/README.md](./rm/category/README.md) — master `RawMatCategories`
+    - [./rm/unit/README.md](./rm/unit/README.md) — master `UnitRawMaterial`
 - Postman collection: [`docs/postman/erp-mandalika.postman_collection.json`](../../postman/erp-mandalika.postman_collection.json) — folder `Inventory`.
 - Arsitektur global: [ARCHITECTURE.md](../../ARCHITECTURE.md)
 - Auth & session: [AUTH.md](../../AUTH.md)
