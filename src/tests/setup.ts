@@ -477,7 +477,7 @@ vi.mock("../config/prisma.js", () => ({
         },
         outletInventory: {
             findUnique: vi.fn().mockImplementation(async (args) => {
-                const key = args?.where?.outlet_id_product_id;
+                const key = args?.where?.outlet_id_product_id_month_year ?? args?.where?.outlet_id_product_id;
                 if (!key) return null;
                 if (key.product_id === 999 || key.outlet_id === 999) return null;
                 return {
@@ -486,8 +486,26 @@ vi.mock("../config/prisma.js", () => ({
                     product_id: key.product_id,
                     quantity: "10.00",
                     min_stock: "5.00",
+                    month: key.month ?? new Date().getMonth() + 1,
+                    year: key.year ?? new Date().getFullYear(),
                     updated_at: new Date(),
                     product: { id: key.product_id, name: "T-Shirt", code: "TSHIRT" },
+                };
+            }),
+            findFirst: vi.fn().mockImplementation(async (args) => {
+                const w = args?.where;
+                if (!w) return null;
+                if (w.product_id === 999 || w.outlet_id === 999) return null;
+                return {
+                    id: 1,
+                    outlet_id: w.outlet_id,
+                    product_id: w.product_id,
+                    quantity: "10.00",
+                    min_stock: "5.00",
+                    month: new Date().getMonth() + 1,
+                    year: new Date().getFullYear(),
+                    updated_at: new Date(),
+                    product: { id: w.product_id, name: "T-Shirt", code: "TSHIRT" },
                 };
             }),
             findMany: vi.fn().mockResolvedValue([
@@ -497,6 +515,8 @@ vi.mock("../config/prisma.js", () => ({
                     product_id: 1,
                     quantity: "10.00",
                     min_stock: "5.00",
+                    month: new Date().getMonth() + 1,
+                    year: new Date().getFullYear(),
                     updated_at: new Date(),
                     product: { id: 1, name: "T-Shirt", code: "TSHIRT" },
                 },
@@ -509,6 +529,8 @@ vi.mock("../config/prisma.js", () => ({
                 product_id: 1,
                 quantity: "10.00",
                 min_stock: "20.00",
+                month: new Date().getMonth() + 1,
+                year: new Date().getFullYear(),
                 updated_at: new Date(),
                 product: { id: 1, name: "T-Shirt", code: "TSHIRT" },
             }),
@@ -962,7 +984,11 @@ vi.mock("../config/prisma.js", () => ({
                     findMany: vi.fn(),
                 },
                 outletInventory: {
-                    create: vi.fn().mockResolvedValue({ id: 1 }),
+                    findUnique: vi.fn().mockResolvedValue(null),
+                    findFirst: vi.fn().mockResolvedValue(null),
+                    findMany: vi.fn().mockResolvedValue([]),
+                    create: vi.fn().mockResolvedValue({ id: 1, month: new Date().getMonth() + 1, year: new Date().getFullYear() }),
+                    createMany: vi.fn().mockResolvedValue({ count: 1 }),
                     update: vi.fn().mockResolvedValue({ id: 1 }),
                 },
                 productInventory: {
