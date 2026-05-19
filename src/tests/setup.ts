@@ -535,6 +535,7 @@ vi.mock("../config/prisma.js", () => ({
                 product: { id: 1, name: "T-Shirt", code: "TSHIRT" },
             }),
             count: vi.fn().mockResolvedValue(1),
+            groupBy: vi.fn().mockResolvedValue([]),
         },
         warehouse: {
             findFirst: vi.fn(),
@@ -704,6 +705,7 @@ vi.mock("../config/prisma.js", () => ({
             findMany: vi.fn().mockResolvedValue([]),
             count: vi.fn().mockResolvedValue(0),
             update: vi.fn().mockResolvedValue({}),
+            groupBy: vi.fn().mockResolvedValue([]),
         },
         goodsReceipt: {
             findUnique: vi.fn().mockImplementation(async (args) => {
@@ -755,6 +757,7 @@ vi.mock("../config/prisma.js", () => ({
             findMany: vi.fn().mockResolvedValue([]),
             update: vi.fn().mockResolvedValue({ id: 1, quantity: 90 }),
             deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+            groupBy: vi.fn().mockResolvedValue([]),
         },
         account: {
             findUnique: vi.fn().mockImplementation(async (args) => {
