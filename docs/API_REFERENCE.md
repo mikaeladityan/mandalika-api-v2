@@ -4,7 +4,7 @@ Daftar lengkap endpoint backend ERP Mandalika.
 
 **Base URL**: `{{BASE_URL}}/api`
 
-**Auth**: semua endpoint di bawah `/api/app/*` butuh session (cookie `SESSION_COOKIE_NAME` atau header `Authorization: Bearer <sid>`). Endpoint mutation butuh `x-csrf-token` header. Detail → [`AUTH.md`](./AUTH.md).
+**Auth**: semua endpoint di bawah `/api/app/*` butuh session (cookie `SESSION_COOKIE_NAME` atau header `Authorization: Bearer <sid>`). Endpoint mutation butuh `x-xsrf-header` header. Detail → [`AUTH.md`](./AUTH.md).
 
 **Response shape**: `{ status: "success", data, query? }` atau `{ success: false, error, message, details?, requestId }`. Detail → [`ERROR_HANDLING.md`](./ERROR_HANDLING.md).
 

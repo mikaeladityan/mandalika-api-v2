@@ -375,7 +375,7 @@ useQuery({
 ### 4.4 Header & autentikasi
 
 - `Cookie: session={{session_id}}` (semua endpoint).
-- `x-csrf-token: {{csrf_token}}` (untuk `POST /preview` dan `POST /execute`).
+- `x-xsrf-header: {{csrf_token}}` (untuk `POST /preview` dan `POST /execute`).
 - `Content-Type: multipart/form-data` untuk `/preview`; `application/json` untuk `/execute`.
 
 ---
@@ -470,7 +470,7 @@ Folder Postman: `Inventory / FG / Import` di `docs/postman/erp-mandalika.postman
 Header global:
 
 - `Cookie: session={{session_id}}`
-- `x-csrf-token: {{csrf_token}}` (mutasi)
+- `x-xsrf-header: {{csrf_token}}` (mutasi)
 - `Content-Type: application/json` (untuk `/execute`)
 
 ### 8.1 Preview (upload file)

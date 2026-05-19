@@ -44,7 +44,7 @@ SESSION_TTL=86400                    # detik (1 hari). Dipakai untuk sliding TTL
 
 # CSRF
 CSRF_COOKIE_NAME=mdlk_csrf
-CSRF_HEADER_NAME=x-csrf-token
+CSRF_HEADER_NAME=x-xsrf-header
 
 # CORS (comma-separated)
 CORS_ORIGINS=https://erp.mandalikaperfume.my.id,https://app.mandalikaperfume.my.id

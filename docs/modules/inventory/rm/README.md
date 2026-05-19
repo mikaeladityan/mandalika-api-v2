@@ -23,7 +23,7 @@ Master data raw material (bahan baku) — fragrance oil (`FO`) dan packaging (`P
 | :----------------------------- | :------------------------------------------------ | :--------------------------------------------------------------------------------- |
 | List + filter + search         | `GET /`                                           | Sort 6 kolom, filter type/category/supplier/unit/status. ILIKE search 5 relasi.    |
 | Create (M:N supplier)          | `POST /`                                          | Barcode unik. Auto-upsert `unit`, `raw_mat_category`. `suppliers[]` atau legacy `supplier_id`. |
-| Detail                         | `GET /:id`                                        | Include suppliers + preferred flat.                                                |
+| Detail                         | `GET /:id`                                        | Include `suppliers[]` (single source of truth; preferred ditandai `is_preferred=true`). |
 | Update                         | `PUT /:id`, `PATCH /:id`                          | Partial. Re-sync supplier (`set`/`clear`/legacy patch).                             |
 | Soft delete + restore          | `DELETE /:id`, `PATCH /:id/restore`               | `deleted_at = now` / `deleted_at = null`. 400 jika idempotent.                      |
 | Bulk action                    | `PUT /bulk-status`                                | `status ∈ {ACTIVE, DELETE}` → restore atau soft-delete sekaligus.                   |
@@ -65,7 +65,7 @@ Master data raw material (bahan baku) — fragrance oil (`FO`) dan packaging (`P
 │ - getOrCreateSlug(unit, raw_mat_category)                            │
 │ - normalizeSuppliers(): legacy single → suppliers[]                  │
 │ - syncSuppliers(): set | clear | patch preferred                     │
-│ - toDTO(): flatten + Decimal → Number, preferred supplier ke root    │
+│ - toDTO(): Decimal → Number, map supplier_materials → suppliers[]   │
 │ - export(): ExcelJS CSV, cap EXPORT_MAX_ROWS = 50_000                │
 │ - clean(): FK RESTRICT pre-check (Recipes, PO, Production) +         │
 │            cascade StockMovement                                     │
@@ -99,7 +99,7 @@ sequenceDiagram
     S->>DB: INSERT RawMaterial (+ supplier_materials.createMany jika set)
     DB-->>S: row or P2002 (barcode) / P2003 (supplier_id)
     alt success
-        S-->>C: ResponseRMDTO (flatten preferred supplier + suppliers[])
+        S-->>C: ResponseRMDTO (suppliers[] only; no legacy root fields)
         C->>DB: Cache.bust("rm:*") + CreateLogger("Raw Material: {name}")
         C-->>FE: 201 Created
     else P2002
@@ -285,16 +285,9 @@ export const ResponseRMSchema = z.object({
     name: z.string(),
     type: z.enum(MaterialType).nullable().optional(),
     min_stock: z.number().nullable().optional(),
-    source: z.enum(RawMaterialSource).nullable().optional(),
-    price: z.number().nullable().optional(),
-    min_buy: z.number().nullable().optional(),
-    lead_time: z.number().nullable().optional(),
     unit_raw_material: z.object({ id: z.number(), name: z.string() }),
     raw_mat_category: z
         .object({ id: z.number(), name: z.string(), slug: z.string() })
-        .optional(),
-    supplier: z
-        .object({ id: z.number(), name: z.string(), country: z.string() })
         .optional(),
     suppliers: z.array(ResponseSupplierMaterialSchema).default([]),
     created_at: z.date(),
@@ -305,19 +298,16 @@ export const ResponseRMSchema = z.object({
 export type ResponseRMDTO = z.infer<typeof ResponseRMSchema>;
 ```
 
+> **Breaking change (v2)**: response **tidak lagi** memiliki field root `source`, `price`, `min_buy`, `lead_time`, dan `supplier` (singular). Semua data preferred supplier sekarang **hanya** di `suppliers[is_preferred=true]` — single source of truth, satu layer. FE akses via `rm.suppliers.find(s => s.is_preferred)`. Request schema tetap menerima legacy `supplier_id`/`price`/`min_buy`/`lead_time` untuk backward compatibility form lama (di-map ke `suppliers[]` oleh `normalizeSuppliers()`).
+
 **Catatan transformasi `toDTO`** (`rm.service.ts:352`):
 
 | Field response       | Sumber Prisma                                          | Transformasi                                                                  |
 | :------------------- | :----------------------------------------------------- | :---------------------------------------------------------------------------- |
 | `min_stock`          | `RawMaterial.min_stock` (Decimal?)                     | `min_stock !== null ? Number(min_stock) : null`.                              |
-| `source`             | `preferred.supplier.source` (`RawMaterialSource`)      | Dari row `supplier_materials` yang `is_preferred = true`; `null` jika tidak. |
-| `price`              | `preferred.unit_price` (Decimal)                       | `Number(preferred.unit_price)`.                                               |
-| `min_buy`            | `preferred.min_buy` (Decimal?)                         | `Number(min_buy)` atau `null`.                                                |
-| `lead_time`          | `preferred.lead_time` (Int?)                           | Diteruskan (`number?`).                                                       |
 | `unit_raw_material`  | `RawMaterial.unit_raw_material`                        | `{ id, name }` flat.                                                          |
 | `raw_mat_category`   | `RawMaterial.raw_mat_category`                         | `{ id, name, slug }` (omit jika null).                                        |
-| `supplier`           | preferred row                                          | `{ id, name, country }` (omit jika tidak ada preferred). **Legacy convenience.**|
-| `suppliers`          | `RawMaterial.supplier_materials[]`                     | Array map: `Number(unit_price)`, `Number(min_buy)`, dst.                      |
+| `suppliers`          | `RawMaterial.supplier_materials[]`                     | Array map: `Number(unit_price)`, `Number(min_buy)`, `lead_time` diteruskan. Tiap item include `supplier_source` (sumber kebenaran). |
 
 ### 3.6 `QueryRMSchema` — GET / & GET /export
 
@@ -326,7 +316,6 @@ export const RM_SORT_KEYS = [
     "barcode",
     "name",
     "updated_at",
-    "price",
     "created_at",
     "category",
 ] as const;
@@ -355,7 +344,7 @@ export type QueryRMDTO = z.infer<typeof QueryRMSchema>;
 | `status`         | `"actived" \| "deleted"`   | `"actived"`    | enum                        | `actived` → `deleted_at = null`. `deleted` → `deleted_at != null` (trash).         |
 | `type`           | `MaterialType`             | —              | enum                        | `FO` atau `PCKG`.                                                                  |
 | `search`         | `string`                   | —              | optional                    | ILIKE on `name` + `unit.name` + `category.name` + `supplier.name`; `startsWith` `barcode`. |
-| `sortBy`         | enum 6 nilai               | `"updated_at"` | whitelist (`RM_SORT_KEYS`)  | `category` → `raw_mat_category.name`; lainnya kolom langsung.                       |
+| `sortBy`         | enum 5 nilai               | `"updated_at"` | whitelist (`RM_SORT_KEYS`)  | `category` → `raw_mat_category.name`; lainnya kolom langsung. Sort by `price` di-hapus (legacy preferred field tidak lagi di response). |
 | `sortOrder`      | `"asc" \| "desc"`          | `"asc"`        | enum                        | —                                                                                  |
 | `category_id`    | `number?` (int)            | —              | `coerce`, `int`, `> 0`      | Filter FK.                                                                         |
 | `supplier_id`    | `number?` (int)            | —              | `coerce`, `int`, `> 0`      | Filter via relasi `supplier_materials.some`.                                       |
@@ -496,7 +485,7 @@ static async exportCsv(params: QueryRMDTO): Promise<Blob> {
 ### 4.5 Header & autentikasi
 
 - Cookie session: nama dari `env.SESSION_COOKIE_NAME` (default `session`).
-- CSRF: header `x-csrf-token` (lihat [AUTH.md](../../../AUTH.md)).
+- CSRF: header `x-xsrf-header` (lihat [AUTH.md](../../../AUTH.md)).
 - `Content-Type: application/json` untuk semua mutasi.
 
 ---
@@ -617,7 +606,7 @@ Import koleksi `docs/postman/erp-mandalika.postman_collection.json` → folder `
 Header global tiap request:
 
 - `Cookie: session={{session_id}}`
-- `x-csrf-token: {{csrf_token}}` (untuk mutasi)
+- `x-xsrf-header: {{csrf_token}}` (untuk mutasi)
 - `Content-Type: application/json` (untuk POST/PUT/PATCH dengan body)
 
 ### 8.1 List
@@ -712,20 +701,40 @@ GET {{base_url}}/api/app/inventory/rm/export?status=actived&visibleColumns=id,ba
     "name": "Fragrance Oil Citrus Burst",
     "type": "FO",
     "min_stock": 100,
-    "source": "LOCAL",
-    "price": 25000,
-    "min_buy": 500,
-    "lead_time": 14,
     "unit_raw_material": { "id": 3, "name": "ML" },
     "raw_mat_category": { "id": 5, "name": "Fragrance Oil", "slug": "fragrance-oil" },
-    "supplier": { "id": 1, "name": "PT Aroma Sentosa", "country": "ID" },
-    "suppliers": [ /* ResponseSupplierMaterialDTO[] */ ],
+    "suppliers": [
+      {
+        "supplier_id": 1,
+        "supplier_name": "PT Aroma Sentosa",
+        "supplier_country": "ID",
+        "supplier_source": "LOCAL",
+        "unit_price": 25000,
+        "min_buy": 500,
+        "lead_time": 14,
+        "is_preferred": true,
+        "status": "ACTIVE"
+      },
+      {
+        "supplier_id": 2,
+        "supplier_name": "PT Aroma Wangi",
+        "supplier_country": "ID",
+        "supplier_source": "LOCAL",
+        "unit_price": 27000,
+        "min_buy": 300,
+        "lead_time": 10,
+        "is_preferred": false,
+        "status": "ACTIVE"
+      }
+    ],
     "created_at": "2026-05-19T03:00:00.000Z",
     "updated_at": "2026-05-19T03:00:00.000Z",
     "deleted_at": null
   }
 }
 ```
+
+> **Catatan v2**: response **tidak lagi** punya root `source` / `price` / `min_buy` / `lead_time` / `supplier`. FE akses preferred supplier dengan `data.suppliers.find(s => s.is_preferred)`. Saat tidak ada supplier, `suppliers` = `[]`.
 
 ### 8.9 Expected response error
 

@@ -303,7 +303,7 @@ static async remove(id: number) {
 
 ### 4.4 Header & autentikasi
 
-- Cookie session + `x-csrf-token` untuk mutasi.
+- Cookie session + `x-xsrf-header` untuk mutasi.
 - `Content-Type: application/json` untuk POST/PUT/PATCH dengan body.
 
 ---

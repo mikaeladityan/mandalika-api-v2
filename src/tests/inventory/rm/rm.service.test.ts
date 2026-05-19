@@ -176,13 +176,14 @@ describe("RMService", () => {
 
             expect(result.min_stock).toBe(5);
             expect(typeof result.min_stock).toBe("number");
-            expect(result.price).toBe(50000);
-            expect(result.supplier?.name).toBe("PT Supplier ABC");
             expect(result.suppliers).toHaveLength(1);
-            expect(result.suppliers[0]?.is_preferred).toBe(true);
+            const preferred = result.suppliers.find((s) => s.is_preferred);
+            expect(preferred?.unit_price).toBe(50000);
+            expect(preferred?.supplier_name).toBe("PT Supplier ABC");
+            expect(preferred?.supplier_source).toBe("LOCAL");
         });
 
-        it("source/price/supplier = null saat tidak ada preferred supplier", async () => {
+        it("suppliers = [] saat tidak ada supplier_materials", async () => {
             vi.mocked(prisma.rawMaterial.findUnique).mockResolvedValueOnce({
                 id: 1,
                 barcode: "RM-001",
@@ -199,9 +200,6 @@ describe("RMService", () => {
 
             const result = await RMService.detail(1);
 
-            expect(result.price).toBeNull();
-            expect(result.source).toBeNull();
-            expect(result.supplier).toBeUndefined();
             expect(result.suppliers).toEqual([]);
         });
     });

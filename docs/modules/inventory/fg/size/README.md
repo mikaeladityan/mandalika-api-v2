@@ -191,7 +191,7 @@ static async create(body: RequestFGSizeDTO) {
 ### 4.3 Header & autentikasi
 
 - `Cookie: session={{session_id}}`
-- `x-csrf-token: {{csrf_token}}` (mutasi)
+- `x-xsrf-header: {{csrf_token}}` (mutasi)
 - `Content-Type: application/json` (POST/PUT)
 
 ---

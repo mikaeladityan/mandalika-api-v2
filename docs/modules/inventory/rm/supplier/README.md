@@ -314,7 +314,7 @@ static async bulkDelete(ids: number[]) {
 
 ### 4.4 Header & autentikasi
 
-- Cookie session + `x-csrf-token` untuk mutasi.
+- Cookie session + `x-xsrf-header` untuk mutasi.
 - `Content-Type: application/json` untuk semua POST/PUT.
 
 ---

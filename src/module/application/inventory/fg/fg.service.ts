@@ -5,7 +5,16 @@ import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { getOrCreateSlug } from "../../../../lib/utils/upsert-slug.js";
 import { getOrCreateSize } from "../../../../lib/utils/upsert-size.js";
-import { QueryFGDTO, RequestFGDTO, ResponseFGDTO } from "./fg.schema.js";
+import {
+    FGLatestPeriodDTO,
+    FGOutletStockDTO,
+    FGRecipeItemDTO,
+    FGWarehouseStockDTO,
+    QueryFGDTO,
+    RequestFGDTO,
+    ResponseFGDetailDTO,
+    ResponseFGDTO,
+} from "./fg.schema.js";
 import { FG_IMPORT_HEADERS } from "./import/import.schema.js";
 import ExcelJS from "exceljs";
 
@@ -85,34 +94,51 @@ const EXPORT_COLUMNS: ReadonlyArray<{
     { header: "Status", key: "status", width: 15, id: "status", roundtrip: false },
 ];
 
-type FGDetailPayload = Prisma.ProductGetPayload<{
-    include: {
-        product_type: true;
-        size: true;
-        product_inventories: { include: { warehouse: true } };
-        recipes: {
-            include: {
-                raw_materials: {
-                    include: {
-                        unit_raw_material: true;
-                        supplier_materials: true;
-                    };
-                };
-            };
-        };
-    };
-}>;
+// --- Typed selects untuk detail() — relasi terkait disempitkan ke field yang dipakai DTO.
+const DETAIL_PRODUCT_INCLUDE = {
+    product_type: true,
+    size: true,
+} satisfies Prisma.ProductInclude;
 
-export type FGDetailResponse = Omit<
-    FGDetailPayload,
-    "z_value" | "distribution_percentage" | "safety_percentage" | "size" | "product_type"
-> & {
-    z_value: number;
-    distribution_percentage: number;
-    safety_percentage: number;
-    size: string;
-    product_type: string | null;
-};
+const DETAIL_RECIPE_SELECT = {
+    id: true,
+    quantity: true,
+    version: true,
+    is_active: true,
+    raw_materials: {
+        select: {
+            id: true,
+            name: true,
+            unit_raw_material: { select: { name: true } },
+            supplier_materials: {
+                where: { is_preferred: true },
+                take: 1,
+                select: { unit_price: true },
+            },
+        },
+    },
+} satisfies Prisma.RecipesSelect;
+
+const DETAIL_WAREHOUSE_STOCK_SELECT = {
+    quantity: true,
+    min_stock: true,
+    warehouse: { select: { id: true, name: true, code: true, type: true } },
+} satisfies Prisma.ProductInventorySelect;
+
+const DETAIL_OUTLET_STOCK_SELECT = {
+    quantity: true,
+    min_stock: true,
+    outlet: { select: { id: true, name: true, code: true, type: true } },
+} satisfies Prisma.OutletInventorySelect;
+
+type DetailProduct = Prisma.ProductGetPayload<{ include: typeof DETAIL_PRODUCT_INCLUDE }>;
+type DetailRecipeRow = Prisma.RecipesGetPayload<{ select: typeof DETAIL_RECIPE_SELECT }>;
+type DetailWarehouseStockRow = Prisma.ProductInventoryGetPayload<{
+    select: typeof DETAIL_WAREHOUSE_STOCK_SELECT;
+}>;
+type DetailOutletStockRow = Prisma.OutletInventoryGetPayload<{
+    select: typeof DETAIL_OUTLET_STOCK_SELECT;
+}>;
 
 export class FGService {
     static async create(body: RequestFGDTO) {
@@ -326,29 +352,56 @@ export class FGService {
         return { data, len };
     }
 
-    static async detail(id: number): Promise<FGDetailResponse> {
-        const product = await prisma.product.findUnique({
-            where: { id },
-            include: {
-                product_type: true,
-                size: true,
-                product_inventories: { include: { warehouse: true } },
-                recipes: {
-                    where: { is_active: true },
-                    include: {
-                        raw_materials: {
-                            include: {
-                                unit_raw_material: true,
-                                supplier_materials: { where: { is_preferred: true }, take: 1 },
-                            },
-                        },
-                    },
-                },
-            },
-        });
+    static async detail(id: number): Promise<ResponseFGDetailDTO> {
+        // Empat query paralel: produk, period stok terbaru, recipes aktif, stok outlet aktif.
+        // Stok per warehouse menyusul setelah period terbaru diketahui (dependent query).
+        const [product, latestPeriod, recipeRows, outletStockRows] = await Promise.all([
+            prisma.product.findUnique({ where: { id }, include: DETAIL_PRODUCT_INCLUDE }),
+            this.findLatestStockPeriod(id),
+            prisma.recipes.findMany({
+                where: { product_id: id, is_active: true },
+                orderBy: { id: "asc" },
+                select: DETAIL_RECIPE_SELECT,
+            }),
+            prisma.outletInventory.findMany({
+                where: { product_id: id, outlet: { deleted_at: null } },
+                orderBy: { outlet_id: "asc" },
+                select: DETAIL_OUTLET_STOCK_SELECT,
+            }),
+        ]);
 
         if (!product) throw new ApiError(404, "Produk tidak ditemukan");
 
+        const warehouseStockRows = latestPeriod
+            ? await prisma.productInventory.findMany({
+                  where: { product_id: id, ...latestPeriod },
+                  orderBy: { warehouse_id: "asc" },
+                  select: DETAIL_WAREHOUSE_STOCK_SELECT,
+              })
+            : [];
+
+        return {
+            ...this.toFGBaseDTO(product),
+            recipes: recipeRows.map((row) => this.toRecipeDTO(row)),
+            stock: {
+                latest_period: latestPeriod,
+                warehouse_stocks: warehouseStockRows.map((row) => this.toWarehouseStockDTO(row)),
+                outlet_stocks: outletStockRows.map((row) => this.toOutletStockDTO(row)),
+            },
+        };
+    }
+
+    // --- Detail helpers (top-down: detail() above, helpers below) ---
+
+    private static async findLatestStockPeriod(productId: number): Promise<FGLatestPeriodDTO | null> {
+        return prisma.productInventory.findFirst({
+            where: { product_id: productId },
+            orderBy: [{ year: "desc" }, { month: "desc" }, { date: "desc" }],
+            select: { year: true, month: true, date: true },
+        });
+    }
+
+    private static toFGBaseDTO(product: DetailProduct): ResponseFGDTO {
         return {
             ...product,
             z_value: Number(product.z_value),
@@ -356,6 +409,48 @@ export class FGService {
             safety_percentage: Number(product.safety_percentage),
             size: formatSize(product.size?.size),
             product_type: product.product_type?.name ?? null,
+        };
+    }
+
+    private static toRecipeDTO(row: DetailRecipeRow): FGRecipeItemDTO {
+        const preferred = row.raw_materials.supplier_materials[0];
+        return {
+            id: row.id,
+            quantity: Number(row.quantity),
+            version: row.version,
+            is_active: row.is_active,
+            raw_material: {
+                id: row.raw_materials.id,
+                name: row.raw_materials.name,
+                unit: row.raw_materials.unit_raw_material?.name ?? null,
+                preferred_unit_price: preferred ? Number(preferred.unit_price) : null,
+            },
+        };
+    }
+
+    private static toWarehouseStockDTO(row: DetailWarehouseStockRow): FGWarehouseStockDTO {
+        return {
+            quantity: Number(row.quantity),
+            min_stock: row.min_stock != null ? Number(row.min_stock) : null,
+            warehouse: {
+                id: row.warehouse.id,
+                name: row.warehouse.name,
+                code: row.warehouse.code,
+                type: row.warehouse.type,
+            },
+        };
+    }
+
+    private static toOutletStockDTO(row: DetailOutletStockRow): FGOutletStockDTO {
+        return {
+            quantity: Number(row.quantity),
+            min_stock: row.min_stock != null ? Number(row.min_stock) : null,
+            outlet: {
+                id: row.outlet.id,
+                name: row.outlet.name,
+                code: row.outlet.code,
+                type: row.outlet.type,
+            },
         };
     }
 }

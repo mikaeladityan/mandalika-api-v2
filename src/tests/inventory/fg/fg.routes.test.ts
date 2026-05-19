@@ -68,9 +68,10 @@ describe("FGRoutes", () => {
                 safety_percentage: "0.1",
                 product_type: { id: 1, name: "Parfum", slug: "parfum" },
                 size: { id: 1, size: 100 },
-                product_inventories: [],
-                recipes: [],
             } as never);
+            vi.mocked(prisma.productInventory.findFirst).mockResolvedValueOnce(null);
+            vi.mocked(prisma.recipes.findMany).mockResolvedValueOnce([] as never);
+            vi.mocked(prisma.outletInventory.findMany).mockResolvedValueOnce([] as never);
 
             const res = await app.request(`${FG_BASE}/1`, { method: "GET" });
 

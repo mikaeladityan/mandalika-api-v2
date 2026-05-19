@@ -340,7 +340,7 @@ export const useFGCreate = () => {
 ### 4.4 Header & autentikasi
 
 - Cookie session: nama dari `env.SESSION_COOKIE_NAME` (default `session`).
-- CSRF: header `x-csrf-token` (lihat [AUTH.md](../../AUTH.md)).
+- CSRF: header `x-xsrf-header` (lihat [AUTH.md](../../AUTH.md)).
 - `Content-Type: application/json` untuk semua mutasi.
 
 ---
@@ -456,7 +456,7 @@ Import koleksi berikut ke Postman. Set environment variables:
 Header global tiap request:
 
 - `Cookie: session=<{{session_id}}>`
-- `x-csrf-token: <{{csrf_token}}>` (untuk mutasi)
+- `x-xsrf-header: <{{csrf_token}}>` (untuk mutasi)
 - `Content-Type: application/json` (untuk POST/PUT/PATCH dengan body)
 
 ### 8.1 List

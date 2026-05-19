@@ -325,7 +325,7 @@ export class RMService {
                     supplier: sup?.supplier_name ?? "",
                     unit: item.unit_raw_material.name,
                     type: item.type ?? "",
-                    supplier_source: sup?.supplier_source ?? item.source ?? "",
+                    supplier_source: sup?.supplier_source ?? "",
                     supplier_country: sup?.supplier_country ?? "",
                     price: sup?.unit_price ?? 0,
                     min_buy: sup?.min_buy ?? 0,
@@ -350,30 +350,18 @@ export class RMService {
     // --- Helpers ---
 
     private static toDTO(rm: RMWithRelations): ResponseRMDTO {
-        const preferred = rm.supplier_materials.find((sm) => sm.is_preferred);
         return {
             id: rm.id,
             barcode: rm.barcode,
             name: rm.name,
             type: rm.type,
             min_stock: rm.min_stock !== null ? Number(rm.min_stock) : null,
-            source: preferred?.supplier.source ?? null,
-            price: preferred ? Number(preferred.unit_price) : null,
-            min_buy: preferred?.min_buy != null ? Number(preferred.min_buy) : null,
-            lead_time: preferred?.lead_time ?? null,
             unit_raw_material: { id: rm.unit_raw_material.id, name: rm.unit_raw_material.name },
             ...(rm.raw_mat_category && {
                 raw_mat_category: {
                     id: rm.raw_mat_category.id,
                     name: rm.raw_mat_category.name,
                     slug: rm.raw_mat_category.slug,
-                },
-            }),
-            ...(preferred && {
-                supplier: {
-                    id: preferred.supplier.id,
-                    name: preferred.supplier.name,
-                    country: preferred.supplier.country,
                 },
             }),
             suppliers: rm.supplier_materials.map((sm) => ({

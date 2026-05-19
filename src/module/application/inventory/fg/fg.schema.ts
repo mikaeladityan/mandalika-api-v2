@@ -1,5 +1,5 @@
 import z from "zod";
-import { GENDER, STATUS } from "../../../../generated/prisma/enums.js";
+import { GENDER, STATUS, WarehouseType, OutletType } from "../../../../generated/prisma/enums.js";
 
 export const RequestFGSchema = z.object({
     code: z.string().max(100).regex(/^\S+$/, { message: "Gunakan '_' (underscore) untuk spasi" }),
@@ -63,7 +63,67 @@ export const StatusParamFGSchema = z.object({
     status: z.enum(STATUS),
 });
 
+// --- Detail response (extends list shape dengan relasi recipes + stocks) ---
+
+export const FGRecipeItemSchema = z.object({
+    id: z.number(),
+    quantity: z.number(),
+    version: z.number(),
+    is_active: z.boolean(),
+    raw_material: z.object({
+        id: z.number(),
+        name: z.string(),
+        unit: z.string().nullable(),
+        preferred_unit_price: z.number().nullable(),
+    }),
+});
+
+export const FGWarehouseStockSchema = z.object({
+    quantity: z.number(),
+    min_stock: z.number().nullable(),
+    warehouse: z.object({
+        id: z.number(),
+        name: z.string(),
+        code: z.string().nullable(),
+        type: z.enum(WarehouseType),
+    }),
+});
+
+export const FGOutletStockSchema = z.object({
+    quantity: z.number(),
+    min_stock: z.number().nullable(),
+    outlet: z.object({
+        id: z.number(),
+        name: z.string(),
+        code: z.string(),
+        type: z.enum(OutletType),
+    }),
+});
+
+export const FGLatestPeriodSchema = z.object({
+    year: z.number(),
+    month: z.number(),
+    date: z.number(),
+});
+
+export const FGStockSchema = z.object({
+    latest_period: FGLatestPeriodSchema.nullable(),
+    warehouse_stocks: z.array(FGWarehouseStockSchema),
+    outlet_stocks: z.array(FGOutletStockSchema),
+});
+
+export const ResponseFGDetailSchema = ResponseFGSchema.extend({
+    recipes: z.array(FGRecipeItemSchema),
+    stock: FGStockSchema,
+});
+
 export type RequestFGDTO = z.infer<typeof RequestFGSchema>;
 export type ResponseFGDTO = z.infer<typeof ResponseFGSchema>;
+export type ResponseFGDetailDTO = z.infer<typeof ResponseFGDetailSchema>;
+export type FGRecipeItemDTO = z.infer<typeof FGRecipeItemSchema>;
+export type FGWarehouseStockDTO = z.infer<typeof FGWarehouseStockSchema>;
+export type FGOutletStockDTO = z.infer<typeof FGOutletStockSchema>;
+export type FGLatestPeriodDTO = z.infer<typeof FGLatestPeriodSchema>;
+export type FGStockDTO = z.infer<typeof FGStockSchema>;
 export type QueryFGDTO = z.infer<typeof QueryFGSchema>;
 export type BulkStatusFGDTO = z.infer<typeof BulkStatusFGSchema>;

@@ -65,7 +65,7 @@ Healthcheck: `GET /health` → status DB + Redis + session metrics.
 - **Validation**: Zod via `validateBody(schema)` middleware → tersimpan di `c.get("body")`.
 - **Error**: throw `ApiError(statusCode, message, details?)` — di-handle terpusat di `error.handler.ts`.
 - **Auth**: cookie session (`getCookie`) atau `Authorization: Bearer <sid>` (headless).
-- **CSRF**: wajib `x-csrf-token` header untuk semua mutation (POST/PUT/PATCH/DELETE). GET di-exempt.
+- **CSRF**: wajib `x-xsrf-header` header untuk semua mutation (POST/PUT/PATCH/DELETE). GET di-exempt.
 - **DB transaction**: `prisma.$transaction(async (tx) => {...})` untuk operasi multi-tabel (Receipt, Production, dll).
 
 ---

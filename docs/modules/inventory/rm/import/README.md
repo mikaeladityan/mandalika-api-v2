@@ -412,7 +412,7 @@ static async status(import_id: string): Promise<ResponseRMImportStatusDTO> {
 
 ### 4.4 Header & autentikasi
 
-- Cookie session + `x-csrf-token` untuk POST.
+- Cookie session + `x-xsrf-header` untuk POST.
 - `Content-Type: multipart/form-data` untuk `/preview` (axios auto-set saat `FormData`).
 - `Content-Type: application/json` untuk `/execute`.
 

@@ -285,8 +285,12 @@
                         "inventory",
                         "fg",
                         ":id"
+                      ],
+                      "variable": [
+                        { "key": "id", "value": "1" }
                       ]
-                    }
+                    },
+                    "description": "Detail FG. Response = base FG (list shape) + recipes[] (is_active=true, dengan preferred supplier price) + stock: { latest_period, warehouse_stocks[], outlet_stocks[] }. Objek stock selalu ada; latest_period=null & warehouse_stocks=[] kalau belum ada ProductInventory; outlet_stocks otomatis filter outlet.deleted_at=null. FE cukup null-check di stock.latest_period saja."
                   }
                 },
                 {
@@ -1010,7 +1014,7 @@
                         "value": "session={{session_id}}"
                       },
                       {
-                        "key": "x-csrf-token",
+                        "key": "x-xsrf-header",
                         "value": "{{csrf_token}}"
                       },
                       {
@@ -1052,7 +1056,7 @@
                         "value": "session={{session_id}}"
                       },
                       {
-                        "key": "x-csrf-token",
+                        "key": "x-xsrf-header",
                         "value": "{{csrf_token}}"
                       },
                       {
@@ -1113,7 +1117,7 @@
                         }
                       ]
                     },
-                    "description": "Detail RM include preferred supplier flat + suppliers[] array."
+                    "description": "Detail RM. Response v2: hanya suppliers[] (preferred ditandai is_preferred=true) — TIDAK ADA root source/price/min_buy/lead_time/supplier. FE akses preferred via suppliers.find(s => s.is_preferred). suppliers=[] jika belum ada supplier_materials."
                   }
                 },
                 {
@@ -1126,7 +1130,7 @@
                         "value": "session={{session_id}}"
                       },
                       {
-                        "key": "x-csrf-token",
+                        "key": "x-xsrf-header",
                         "value": "{{csrf_token}}"
                       },
                       {
@@ -1175,7 +1179,7 @@
                         "value": "session={{session_id}}"
                       },
                       {
-                        "key": "x-csrf-token",
+                        "key": "x-xsrf-header",
                         "value": "{{csrf_token}}"
                       },
                       {
@@ -1224,7 +1228,7 @@
                         "value": "session={{session_id}}"
                       },
                       {
-                        "key": "x-csrf-token",
+                        "key": "x-xsrf-header",
                         "value": "{{csrf_token}}"
                       }
                     ],
@@ -1260,7 +1264,7 @@
                         "value": "session={{session_id}}"
                       },
                       {
-                        "key": "x-csrf-token",
+                        "key": "x-xsrf-header",
                         "value": "{{csrf_token}}"
                       }
                     ],
@@ -1297,7 +1301,7 @@
                         "value": "session={{session_id}}"
                       },
                       {
-                        "key": "x-csrf-token",
+                        "key": "x-xsrf-header",
                         "value": "{{csrf_token}}"
                       },
                       {
@@ -1340,7 +1344,7 @@
                         "value": "session={{session_id}}"
                       },
                       {
-                        "key": "x-csrf-token",
+                        "key": "x-xsrf-header",
                         "value": "{{csrf_token}}"
                       }
                     ],
@@ -1409,7 +1413,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           }
                         ],
@@ -1484,7 +1488,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           },
                           {
@@ -1611,7 +1615,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           },
                           {
@@ -1687,7 +1691,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           },
                           {
@@ -1737,7 +1741,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           }
                         ],
@@ -1774,7 +1778,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           },
                           {
@@ -1857,7 +1861,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           },
                           {
@@ -1930,7 +1934,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           },
                           {
@@ -1977,7 +1981,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           },
                           {
@@ -2024,7 +2028,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           },
                           {
@@ -2072,7 +2076,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           }
                         ],
@@ -2144,7 +2148,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           },
                           {
@@ -2217,7 +2221,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           },
                           {
@@ -2264,7 +2268,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           },
                           {
@@ -2311,7 +2315,7 @@
                             "value": "session={{session_id}}"
                           },
                           {
-                            "key": "x-csrf-token",
+                            "key": "x-xsrf-header",
                             "value": "{{csrf_token}}"
                           }
                         ],

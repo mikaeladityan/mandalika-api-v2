@@ -58,16 +58,9 @@ export const ResponseRMSchema = z.object({
     name: z.string(),
     type: z.enum(MaterialType).nullable().optional(),
     min_stock: z.number().nullable().optional(),
-    source: z.enum(RawMaterialSource).nullable().optional(),
-    price: z.number().nullable().optional(),
-    min_buy: z.number().nullable().optional(),
-    lead_time: z.number().nullable().optional(),
     unit_raw_material: z.object({ id: z.number(), name: z.string() }),
     raw_mat_category: z
         .object({ id: z.number(), name: z.string(), slug: z.string() })
-        .optional(),
-    supplier: z
-        .object({ id: z.number(), name: z.string(), country: z.string() })
         .optional(),
     suppliers: z.array(ResponseSupplierMaterialSchema).default([]),
     created_at: z.date(),
@@ -79,7 +72,6 @@ export const RM_SORT_KEYS = [
     "barcode",
     "name",
     "updated_at",
-    "price",
     "created_at",
     "category",
 ] as const;

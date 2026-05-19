@@ -25,7 +25,7 @@ Master data produk jadi (FG) — terutama parfum dengan size dalam satuan **ML**
 | Bulk status                    | `PUT /bulk-status`                | Banyak ID sekaligus.                                           |
 | Permanent delete (clean)       | `DELETE /clean`                   | Transaksional. Cek FK RESTRICT (`ProductionOrder`).            |
 | Export CSV                     | `GET /export`                     | Cap 50.000 baris, kolom selektif via `visibleColumns`.         |
-| Detail (FG + inventories + BoM)| `GET /:id`                        | Include warehouse inventories + recipe RM (preferred supplier).|
+| Detail (FG + stocks + BoM)     | `GET /:id`                        | Recipes aktif + stok warehouse (period terbaru saja) + stok outlet aktif (`deleted_at = null`). |
 | Master data Size               | `GET/POST/PUT/DELETE /sizes/*`    | Lihat [`./size/README.md`](./size/README.md).                  |
 | Master data Type               | `GET/POST/PUT/DELETE /types/*`    | Lihat [`./type/README.md`](./type/README.md).                  |
 | Bulk import (preview + queue)  | `POST/GET /import/*`              | BullMQ async, lihat [`./import/README.md`](./import/README.md).|
@@ -230,42 +230,76 @@ export type ResponseFGDTO = z.infer<typeof ResponseFGSchema>;
 
 > **Catatan response inkonsisten — endpoint `create`/`update`**: di hasil `create` dan `update`, service mengembalikan `size` dan `product_type` sebagai **objek mentah** dari include (mis. `{ id: 1, size: 110 }`, `{ id: 1, name: "Parfum EDP", slug: "parfum-edp" }`), **bukan** string ter-flatten. Hanya `list` dan `detail` yang melakukan `formatSize` + `.name` flatten. FE wajib handle dua bentuk. <!-- verify: pertimbangkan unifikasi shape di service untuk konsistensi -->
 
-### 3.3 `FGDetailResponse` — GET /:id
+### 3.3 `ResponseFGDetailSchema` — GET /:id
 
-Tipe diturunkan dari `Prisma.ProductGetPayload<{ include: ... }>` dengan override field numeric & formatted:
+Mengembangkan `ResponseFGSchema` (list shape) dengan **recipes aktif** (di root) dan **objek `stock`** yang mengelompokkan `latest_period`, `warehouse_stocks`, dan `outlet_stocks` di satu tempat.
 
 ```ts
-type FGDetailPayload = Prisma.ProductGetPayload<{
-    include: {
-        product_type: true;
-        size: true;
-        product_inventories: { include: { warehouse: true } };
-        recipes: {
-            include: {
-                raw_materials: {
-                    include: {
-                        unit_raw_material: true;
-                        supplier_materials: true;
-                    };
-                };
-            };
-        };
-    };
-}>;
+export const FGRecipeItemSchema = z.object({
+    id: z.number(),
+    quantity: z.number(),                    // Decimal → Number
+    version: z.number(),
+    is_active: z.boolean(),
+    raw_material: z.object({
+        id: z.number(),
+        name: z.string(),
+        unit: z.string().nullable(),         // dari unit_raw_material.name
+        preferred_unit_price: z.number().nullable(), // supplier_materials[is_preferred=true].unit_price
+    }),
+});
 
-export type FGDetailResponse = Omit<
-    FGDetailPayload,
-    "z_value" | "distribution_percentage" | "safety_percentage" | "size" | "product_type"
-> & {
-    z_value: number;
-    distribution_percentage: number;
-    safety_percentage: number;
-    size: string;                  // "${size} ML"
-    product_type: string | null;   // flattened
-};
+export const FGWarehouseStockSchema = z.object({
+    quantity: z.number(),
+    min_stock: z.number().nullable(),
+    warehouse: z.object({
+        id: z.number(),
+        name: z.string(),
+        code: z.string().nullable(),
+        type: z.enum(WarehouseType),         // FINISH_GOODS | RAW_MATERIAL
+    }),
+});
+
+export const FGOutletStockSchema = z.object({
+    quantity: z.number(),
+    min_stock: z.number().nullable(),
+    outlet: z.object({
+        id: z.number(),
+        name: z.string(),
+        code: z.string(),
+        type: z.enum(OutletType),            // RETAIL | MARKETPLACE
+    }),
+});
+
+export const FGLatestPeriodSchema = z.object({
+    year: z.number(),
+    month: z.number(),
+    date: z.number(),
+});
+
+export const FGStockSchema = z.object({
+    latest_period: FGLatestPeriodSchema.nullable(),
+    warehouse_stocks: z.array(FGWarehouseStockSchema),
+    outlet_stocks: z.array(FGOutletStockSchema),
+});
+
+export const ResponseFGDetailSchema = ResponseFGSchema.extend({
+    recipes: z.array(FGRecipeItemSchema),
+    stock: FGStockSchema,
+});
+
+export type ResponseFGDetailDTO = z.infer<typeof ResponseFGDetailSchema>;
+export type FGStockDTO = z.infer<typeof FGStockSchema>;
 ```
 
-Filter recipes: hanya `is_active = true`. Filter supplier_materials: hanya `is_preferred = true` (`take: 1`).
+**Aturan service (`FGService.detail`)**:
+
+- **Empat query paralel** + 1 dependent: `findUnique` produk · `findFirst` period stok terbaru (`orderBy: [year desc, month desc, date desc]`) · `findMany` recipes `is_active=true` · `findMany` outlet inventory `outlet.deleted_at = null`. Lalu `findMany` warehouse inventory di period terbaru bila ada.
+- **Filter recipes**: `is_active = true` (hard-coded di service, tidak via query param). Order by `id asc`.
+- **Preferred supplier price**: ambil `supplier_materials` `where { is_preferred: true } take: 1`. Bila kosong → `preferred_unit_price = null`.
+- **`stock.warehouse_stocks`**: hanya satu period — period terbaru dari `ProductInventory.{year, month, date}`. Bila tabel kosong → `stock.latest_period = null` dan `stock.warehouse_stocks = []` (query findMany di-skip).
+- **`stock.outlet_stocks`**: model `OutletInventory` **tidak punya** kolom periode (snapshot per `(outlet, product)` unik); jadi semua row dikembalikan, filter `outlet.deleted_at = null` untuk menyembunyikan outlet yang sudah soft-deleted.
+- **Grouping `stock`**: objek `stock` **selalu ada** (tidak null sendirian); FE cukup satu-level null-check pada `stock.latest_period` saja. Recipes tetap di root karena domainnya berbeda (BoM, bukan stok).
+- **Decimal → Number**: `quantity`, `min_stock`, `unit_price` di-cast ke `Number` di helper `to*DTO`. Field `unit` di-flatten dari `unit_raw_material.name`.
 
 ### 3.4 `QueryFGSchema` — GET / & GET /export
 
@@ -384,7 +418,7 @@ Semua endpoint terproteksi `authMiddleware` (session cookie + Redis session) —
 | :-- | :------ | :------------------ | :-------------------------------------------- | :-------- | :----------------------------- | :--------------------------------------- |
 | 1   | GET     | `/`                 | `QueryFGDTO` (querystring)                    | —         | `{ data, len }` (**200**)      | 400 (query invalid)                      |
 | 2   | POST    | `/`                 | `RequestFGDTO`                                | JSON      | `ResponseFGDTO` (**201**)      | 400 (Zod / duplicate code)               |
-| 3   | GET     | `/:id`              | —                                             | —         | `FGDetailResponse` (**200**)   | 404                                      |
+| 3   | GET     | `/:id`              | —                                             | —         | `ResponseFGDetailDTO` (**200**) — base FG + `recipes[]` + `stock: { latest_period, warehouse_stocks[], outlet_stocks[] }` | 404 |
 | 4   | PUT     | `/:id`              | `Partial<RequestFGDTO>`                       | JSON      | `ResponseFGDTO` (**200**)      | 400 / 404                                |
 | 5   | PATCH   | `/status/:id`       | `?status=PENDING\|ACTIVE\|FAVOURITE\|BLOCK\|DELETE` | —   | `{}` (**200**)                 | 400 (status invalid) / 404               |
 | 6   | PUT     | `/bulk-status`      | `{ ids, status }`                             | JSON      | `{}` (**200**)                 | 400 / 404                                |
@@ -448,7 +482,7 @@ static async exportCsv(params: QueryFGDTO): Promise<Blob> {
 ### 4.5 Header & autentikasi
 
 - Cookie session: nama dari `env.SESSION_COOKIE_NAME` (default `session`).
-- CSRF: header `x-csrf-token` (lihat [AUTH.md](../../../AUTH.md)).
+- CSRF: header `x-xsrf-header` (lihat [AUTH.md](../../../AUTH.md)).
 - `Content-Type: application/json` untuk semua mutasi.
 
 ---
@@ -518,7 +552,7 @@ Master table terkait:
 
 ## 7. Testing
 
-Lokasi: `src/tests/inventory/fg/`. **Total scope FG inti = 31 test** (20 service + 11 routes). Sub-modul `import` punya test sendiri (22 test, lihat doc import).
+Lokasi: `src/tests/inventory/fg/`. **Total scope FG inti = 37 test** (26 service + 11 routes). Sub-modul `import` punya test sendiri (22 test, lihat doc import).
 
 ### 7.1 Setup global
 
@@ -530,7 +564,7 @@ Lokasi: `src/tests/inventory/fg/`. **Total scope FG inti = 31 test** (20 service
 - `logger`
 - `bullmq` Queue/Worker (untuk test import)
 
-### 7.2 Service test (`fg.service.test.ts` — 20 tests)
+### 7.2 Service test (`fg.service.test.ts` — 26 tests)
 
 | Suite          | Test cases                                                                                          |
 | :------------- | :-------------------------------------------------------------------------------------------------- |
@@ -539,7 +573,7 @@ Lokasi: `src/tests/inventory/fg/`. **Total scope FG inti = 31 test** (20 service
 | `status`       | (1) 404; (2) `deleted_at = Date` saat DELETE; (3) `deleted_at = null` saat non-DELETE               |
 | `bulkStatus`   | (1) 400 ids kosong; (2) 404 no match; (3) `{ affected: n }` saat sukses                             |
 | `list`         | (1) default sort `updated_at` + len; (2) filter status default `!= DELETE`                          |
-| `detail`       | (1) 404; (2) flatten size/product_type ke string `"110 ML"` / `"Parfum EDP"`                        |
+| `detail`       | (1) 404 produk tidak ada; (2) flatten size/product_type + `stock` default (latest_period null, arrays kosong) saat tidak ada relasi; (3) map recipe aktif `quantity` Decimal → Number + preferred supplier price; (4) preferred supplier kosong → `preferred_unit_price = null`; (5) filter `is_active = true` diteruskan ke `where`; (6) `stock.warehouse_stocks` query memakai period terbaru dari `findFirst`; (7) skip `findMany` warehouse saat `stock.latest_period = null`; (8) `stock.outlet_stocks` filter `outlet.deleted_at = null` |
 | `export`       | (1) 400 > `EXPORT_MAX_ROWS`; (2) CSV buffer saat dalam batas                                        |
 | `clean`        | (1) 400 tidak ada produk; (2) 409 ProductionOrder FK                                                |
 
@@ -583,7 +617,7 @@ Import koleksi `docs/postman/erp-mandalika.postman_collection.json` → folder `
 Header global tiap request:
 
 - `Cookie: session={{session_id}}`
-- `x-csrf-token: {{csrf_token}}` (untuk mutasi)
+- `x-xsrf-header: {{csrf_token}}` (untuk mutasi)
 - `Content-Type: application/json` (untuk POST/PUT/PATCH dengan body)
 
 ### 8.1 List
@@ -644,6 +678,85 @@ Content-Type: application/json
 ```
 GET {{base_url}}/api/app/inventory/fg/1
 ```
+
+**Expected 200** — base FG (`list shape`) + relasi tambahan:
+
+```jsonc
+{
+  "query": null,
+  "status": "success",
+  "data": {
+    "id": 1,
+    "code": "PRF_EDP_110",
+    "name": "Parfum EDP 110ml",
+    "gender": "UNISEX",
+    "status": "ACTIVE",
+    "z_value": 1.65,
+    "lead_time": 14,
+    "review_period": 30,
+    "distribution_percentage": 50,
+    "safety_percentage": 10,
+    "size": "110 ML",
+    "product_type": "Parfum EDP",
+    "created_at": "2026-05-19T03:00:00.000Z",
+    "updated_at": "2026-05-19T03:00:00.000Z",
+    "deleted_at": null,
+
+    "recipes": [
+      {
+        "id": 11,
+        "quantity": 2.5,
+        "version": 3,
+        "is_active": true,
+        "raw_material": {
+          "id": 50,
+          "name": "Fragrance Oil Citrus Burst",
+          "unit": "ML",
+          "preferred_unit_price": 25000
+        }
+      }
+    ],
+
+    "stock": {
+      "latest_period": { "year": 2026, "month": 5, "date": 19 },
+      "warehouse_stocks": [
+        {
+          "quantity": 120,
+          "min_stock": 50,
+          "warehouse": { "id": 1, "name": "Gudang Pusat", "code": "WH-01", "type": "FINISH_GOODS" }
+        }
+      ],
+      "outlet_stocks": [
+        {
+          "quantity": 40,
+          "min_stock": null,
+          "outlet": { "id": 7, "name": "Outlet Sudirman", "code": "OUT-SDR", "type": "RETAIL" }
+        }
+      ]
+    }
+  }
+}
+```
+
+Saat produk belum punya entry stok sama sekali, `stock` tetap dikirim sebagai object (bukan `null`):
+
+```jsonc
+{
+  "stock": {
+    "latest_period": null,
+    "warehouse_stocks": [],
+    "outlet_stocks": []
+  }
+}
+```
+
+Catatan field detail:
+
+- `recipes` (root) — hanya yang `is_active = true`, sorted by `id asc`. `quantity` Decimal → Number. `preferred_unit_price` ditarik dari `supplier_materials[is_preferred=true]`; `null` kalau tidak ada.
+- `stock` — selalu ada (object, bukan null). Mengelompokkan 3 field stok agar FE cukup satu null-check (`stock.latest_period`).
+- `stock.latest_period` — period stok warehouse terbaru (`max(year, month, date)`). `null` bila produk belum punya entry `ProductInventory` sama sekali; `stock.warehouse_stocks` ikut `[]`.
+- `stock.warehouse_stocks` — hanya satu period (`stock.latest_period`). Histori bulan sebelumnya tidak dikirim.
+- `stock.outlet_stocks` — snapshot per outlet aktif (`outlet.deleted_at = null`). Tabel `OutletInventory` tidak memiliki kolom periode.
 
 ### 8.4 Update (partial)
 
@@ -717,7 +830,7 @@ Lihat tabel `logging_activities` (model `LoggingActivity`). Log dipakai untuk au
 ## 10. Checklist saat menambah fitur ke FG
 
 - [ ] Tambah field di `RequestFGSchema` (Zod) + tipe TS.
-- [ ] Update `FGDetailPayload` (kalau perlu relasi baru) dan `FGDetailResponse`.
+- [ ] Update `ResponseFGDetailSchema` + child schemas (`FGStockSchema`, `FGRecipeItemSchema`, `FGWarehouseStockSchema`, `FGOutletStockSchema`, `FGLatestPeriodSchema`) kalau perlu relasi baru.
 - [ ] Tulis test unit di `fg.service.test.ts` **sebelum** implementasi (TDD).
 - [ ] Tambah `@@index` di `Product` atau migration trigram bila ada filter/sort baru pada kolom belum ter-index.
 - [ ] Update bagian relevan dari dokumen ini (DTO, endpoint table, Postman).

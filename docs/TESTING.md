@@ -97,7 +97,7 @@ describe("FooService.create", () => {
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import app from "../../app.js";
 
-const csrfHeader = { "x-csrf-token": "test-token" };
+const csrfHeader = { "x-xsrf-header": "test-token" };
 
 describe("POST /api/app/foo", () => {
     beforeEach(() => vi.clearAllMocks());
@@ -124,7 +124,7 @@ describe("POST /api/app/foo", () => {
 });
 ```
 
-`setup.ts` sudah mock auth middleware + CSRF + Redis sehingga `Cookie` + `x-csrf-token` dummy lolos.
+`setup.ts` sudah mock auth middleware + CSRF + Redis sehingga `Cookie` + `x-xsrf-header` dummy lolos.
 
 ---
 

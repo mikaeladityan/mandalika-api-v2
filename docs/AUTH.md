@@ -86,7 +86,7 @@ Session disimpan sebagai **JSON string** (`redisClient.set` + `JSON.parse` saat 
 - Skip jika method `GET` / `HEAD` / `OPTIONS`.
 - Skip rute exempt: `GET:/csrf`, `GET:/health`, `OPTIONS:*`.
 - Untuk mutation lain:
-  - Header `x-csrf-token` (configurable via `CSRF_HEADER_NAME`) wajib.
+  - Header `x-xsrf-header` (configurable via `CSRF_HEADER_NAME`) wajib.
   - `sessionId` harus terisi di context.
   - Bandingkan dengan token dari `redisClient.get(csrf:<sid>)`.
   - Mismatch / hilang → `403 CSRF token mismatch` / `CSRF token or session missing`.
@@ -102,7 +102,7 @@ await fetch("/api/app/products", {
   credentials: "include",
   headers: {
     "Content-Type": "application/json",
-    "x-csrf-token": csrf,
+    "x-xsrf-header": csrf,
   },
   body: JSON.stringify(payload),
 });
@@ -187,7 +187,7 @@ Untuk integrasi pihak ketiga atau script:
 Authorization: Bearer <sessionId>
 ```
 
-Untuk mutasi tetap perlu CSRF (`GET /csrf` lebih dulu, lalu kirim `x-csrf-token`).
+Untuk mutasi tetap perlu CSRF (`GET /csrf` lebih dulu, lalu kirim `x-xsrf-header`).
 Pengecualian: endpoint Global (`/api/global/*`) hanya `GET` → tidak perlu CSRF (lihat `docs/api.md` di root).
 
 ---

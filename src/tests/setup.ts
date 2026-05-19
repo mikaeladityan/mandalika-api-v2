@@ -730,6 +730,7 @@ vi.mock("../config/prisma.js", () => ({
         },
         productInventory: {
             findFirst: vi.fn().mockResolvedValue({ id: 1, quantity: 100 }),
+            findMany: vi.fn().mockResolvedValue([]),
             update: vi.fn().mockResolvedValue({ id: 1, quantity: 90 }),
             deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
