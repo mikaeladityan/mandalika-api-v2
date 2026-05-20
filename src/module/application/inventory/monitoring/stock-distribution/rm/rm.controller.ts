@@ -2,7 +2,7 @@ import { Context } from "hono";
 import { StockDistributionRMService } from "./rm.service.js";
 import { QueryStockDistributionRMSchema } from "./rm.schema.js";
 import { ApiResponse } from "../../../../../../lib/api.response.js";
-import { buildDynamicCsv } from "../_shared/csv.helpers.js";
+import { buildDynamicCsv } from "../../_shared/csv.helpers.js";
 
 export class StockDistributionRMController {
     static async list(c: Context) {

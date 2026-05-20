@@ -2472,6 +2472,110 @@
                       ]
                     }
                   ]
+                },
+                {
+                  "name": "Stock Movement",
+                  "item": [
+                    {
+                      "name": "List",
+                      "request": {
+                        "method": "GET",
+                        "header": [
+                          { "key": "Cookie", "value": "session={{session_id}}" }
+                        ],
+                        "url": {
+                          "raw": "{{base_url}}/api/app/inventory/monitoring/stock-movement?page=1&take=25&sortBy=created_at&sortOrder=desc",
+                          "host": ["{{base_url}}"],
+                          "path": ["api", "app", "inventory", "monitoring", "stock-movement"],
+                          "query": [
+                            { "key": "page", "value": "1" },
+                            { "key": "take", "value": "25" },
+                            { "key": "sortBy", "value": "created_at" },
+                            { "key": "sortOrder", "value": "desc" },
+                            { "key": "search", "value": "", "disabled": true },
+                            { "key": "entity_type", "value": "PRODUCT", "disabled": true },
+                            { "key": "entity_id", "value": "", "disabled": true },
+                            { "key": "location_type", "value": "WAREHOUSE", "disabled": true },
+                            { "key": "location_id", "value": "", "disabled": true },
+                            { "key": "movement_type", "value": "TRANSFER_OUT", "disabled": true },
+                            { "key": "reference_type", "value": "STOCK_TRANSFER", "disabled": true },
+                            { "key": "reference_id", "value": "", "disabled": true },
+                            { "key": "date_from", "value": "2026-05-01", "disabled": true },
+                            { "key": "date_to", "value": "2026-05-31", "disabled": true },
+                            { "key": "created_by", "value": "", "disabled": true }
+                          ]
+                        },
+                        "description": "Paginated list pergerakan stok (ledger). Polymorphic filter: entity (PRODUCT|RAW_MATERIAL), location (WAREHOUSE|OUTLET), movement_type (IN/OUT/TRANSFER_*/RETURN_*/INITIAL/POS_SALE), reference_type (STOCK_TRANSFER|STOCK_RETURN|GOODS_RECEIPT). Bila location_type & location_id kosong → BE auto-apply warehouse GFG-SBY. Sort by created_at|quantity (default created_at desc)."
+                      }
+                    },
+                    {
+                      "name": "Export CSV",
+                      "request": {
+                        "method": "GET",
+                        "header": [
+                          { "key": "Cookie", "value": "session={{session_id}}" }
+                        ],
+                        "url": {
+                          "raw": "{{base_url}}/api/app/inventory/monitoring/stock-movement/export?location_type=WAREHOUSE&location_id=1&date_from=2026-05-01&date_to=2026-05-31",
+                          "host": ["{{base_url}}"],
+                          "path": ["api", "app", "inventory", "monitoring", "stock-movement", "export"],
+                          "query": [
+                            { "key": "location_type", "value": "WAREHOUSE" },
+                            { "key": "location_id", "value": "1" },
+                            { "key": "date_from", "value": "2026-05-01" },
+                            { "key": "date_to", "value": "2026-05-31" },
+                            { "key": "search", "value": "", "disabled": true },
+                            { "key": "entity_type", "value": "PRODUCT", "disabled": true },
+                            { "key": "movement_type", "value": "TRANSFER_OUT", "disabled": true }
+                          ]
+                        },
+                        "description": "Download CSV (UTF-8 BOM + CRLF, RFC 4180). Cap EXPORT_MAX_ROWS=50000 baris; lebih → 400 dengan pesan minta persempit filter. Bila kosong → 200 JSON { message: 'Tidak ada data untuk di-export' }. Header CSV: ID, Entity Type, Entity ID, Product Code, Product Name, Location Type, Location ID, Location Name, Movement Type, Quantity, Qty Before, Qty After, Reference ID, Reference Type, Reference Code, Destination/Source, Created By, Created At."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "Stock Discrepancy",
+                  "item": [
+                    {
+                      "name": "List",
+                      "request": {
+                        "method": "GET",
+                        "header": [
+                          { "key": "Cookie", "value": "session={{session_id}}" }
+                        ],
+                        "url": {
+                          "raw": "{{base_url}}/api/app/inventory/monitoring/stock-discrepancy?page=1&take=25",
+                          "host": ["{{base_url}}"],
+                          "path": ["api", "app", "inventory", "monitoring", "stock-discrepancy"],
+                          "query": [
+                            { "key": "page", "value": "1" },
+                            { "key": "take", "value": "25" },
+                            { "key": "search", "value": "TRF-202605", "disabled": true }
+                          ]
+                        },
+                        "description": "Audit selisih transfer: item dari stock_transfer_items dengan quantity_missing > 0 atau quantity_rejected > 0. Status transfer hard-coded ke COMPLETED|PARTIAL|MISSING|REJECTED. Sort by transfer.created_at desc. Search match transfer_number / product.name / product.code."
+                      }
+                    },
+                    {
+                      "name": "Export CSV",
+                      "request": {
+                        "method": "GET",
+                        "header": [
+                          { "key": "Cookie", "value": "session={{session_id}}" }
+                        ],
+                        "url": {
+                          "raw": "{{base_url}}/api/app/inventory/monitoring/stock-discrepancy/export",
+                          "host": ["{{base_url}}"],
+                          "path": ["api", "app", "inventory", "monitoring", "stock-discrepancy", "export"],
+                          "query": [
+                            { "key": "search", "value": "", "disabled": true }
+                          ]
+                        },
+                        "description": "Download CSV (UTF-8 BOM + CRLF, RFC 4180). Cap EXPORT_MAX_ROWS=5000 baris; lebih → 400 dengan pesan minta persempit filter. Bila kosong → 200 JSON { message: 'Tidak ada data untuk di-export' }. Header CSV: No, No. Dokumen, Tanggal, Rute (Asal -> Tujuan), SKU / Code, Nama Produk, Qty (Requested), Qty Missing, Qty Rejected, Catatan."
+                      }
+                    }
+                  ]
                 }
               ]
             }

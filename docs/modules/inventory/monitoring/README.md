@@ -15,15 +15,18 @@ Sub-modul read-only untuk visibility stok dan reporting matrix di dalam Inventor
 | :--------------------------- | :------------------------------------------------------------ | :------------------------------------------------------------------------------ | :------- | :----------------------------------------------------------------- |
 | Stock Distribution / FG      | `/api/app/inventory/monitoring/stock-distribution/fg`         | `src/module/application/inventory/monitoring/stock-distribution/fg`             | ✅ Ready | [stock-distribution/README.md](./stock-distribution/README.md)     |
 | Stock Distribution / RM      | `/api/app/inventory/monitoring/stock-distribution/rm`         | `src/module/application/inventory/monitoring/stock-distribution/rm`             | ✅ Ready | [stock-distribution/README.md](./stock-distribution/README.md)     |
+| Stock Movement (Pergerakan)  | `/api/app/inventory/monitoring/stock-movement`                | `src/module/application/inventory/monitoring/stock-movement`                    | ✅ Ready | [stock-movement/README.md](./stock-movement/README.md)             |
+| Stock Discrepancy (Audit)    | `/api/app/inventory/monitoring/stock-discrepancy`             | `src/module/application/inventory/monitoring/stock-discrepancy`                 | ✅ Ready | [stock-discrepancy/README.md](./stock-discrepancy/README.md)       |
 
 > Modul matrix view existing di `inventory-v2/monitoring/stock-total` masih hidup berdampingan. Setelah FE migrasi ke `stock-distribution`, modul `stock-total` di-deprecate.
+> Modul lama `inventory-v2/monitoring/stock-card` di-replace oleh `stock-movement` di path baru — schema/service/controller direlokasi + di-rename dengan SQL safety + index trigram `raw_materials.barcode` ditambahkan. FE legacy masih hidup di `inventory-v2/monitoring/stock-card`; migrasi FE menyusul.
 
 ---
 
 ## Konvensi modul monitoring
 
 - **Read-only**: semua endpoint hanya `GET`. Mutasi inventory dilakukan di modul mutasi (FG, RM, GR, DO, TG, Return).
-- **ORM-first**: monitoring di-folder ini wajib pakai Prisma ORM (`findMany`, `groupBy`, `count`). Hindari raw SQL kecuali ada batasan teknis yang dibuktikan via PR review (lihat [backend-code-review §sqlalchemy-rule "Prefer Prisma methods over Raw SQL"](../../../../.claude/skills/backend-code-review/references/sqlalchemy-rule.md)).
+- **ORM-first**: monitoring di-folder ini wajib pakai Prisma ORM (`findMany`, `groupBy`, `count`). Hindari raw SQL kecuali ada batasan teknis yang dibuktikan via PR review (lihat [backend-code-review §sqlalchemy-rule "Prefer Prisma methods over Raw SQL"](../../../../.claude/skills/backend-code-review/references/sqlalchemy-rule.md)). **Pengecualian**: `stock-movement` justified pakai `$queryRaw` karena polymorphic discriminator JOIN (entity_type, location_type, reference_type) — ORM `include` tidak bisa kondisional runtime; tetap pakai Prisma.sql parametrized + identifier whitelist untuk ORDER BY.
 - **Period filter**: query `?month=&year=` opsional, default ke bulan & tahun berjalan via helper `resolvePeriod(month, year)` di `stock-distribution/_shared/matrix.helpers.ts`.
 - **Matrix view SOP**: untuk modul "rows × dynamic location columns" (mis. stock-distribution), pakai pattern:
   - Service helpers private statis: `xInclude()`, `buildWhere()`, `dbOrderBy()`, `assembleMatrix()`.

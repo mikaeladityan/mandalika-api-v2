@@ -2,7 +2,7 @@ import { Context } from "hono";
 import { StockDistributionFGService } from "./fg.service.js";
 import { QueryStockDistributionFGSchema } from "./fg.schema.js";
 import { ApiResponse } from "../../../../../../lib/api.response.js";
-import { buildDynamicCsv } from "../_shared/csv.helpers.js";
+import { buildDynamicCsv } from "../../_shared/csv.helpers.js";
 
 export class StockDistributionFGController {
     static async list(c: Context) {

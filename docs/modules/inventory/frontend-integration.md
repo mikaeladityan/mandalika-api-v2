@@ -30,6 +30,8 @@ Frontend module path **WAJIB** cermin backend. Diff struktur = sinkronisasi rusa
 | RM / Categories | `api/src/module/application/inventory/rm/category/`                  | `app/src/app/(application)/inventory/rm/categories/server/` 🚧 TBD                    |
 | RM / Units      | `api/src/module/application/inventory/rm/unit/`                       | `app/src/app/(application)/inventory/rm/units/server/` 🚧 TBD                         |
 | Monitoring / Stock Distribution | `api/src/module/application/inventory/monitoring/stock-distribution/` | `app/src/app/(application)/inventory/monitoring/stock-distribution/server/` 🚧 TBD |
+| Monitoring / Stock Movement     | `api/src/module/application/inventory/monitoring/stock-movement/`     | `app/src/app/(application)/inventory/monitoring/stock-movement/server/` 🚧 TBD     |
+| Monitoring / Stock Discrepancy  | `api/src/module/application/inventory/monitoring/stock-discrepancy/`  | `app/src/app/(application)/inventory/monitoring/stock-discrepancy/server/` 🚧 TBD  |
 | Components  | —                                                                        | `app/src/components/pages/inventory/<scope>/` 🚧 TBD                                  |
 | Page entry  | —                                                                        | `app/src/app/(application)/inventory/<scope>/page.tsx` (Suspense saja) 🚧 TBD          |
 
@@ -104,6 +106,8 @@ Untuk flow spesifik per scope (Update / Status / Bulk / Import async / Export), 
 | `rm/categories`                    | [./rm/category/README.md](./rm/category/README.md)                                                   | [./rm/category/frontend-integration.md](./rm/category/frontend-integration.md)                               | 🚧 TBD    |
 | `rm/units`                         | [./rm/unit/README.md](./rm/unit/README.md)                                                           | [./rm/unit/frontend-integration.md](./rm/unit/frontend-integration.md)                                       | 🚧 TBD    |
 | `monitoring/stock-distribution`    | [./monitoring/stock-distribution/README.md](./monitoring/stock-distribution/README.md)               | [./monitoring/stock-distribution/frontend-integration.md](./monitoring/stock-distribution/frontend-integration.md) | 🚧 TBD |
+| `monitoring/stock-movement`        | [./monitoring/stock-movement/README.md](./monitoring/stock-movement/README.md)                       | [./monitoring/stock-movement/frontend-integration.md](./monitoring/stock-movement/frontend-integration.md)         | 🚧 TBD |
+| `monitoring/stock-discrepancy`     | [./monitoring/stock-discrepancy/README.md](./monitoring/stock-discrepancy/README.md)                 | [./monitoring/stock-discrepancy/frontend-integration.md](./monitoring/stock-discrepancy/frontend-integration.md)   | 🚧 TBD |
 
 ---
 

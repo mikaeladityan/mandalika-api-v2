@@ -31,12 +31,14 @@ export class StockDistributionFGService {
             deleted_at: null,
             ...(type_id ? { type_id } : {}),
             ...(gender ? { gender } : {}),
-            ...(search ? {
-                OR: [
-                    { name: { contains: search, mode: "insensitive" as const } },
-                    { code: { contains: search, mode: "insensitive" as const } },
-                ],
-            } : {}),
+            ...(search
+                ? {
+                      OR: [
+                          { name: { contains: search, mode: "insensitive" as const } },
+                          { code: { contains: search, mode: "insensitive" as const } },
+                      ],
+                  }
+                : {}),
         };
     }
 
@@ -45,29 +47,34 @@ export class StockDistributionFGService {
         sortOrder: NonNullable<QueryStockDistributionFGDTO["sortOrder"]>,
     ): Prisma.ProductOrderByWithRelationInput {
         const map: Record<string, Prisma.ProductOrderByWithRelationInput> = {
-            name:       { name: sortOrder },
-            code:       { code: sortOrder },
+            name: { name: sortOrder },
+            code: { code: sortOrder },
             updated_at: { updated_at: sortOrder },
-            type:       { product_type: { name: sortOrder } },
-            size:       { size: { size: sortOrder } },
+            type: { product_type: { name: sortOrder } },
+            size: { size: { size: sortOrder } },
         };
         return map[sortBy] ?? { updated_at: "desc" };
     }
 
     static async list(query: QueryStockDistributionFGDTO): Promise<{
         data: ResponseStockDistributionFGDTO[];
-        len:  number;
+        len: number;
     }> {
         const {
-            page = 1, take = 50,
-            search, type_id, gender,
-            month, year,
-            sortBy = "updated_at", sortOrder = "desc",
+            page = 1,
+            take = 50,
+            search,
+            type_id,
+            gender,
+            month,
+            year,
+            sortBy = "updated_at",
+            sortOrder = "desc",
         } = query;
 
         const { skip, take: limit } = GetPagination(Number(page), Number(take));
         const period = resolvePeriod(month, year);
-        const where  = this.buildWhere(search, type_id, gender);
+        const where = this.buildWhere(search, type_id, gender);
 
         if (sortBy === "total_stock") {
             return this.listSortedByTotal(where, period, skip, limit, sortOrder);
@@ -102,9 +109,12 @@ export class StockDistributionFGService {
         limit: number,
         sortOrder: NonNullable<QueryStockDistributionFGDTO["sortOrder"]>,
     ): Promise<{ data: ResponseStockDistributionFGDTO[]; len: number }> {
-        const allIds = (await prisma.product.findMany({
-            where, select: { id: true },
-        })).map((p) => p.id);
+        const allIds = (
+            await prisma.product.findMany({
+                where,
+                select: { id: true },
+            })
+        ).map((p) => p.id);
 
         if (allIds.length === 0) return { data: [], len: 0 };
 
@@ -113,7 +123,8 @@ export class StockDistributionFGService {
                 by: ["product_id"],
                 where: {
                     product_id: { in: allIds },
-                    month: period.month, year: period.year,
+                    month: period.month,
+                    year: period.year,
                     warehouse: { type: "FINISH_GOODS", deleted_at: null },
                 },
                 _sum: { quantity: true },
@@ -122,7 +133,8 @@ export class StockDistributionFGService {
                 by: ["product_id"],
                 where: {
                     product_id: { in: allIds },
-                    month: period.month, year: period.year,
+                    month: period.month,
+                    year: period.year,
                     outlet: { deleted_at: null },
                 },
                 _sum: { quantity: true },
@@ -130,10 +142,15 @@ export class StockDistributionFGService {
         ]);
 
         const totals = new Map<number, number>(allIds.map((id) => [id, 0]));
-        const accumulate = (rows: Array<{ product_id: number | null; _sum: { quantity: Prisma.Decimal | null } }>) => {
+        const accumulate = (
+            rows: Array<{ product_id: number | null; _sum: { quantity: Prisma.Decimal | null } }>,
+        ) => {
             for (const r of rows) {
                 if (r.product_id === null) continue;
-                totals.set(r.product_id, (totals.get(r.product_id) ?? 0) + Number(r._sum.quantity ?? 0));
+                totals.set(
+                    r.product_id,
+                    (totals.get(r.product_id) ?? 0) + Number(r._sum.quantity ?? 0),
+                );
             }
         };
         accumulate(whAgg);
@@ -173,7 +190,8 @@ export class StockDistributionFGService {
             prisma.productInventory.findMany({
                 where: {
                     product_id: { in: productIds },
-                    month: period.month, year: period.year,
+                    month: period.month,
+                    year: period.year,
                     warehouse: { type: "FINISH_GOODS", deleted_at: null },
                 },
                 select: { product_id: true, quantity: true, warehouse: { select: { name: true } } },
@@ -181,7 +199,8 @@ export class StockDistributionFGService {
             prisma.outletInventory.findMany({
                 where: {
                     product_id: { in: productIds },
-                    month: period.month, year: period.year,
+                    month: period.month,
+                    year: period.year,
                     outlet: { deleted_at: null },
                 },
                 select: { product_id: true, quantity: true, outlet: { select: { name: true } } },
@@ -223,14 +242,14 @@ export class StockDistributionFGService {
         return products.map((p) => {
             const agg = byProduct.get(p.id)!;
             return {
-                code:            p.code,
-                name:            p.name,
-                type:            p.product_type?.name ?? UNKNOWN_LABEL,
-                size:            Number(p.size?.size ?? 0),
-                gender:          String(p.gender),
-                uom:             p.unit?.name ?? UNKNOWN_LABEL,
-                total_stock:     agg.total,
-                total_missing:   agg.missing,
+                code: p.code,
+                name: p.name,
+                type: p.product_type?.name ?? UNKNOWN_LABEL,
+                size: Number(p.size?.size ?? 0),
+                gender: String(p.gender),
+                uom: p.unit?.name ?? UNKNOWN_LABEL,
+                total_stock: agg.total,
+                total_missing: agg.missing,
                 location_stocks: agg.locs,
             };
         });
@@ -239,24 +258,26 @@ export class StockDistributionFGService {
     static async listLocations(): Promise<ResponseStockDistributionLocationDTO[]> {
         const [warehouses, outlets] = await Promise.all([
             prisma.warehouse.findMany({
-                where:   { type: "FINISH_GOODS", deleted_at: null },
-                select:  { id: true, name: true },
+                where: { type: "FINISH_GOODS", deleted_at: null },
+                select: { id: true, name: true },
                 orderBy: { name: "asc" },
             }),
             prisma.outlet.findMany({
-                where:   { deleted_at: null },
-                select:  { id: true, name: true },
+                where: { deleted_at: null },
+                select: { id: true, name: true },
                 orderBy: { name: "asc" },
             }),
         ]);
 
         return [
             ...warehouses.map((w) => ({ id: w.id, name: w.name, type: "WAREHOUSE" as const })),
-            ...outlets.map((o)    => ({ id: o.id, name: o.name, type: "OUTLET"    as const })),
+            ...outlets.map((o) => ({ id: o.id, name: o.name, type: "OUTLET" as const })),
         ];
     }
 
-    static async export(query: QueryStockDistributionFGDTO): Promise<ResponseStockDistributionFGDTO[]> {
+    static async export(
+        query: QueryStockDistributionFGDTO,
+    ): Promise<ResponseStockDistributionFGDTO[]> {
         const { data } = await this.list({ ...query, take: EXPORT_ROW_LIMIT, page: 1 });
         return data;
     }
