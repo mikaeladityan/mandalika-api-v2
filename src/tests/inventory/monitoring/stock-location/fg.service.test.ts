@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { StockLocationService } from "../../../../module/application/inventory/monitoring/stock-location/stock-location.service.js";
+import { StockLocationFGService } from "../../../../module/application/inventory/monitoring/stock-location/fg/fg.service.js";
 import prisma from "../../../../config/prisma.js";
 
 const WAREHOUSE_ROW = {
@@ -24,7 +24,7 @@ const OUTLET_ROW = {
     min_stock:    "5",
 };
 
-describe("StockLocationService", () => {
+describe("StockLocationFGService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
@@ -36,7 +36,7 @@ describe("StockLocationService", () => {
                 .mockResolvedValueOnce([{ total: 1n }])
                 .mockResolvedValueOnce([WAREHOUSE_ROW]);
 
-            const result = await StockLocationService.list({
+            const result = await StockLocationFGService.list({
                 location_type: "WAREHOUSE",
                 location_id:   1,
             });
@@ -55,7 +55,7 @@ describe("StockLocationService", () => {
             (prisma.warehouse.findFirst as any).mockResolvedValueOnce(null);
 
             await expect(
-                StockLocationService.list({ location_type: "WAREHOUSE", location_id: 999 }),
+                StockLocationFGService.list({ location_type: "WAREHOUSE", location_id: 999 }),
             ).rejects.toThrow("Gudang tidak ditemukan");
         });
 
@@ -65,7 +65,7 @@ describe("StockLocationService", () => {
                 .mockResolvedValueOnce([{ total: 0n }])
                 .mockResolvedValueOnce([]);
 
-            const result = await StockLocationService.list({
+            const result = await StockLocationFGService.list({
                 location_type: "WAREHOUSE",
                 location_id:   2,
             });
@@ -82,7 +82,7 @@ describe("StockLocationService", () => {
                 .mockResolvedValueOnce([{ total: 1n }])
                 .mockResolvedValueOnce([OUTLET_ROW]);
 
-            const result = await StockLocationService.list({
+            const result = await StockLocationFGService.list({
                 location_type: "OUTLET",
                 location_id:   1,
             });
@@ -95,7 +95,7 @@ describe("StockLocationService", () => {
             (prisma.outlet.findFirst as any).mockResolvedValueOnce(null);
 
             await expect(
-                StockLocationService.list({ location_type: "OUTLET", location_id: 999 }),
+                StockLocationFGService.list({ location_type: "OUTLET", location_id: 999 }),
             ).rejects.toThrow("Outlet tidak ditemukan");
         });
     });
@@ -107,7 +107,7 @@ describe("StockLocationService", () => {
                 .mockResolvedValueOnce([{ total: 1n }])
                 .mockResolvedValueOnce([WAREHOUSE_ROW]);
 
-            const result = await StockLocationService.list({});
+            const result = await StockLocationFGService.list({});
 
             expect(prisma.warehouse.findFirst).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -126,7 +126,7 @@ describe("StockLocationService", () => {
                 .mockResolvedValueOnce([{ total: 0n }])
                 .mockResolvedValueOnce([]);
 
-            const result = await StockLocationService.list({});
+            const result = await StockLocationFGService.list({});
 
             expect(result.location_name).toBe("Gudang FG Lain");
         });
@@ -136,9 +136,7 @@ describe("StockLocationService", () => {
                 .mockResolvedValueOnce(null)
                 .mockResolvedValueOnce(null);
 
-            await expect(StockLocationService.list({})).rejects.toThrow(
-                "Tidak ada lokasi",
-            );
+            await expect(StockLocationFGService.list({})).rejects.toThrow("Tidak ada lokasi");
         });
     });
 
@@ -150,7 +148,7 @@ describe("StockLocationService", () => {
                 { id: 2, name: "Toko B" },
             ]);
 
-            const result = await StockLocationService.listAvailableLocations();
+            const result = await StockLocationFGService.listAvailableLocations();
 
             expect(result).toHaveLength(3);
             expect(result[0]).toEqual({ id: 1, name: "Gudang SBY", type: "WAREHOUSE" });
@@ -161,7 +159,7 @@ describe("StockLocationService", () => {
             (prisma.warehouse.findMany as any).mockResolvedValueOnce([]);
             (prisma.outlet.findMany    as any).mockResolvedValueOnce([]);
 
-            const result = await StockLocationService.listAvailableLocations();
+            const result = await StockLocationFGService.listAvailableLocations();
             expect(result).toHaveLength(0);
         });
     });
@@ -173,13 +171,24 @@ describe("StockLocationService", () => {
                 .mockResolvedValueOnce([{ total: 1n }])
                 .mockResolvedValueOnce([WAREHOUSE_ROW]);
 
-            const result = await StockLocationService.export({
+            const result = await StockLocationFGService.export({
                 location_type: "WAREHOUSE",
                 location_id:   1,
             });
 
             expect(result.location_name).toBe("Gudang SBY");
             expect(result.data).toHaveLength(1);
+        });
+
+        it("throws 400 ApiError when total exceeds EXPORT_ROW_LIMIT", async () => {
+            (prisma.warehouse.findFirst as any).mockResolvedValueOnce({ name: "Gudang SBY" });
+            (prisma.$queryRaw as any)
+                .mockResolvedValueOnce([{ total: 5_001n }])
+                .mockResolvedValueOnce([WAREHOUSE_ROW]);
+
+            await expect(
+                StockLocationFGService.export({ location_type: "WAREHOUSE", location_id: 1 }),
+            ).rejects.toMatchObject({ statusCode: 400 });
         });
     });
 });

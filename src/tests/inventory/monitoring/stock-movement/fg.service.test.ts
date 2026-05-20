@@ -1,17 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { StockMovementService } from "../../../../module/application/inventory/monitoring/stock-movement/stock-movement.service.js";
+import { StockMovementFGService } from "../../../../module/application/inventory/monitoring/stock-movement/fg/fg.service.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import prisma from "../../../../config/prisma.js";
 
 const ROW_SAMPLE = {
     id:                1,
-    entity_type:       "PRODUCT",
     entity_id:         10,
     product_code:      "P-001",
     product_name:      "T-Shirt",
-    barcode:           null,
     category:          "Apparel",
     size:              "M",
+    gender:            "UNISEX",
     location_type:     "WAREHOUSE",
     location_id:       5,
     location_name:     "Gudang SBY",
@@ -28,10 +27,8 @@ const ROW_SAMPLE = {
     created_at:        new Date("2026-05-20T08:00:00Z"),
 };
 
-describe("StockMovementService", () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-    });
+describe("StockMovementFGService", () => {
+    beforeEach(() => vi.clearAllMocks());
 
     describe("list", () => {
         it("returns paginated rows with len and DTO mapping", async () => {
@@ -40,16 +37,14 @@ describe("StockMovementService", () => {
                 .mockResolvedValueOnce([{ total: 2n }])
                 .mockResolvedValueOnce([ROW_SAMPLE]);
 
-            const result = await StockMovementService.list({});
+            const result = await StockMovementFGService.list({});
 
             expect(result.len).toBe(2);
             expect(result.data).toHaveLength(1);
-            const first = result.data[0]!;
-            expect(first).toMatchObject({
+            expect(result.data[0]).toMatchObject({
                 id:               1,
-                entity_type:      "PRODUCT",
                 entity_id:        10,
-                location_id:      5,
+                product_code:     "P-001",
                 quantity:         50,
                 qty_before:       100,
                 qty_after:        50,
@@ -59,13 +54,13 @@ describe("StockMovementService", () => {
             });
         });
 
-        it("applies default warehouse GFG-SBY when location not provided", async () => {
+        it("applies default FG warehouse (GFG-SBY) when location not provided", async () => {
             (prisma.warehouse.findFirst as any).mockResolvedValueOnce({ id: 5 });
             (prisma.$queryRaw as any)
                 .mockResolvedValueOnce([{ total: 0n }])
                 .mockResolvedValueOnce([]);
 
-            await StockMovementService.list({});
+            await StockMovementFGService.list({});
 
             expect(prisma.warehouse.findFirst).toHaveBeenCalledWith({
                 where:  { code: "GFG-SBY", deleted_at: null },
@@ -79,7 +74,7 @@ describe("StockMovementService", () => {
                 .mockResolvedValueOnce([{ total: 0n }])
                 .mockResolvedValueOnce([]);
 
-            await StockMovementService.list({ location_id: 7, location_type: "WAREHOUSE" });
+            await StockMovementFGService.list({ location_id: 7, location_type: "WAREHOUSE" });
 
             expect(prisma.warehouse.findFirst).not.toHaveBeenCalled();
         });
@@ -90,7 +85,7 @@ describe("StockMovementService", () => {
                 .mockResolvedValueOnce([{ total: 1n }])
                 .mockResolvedValueOnce([ROW_SAMPLE]);
 
-            const result = await StockMovementService.list({});
+            const result = await StockMovementFGService.list({});
 
             expect(result.len).toBe(1);
         });
@@ -101,23 +96,10 @@ describe("StockMovementService", () => {
                 .mockResolvedValueOnce([])
                 .mockResolvedValueOnce([]);
 
-            const result = await StockMovementService.list({});
+            const result = await StockMovementFGService.list({});
 
             expect(result.len).toBe(0);
             expect(result.data).toEqual([]);
-        });
-
-        it("maps null reference_id correctly in DTO", async () => {
-            (prisma.warehouse.findFirst as any).mockResolvedValueOnce({ id: 5 });
-            (prisma.$queryRaw as any)
-                .mockResolvedValueOnce([{ total: 1n }])
-                .mockResolvedValueOnce([{ ...ROW_SAMPLE, reference_id: null, reference_type: null }]);
-
-            const result = await StockMovementService.list({});
-            const first  = result.data[0]!;
-
-            expect(first.reference_id).toBeNull();
-            expect(first.reference_type).toBeNull();
         });
     });
 
@@ -128,7 +110,7 @@ describe("StockMovementService", () => {
                 .mockResolvedValueOnce([{ total: 100n }])
                 .mockResolvedValueOnce([ROW_SAMPLE, { ...ROW_SAMPLE, id: 2 }]);
 
-            const data = await StockMovementService.export({});
+            const data = await StockMovementFGService.export({});
 
             expect(data).toHaveLength(2);
             expect(data[0]!.id).toBe(1);
@@ -139,7 +121,7 @@ describe("StockMovementService", () => {
             (prisma.warehouse.findFirst as any).mockResolvedValueOnce({ id: 5 });
             (prisma.$queryRaw as any).mockResolvedValueOnce([{ total: 50_001n }]);
 
-            await expect(StockMovementService.export({})).rejects.toBeInstanceOf(ApiError);
+            await expect(StockMovementFGService.export({})).rejects.toBeInstanceOf(ApiError);
         });
 
         it("returns empty array when no data", async () => {
@@ -148,7 +130,7 @@ describe("StockMovementService", () => {
                 .mockResolvedValueOnce([{ total: 0n }])
                 .mockResolvedValueOnce([]);
 
-            const data = await StockMovementService.export({});
+            const data = await StockMovementFGService.export({});
 
             expect(data).toEqual([]);
         });

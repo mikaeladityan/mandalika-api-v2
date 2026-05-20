@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { StockLocationController } from "./stock-location.controller.js";
+import FGRoutes from "./fg/fg.routes.js";
+import RMRoutes from "./rm/rm.routes.js";
 
-const app = new Hono();
+const StockLocationRoutes = new Hono();
 
-app.get("/export",    StockLocationController.export);
-app.get("/locations", StockLocationController.listAvailableLocations);
-app.get("/",          StockLocationController.list);
+StockLocationRoutes.route("/fg", FGRoutes);
+StockLocationRoutes.route("/rm", RMRoutes);
 
-export default app;
+export default StockLocationRoutes;

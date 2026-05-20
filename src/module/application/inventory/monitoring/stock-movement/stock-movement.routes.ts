@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { StockMovementController } from "./stock-movement.controller.js";
+import FGRoutes from "./fg/fg.routes.js";
+import RMRoutes from "./rm/rm.routes.js";
 
 const StockMovementRoutes = new Hono();
 
-// NOTE: /export must be registered BEFORE /:id style routes to avoid route conflict
-StockMovementRoutes.get("/export", StockMovementController.export);
-StockMovementRoutes.get("/",       StockMovementController.list);
+StockMovementRoutes.route("/fg", FGRoutes);
+StockMovementRoutes.route("/rm", RMRoutes);
 
 export default StockMovementRoutes;

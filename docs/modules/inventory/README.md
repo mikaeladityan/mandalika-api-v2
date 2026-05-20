@@ -26,6 +26,7 @@ Sub-modul inventaris terpadu untuk ERP Mandalika.
 | Monitoring / Stock Distribution  | `/api/app/inventory/monitoring/stock-distribution/{fg\|rm}`  | `src/module/application/inventory/monitoring/stock-distribution`           | ✅ Ready | [monitoring/stock-distribution/README.md](./monitoring/stock-distribution/README.md) |
 | Monitoring / Stock Movement      | `/api/app/inventory/monitoring/stock-movement`               | `src/module/application/inventory/monitoring/stock-movement`               | ✅ Ready | [monitoring/stock-movement/README.md](./monitoring/stock-movement/README.md)         |
 | Monitoring / Stock Discrepancy   | `/api/app/inventory/monitoring/stock-discrepancy`            | `src/module/application/inventory/monitoring/stock-discrepancy`            | ✅ Ready | [monitoring/stock-discrepancy/README.md](./monitoring/stock-discrepancy/README.md)   |
+| Monitoring / Stock Location      | `/api/app/inventory/monitoring/stock-location/{fg\|rm}`      | `src/module/application/inventory/monitoring/stock-location`               | ✅ Ready | [monitoring/stock-location/README.md](./monitoring/stock-location/README.md)         |
 
 > Dokumen flat lama `fg.md` masih ada untuk referensi; sumber kebenaran tunggal sekarang `fg/README.md` + sub-modul.
 

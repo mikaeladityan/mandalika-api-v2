@@ -30,8 +30,11 @@ Frontend module path **WAJIB** cermin backend. Diff struktur = sinkronisasi rusa
 | RM / Categories | `api/src/module/application/inventory/rm/category/`                  | `app/src/app/(application)/inventory/rm/categories/server/` 🚧 TBD                    |
 | RM / Units      | `api/src/module/application/inventory/rm/unit/`                       | `app/src/app/(application)/inventory/rm/units/server/` 🚧 TBD                         |
 | Monitoring / Stock Distribution | `api/src/module/application/inventory/monitoring/stock-distribution/` | `app/src/app/(application)/inventory/monitoring/stock-distribution/server/` 🚧 TBD |
-| Monitoring / Stock Movement     | `api/src/module/application/inventory/monitoring/stock-movement/`     | `app/src/app/(application)/inventory/monitoring/stock-movement/server/` 🚧 TBD     |
+| Monitoring / Stock Movement / FG | `api/src/module/application/inventory/monitoring/stock-movement/fg/` | `app/src/app/(application)/inventory/monitoring/stock-movement/fg/server/` 🚧 TBD |
+| Monitoring / Stock Movement / RM | `api/src/module/application/inventory/monitoring/stock-movement/rm/` | `app/src/app/(application)/inventory/monitoring/stock-movement/rm/server/` 🚧 TBD |
 | Monitoring / Stock Discrepancy  | `api/src/module/application/inventory/monitoring/stock-discrepancy/`  | `app/src/app/(application)/inventory/monitoring/stock-discrepancy/server/` 🚧 TBD  |
+| Monitoring / Stock Location / FG | `api/src/module/application/inventory/monitoring/stock-location/fg/` | `app/src/app/(application)/inventory/monitoring/stock-location/server/` (FG path) 🚧 TBD |
+| Monitoring / Stock Location / RM | `api/src/module/application/inventory/monitoring/stock-location/rm/` | `app/src/app/(application)/inventory/monitoring/stock-location/server/` (RM path) 🚧 TBD |
 | Components  | —                                                                        | `app/src/components/pages/inventory/<scope>/` 🚧 TBD                                  |
 | Page entry  | —                                                                        | `app/src/app/(application)/inventory/<scope>/page.tsx` (Suspense saja) 🚧 TBD          |
 
@@ -108,6 +111,7 @@ Untuk flow spesifik per scope (Update / Status / Bulk / Import async / Export), 
 | `monitoring/stock-distribution`    | [./monitoring/stock-distribution/README.md](./monitoring/stock-distribution/README.md)               | [./monitoring/stock-distribution/frontend-integration.md](./monitoring/stock-distribution/frontend-integration.md) | 🚧 TBD |
 | `monitoring/stock-movement`        | [./monitoring/stock-movement/README.md](./monitoring/stock-movement/README.md)                       | [./monitoring/stock-movement/frontend-integration.md](./monitoring/stock-movement/frontend-integration.md)         | 🚧 TBD |
 | `monitoring/stock-discrepancy`     | [./monitoring/stock-discrepancy/README.md](./monitoring/stock-discrepancy/README.md)                 | [./monitoring/stock-discrepancy/frontend-integration.md](./monitoring/stock-discrepancy/frontend-integration.md)   | 🚧 TBD |
+| `monitoring/stock-location`        | [./monitoring/stock-location/README.md](./monitoring/stock-location/README.md)                       | [./monitoring/stock-location/frontend-integration.md](./monitoring/stock-location/frontend-integration.md)         | 🚧 TBD |
 
 ---
 

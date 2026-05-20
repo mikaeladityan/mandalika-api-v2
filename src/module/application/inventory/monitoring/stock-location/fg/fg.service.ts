@@ -1,27 +1,28 @@
-import { Prisma } from "../../../../../generated/prisma/client.js";
-import prisma from "../../../../../config/prisma.js";
-import { ApiError } from "../../../../../lib/errors/api.error.js";
-import { GetPagination } from "../../../../../lib/utils/pagination.js";
-import { EXPORT_ROW_LIMIT } from "../../../shared/inventory.constants.js";
+import { Prisma } from "../../../../../../generated/prisma/client.js";
+import prisma from "../../../../../../config/prisma.js";
+import { ApiError } from "../../../../../../lib/errors/api.error.js";
+import { GetPagination } from "../../../../../../lib/utils/pagination.js";
+import { EXPORT_ROW_LIMIT } from "../../../../shared/inventory.constants.js";
+import { resolvePeriod } from "../_shared/period.helpers.js";
 import {
-    QueryStockLocationDTO,
-    ResponseStockLocationItemDTO,
-    ResponseAvailableLocationDTO,
-} from "./stock-location.schema.js";
+    QueryStockLocationFGDTO,
+    ResponseStockLocationFGItemDTO,
+    ResponseStockLocationFGAvailableDTO,
+} from "./fg.schema.js";
 
 const DEFAULT_WAREHOUSE_CODE = "GFG-SBY";
 const DEFAULT_PAGE = 1;
 const DEFAULT_TAKE = 50;
 const UNKNOWN_LABEL = "Unknown";
 
-const SORT_COLUMN: Record<NonNullable<QueryStockLocationDTO["sortBy"]>, string> = {
+const SORT_COLUMN: Record<NonNullable<QueryStockLocationFGDTO["sortBy"]>, string> = {
     name:       "p.name",
     code:       "p.code",
     quantity:   "quantity",
     updated_at: "p.updated_at",
 };
 
-type StockLocationRawRow = {
+type StockLocationFGRawRow = {
     product_code: string;
     product_name: string;
     type:         string;
@@ -38,27 +39,25 @@ type ResolvedLocation = {
     location_name: string;
 };
 
-type Period = { month: number; year: number };
-
-export class StockLocationService {
-    static async list(query: QueryStockLocationDTO): Promise<{
-        data:          ResponseStockLocationItemDTO[];
+export class StockLocationFGService {
+    static async list(query: QueryStockLocationFGDTO): Promise<{
+        data:          ResponseStockLocationFGItemDTO[];
         len:           number;
         location_name: string;
     }> {
-        const location = await StockLocationService.resolveLocation(query);
-        const period   = StockLocationService.resolvePeriod(query);
+        const location = await this.resolveLocation(query);
+        const period   = resolvePeriod(query.month, query.year);
         const { skip, take } = GetPagination(
             Number(query.page ?? DEFAULT_PAGE),
             Number(query.take ?? DEFAULT_TAKE),
         );
 
-        const productWhere   = StockLocationService.buildProductWhere(query);
-        const inventoryJoin  = StockLocationService.buildInventoryJoin(location, period);
+        const productWhere   = this.buildProductWhere(query);
+        const inventoryJoin  = this.buildInventoryJoin(location, period);
         const minStockColumn = location.type === "OUTLET"
             ? Prisma.sql`COALESCE(inv.min_stock, 0)::numeric`
             : Prisma.sql`NULL::numeric`;
-        const orderBy        = StockLocationService.buildOrderBy(query);
+        const orderBy        = this.buildOrderBy(query);
 
         const [countRes, rows] = await Promise.all([
             prisma.$queryRaw<{ total: bigint }[]>`
@@ -66,7 +65,7 @@ export class StockLocationService {
                 FROM products p
                 ${productWhere}
             `,
-            prisma.$queryRaw<StockLocationRawRow[]>`
+            prisma.$queryRaw<StockLocationFGRawRow[]>`
                 SELECT
                     p.code                                AS product_code,
                     p.name                                AS product_name,
@@ -90,11 +89,11 @@ export class StockLocationService {
         return {
             len:           Number(countRes[0]?.total ?? 0),
             location_name: location.location_name,
-            data:          rows.map((r) => StockLocationService.toDTO(r, location.location_name)),
+            data:          rows.map((r) => this.toDTO(r, location.location_name)),
         };
     }
 
-    static async listAvailableLocations(): Promise<ResponseAvailableLocationDTO[]> {
+    static async listAvailableLocations(): Promise<ResponseStockLocationFGAvailableDTO[]> {
         const [warehouses, outlets] = await Promise.all([
             prisma.warehouse.findMany({
                 where:   { type: "FINISH_GOODS", deleted_at: null },
@@ -114,14 +113,21 @@ export class StockLocationService {
         ];
     }
 
-    static async export(query: QueryStockLocationDTO): Promise<{
-        data:          ResponseStockLocationItemDTO[];
+    static async export(query: QueryStockLocationFGDTO): Promise<{
+        data:          ResponseStockLocationFGItemDTO[];
         location_name: string;
     }> {
-        return StockLocationService.list({ ...query, take: EXPORT_ROW_LIMIT, page: 1 });
+        const result = await this.list({ ...query, take: EXPORT_ROW_LIMIT, page: 1 });
+        if (result.len > EXPORT_ROW_LIMIT) {
+            throw new ApiError(
+                400,
+                `Hasil melebihi batas export (${EXPORT_ROW_LIMIT} baris). Persempit filter terlebih dahulu.`,
+            );
+        }
+        return result;
     }
 
-    private static async resolveLocation(query: QueryStockLocationDTO): Promise<ResolvedLocation> {
+    private static async resolveLocation(query: QueryStockLocationFGDTO): Promise<ResolvedLocation> {
         if (query.location_type && query.location_id) {
             if (query.location_type === "WAREHOUSE") {
                 const wh = await prisma.warehouse.findFirst({
@@ -139,7 +145,7 @@ export class StockLocationService {
             return { type: "OUTLET", id: query.location_id, location_name: outlet.name };
         }
 
-        // Default ke GFG-SBY (FG); fallback ke gudang FG pertama bila GFG-SBY tidak ada/non-FG.
+        // Default ke GFG-SBY; fallback ke gudang FG pertama.
         const defaultWh =
             (await prisma.warehouse.findFirst({
                 where:  { code: DEFAULT_WAREHOUSE_CODE, type: "FINISH_GOODS", deleted_at: null },
@@ -155,15 +161,7 @@ export class StockLocationService {
         return { type: "WAREHOUSE", id: defaultWh.id, location_name: defaultWh.name };
     }
 
-    private static resolvePeriod(query: QueryStockLocationDTO): Period {
-        const now = new Date();
-        return {
-            month: query.month ?? now.getMonth() + 1,
-            year:  query.year  ?? now.getFullYear(),
-        };
-    }
-
-    private static buildProductWhere(query: QueryStockLocationDTO): Prisma.Sql {
+    private static buildProductWhere(query: QueryStockLocationFGDTO): Prisma.Sql {
         const conditions: Prisma.Sql[] = [Prisma.sql`p.deleted_at IS NULL`];
         if (query.type_id) conditions.push(Prisma.sql`p.type_id = ${query.type_id}`);
         if (query.gender)  conditions.push(Prisma.sql`p.gender = CAST(${query.gender} AS "GENDER")`);
@@ -174,7 +172,7 @@ export class StockLocationService {
         return Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`;
     }
 
-    private static buildInventoryJoin(location: ResolvedLocation, period: Period): Prisma.Sql {
+    private static buildInventoryJoin(location: ResolvedLocation, period: { month: number; year: number }): Prisma.Sql {
         if (location.type === "WAREHOUSE") {
             return Prisma.sql`
                 LEFT JOIN product_inventories inv ON p.id = inv.product_id
@@ -191,13 +189,13 @@ export class StockLocationService {
         `;
     }
 
-    private static buildOrderBy(query: QueryStockLocationDTO): Prisma.Sql {
+    private static buildOrderBy(query: QueryStockLocationFGDTO): Prisma.Sql {
         const col = SORT_COLUMN[query.sortBy ?? "name"] ?? SORT_COLUMN.name;
         const dir = (query.sortOrder ?? "asc").toUpperCase() === "ASC" ? "ASC" : "DESC";
         return Prisma.sql`ORDER BY ${Prisma.raw(col)} ${Prisma.raw(dir)}`;
     }
 
-    private static toDTO(r: StockLocationRawRow, location_name: string): ResponseStockLocationItemDTO {
+    private static toDTO(r: StockLocationFGRawRow, location_name: string): ResponseStockLocationFGItemDTO {
         return {
             product_code: r.product_code,
             product_name: r.product_name,
