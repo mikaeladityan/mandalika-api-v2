@@ -2,24 +2,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ProductSizeService } from "../../module/application/product/size/size.service.js";
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
+import { Prisma } from "../../generated/prisma/client.js";
+
+const makePrismaError = (code: string, msg: string) =>
+    new Prisma.PrismaClientKnownRequestError(msg, { code, clientVersion: "test" });
 
 describe("ProductSizeService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
-    // ─── CREATE ───────────────────────────────────────────────
     describe("create", () => {
-        it("should throw 400 if size already exists", async () => {
+        it("should throw 400 if size already exists (P2002)", async () => {
             // @ts-ignore
-            prisma.productSize.findUnique.mockResolvedValue({ id: 1, size: 40 });
+            prisma.productSize.create.mockRejectedValueOnce(
+                makePrismaError("P2002", "Unique constraint failed on size"),
+            );
 
             await expect(ProductSizeService.create({ size: 40 })).rejects.toThrow(ApiError);
         });
 
         it("should create size successfully when unique", async () => {
-            // @ts-ignore
-            prisma.productSize.findUnique.mockResolvedValue(null);
             // @ts-ignore
             prisma.productSize.create.mockResolvedValue({ id: 5, size: 44 });
 
@@ -32,7 +35,6 @@ describe("ProductSizeService", () => {
         });
     });
 
-    // ─── LIST ─────────────────────────────────────────────────
     describe("list", () => {
         it("should return all sizes with count", async () => {
             // @ts-ignore
@@ -63,31 +65,26 @@ describe("ProductSizeService", () => {
         });
     });
 
-    // ─── UPDATE ───────────────────────────────────────────────
     describe("update", () => {
-        it("should throw 404 if size not found", async () => {
+        it("should throw 404 if size not found (P2025)", async () => {
             // @ts-ignore
-            prisma.productSize.findUnique.mockResolvedValue(null);
+            prisma.productSize.update.mockRejectedValueOnce(
+                makePrismaError("P2025", "Record to update not found"),
+            );
 
             await expect(ProductSizeService.update(999, { size: 50 })).rejects.toThrow(ApiError);
         });
 
-        it("should throw 400 if new size value already in use", async () => {
+        it("should throw 400 if new size value already in use (P2002)", async () => {
             // @ts-ignore
-            prisma.productSize.findUnique
-                // @ts-ignore
-                .mockResolvedValueOnce({ id: 1, size: 40 }) // exist check
-                // @ts-ignore
-                .mockResolvedValueOnce({ id: 2, size: 42 }); // conflict check
+            prisma.productSize.update.mockRejectedValueOnce(
+                makePrismaError("P2002", "Unique constraint failed on size"),
+            );
 
             await expect(ProductSizeService.update(1, { size: 42 })).rejects.toThrow(ApiError);
         });
 
         it("should update size successfully", async () => {
-            // @ts-ignore
-            prisma.productSize.findUnique.mockResolvedValueOnce({ id: 1, size: 40 });
-            // @ts-ignore
-            prisma.productSize.findUnique.mockResolvedValueOnce(null); // no conflict
             // @ts-ignore
             prisma.productSize.update.mockResolvedValue({ id: 1, size: 41 });
 
@@ -99,33 +96,26 @@ describe("ProductSizeService", () => {
         });
     });
 
-    // ─── DESTROY ──────────────────────────────────────────────
     describe("delete", () => {
-        it("should throw 404 if size not found", async () => {
+        it("should throw 404 if size not found (P2025)", async () => {
             // @ts-ignore
-            prisma.productSize.findUnique.mockResolvedValue(null);
+            prisma.productSize.delete.mockRejectedValueOnce(
+                makePrismaError("P2025", "Record to delete not found"),
+            );
 
             await expect(ProductSizeService.delete(999)).rejects.toThrow(ApiError);
         });
 
-        it("should throw 400 if size still used by products", async () => {
+        it("should throw 409 if size still used by products (P2003)", async () => {
             // @ts-ignore
-            prisma.productSize.findUnique.mockResolvedValue({
-                id: 1,
-                size: 40,
-                _count: { products: 8 },
-            });
+            prisma.productSize.delete.mockRejectedValueOnce(
+                makePrismaError("P2003", "Foreign key constraint failed"),
+            );
 
             await expect(ProductSizeService.delete(1)).rejects.toThrow(ApiError);
         });
 
         it("should delete size permanently when not referenced by any product", async () => {
-            // @ts-ignore
-            prisma.productSize.findUnique.mockResolvedValue({
-                id: 1,
-                size: 40,
-                _count: { products: 0 },
-            });
             // @ts-ignore
             prisma.productSize.delete.mockResolvedValue({ id: 1 });
 

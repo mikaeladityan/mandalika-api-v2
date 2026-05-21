@@ -2,26 +2,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { UnitService } from "../../module/application/product/unit/unit.service.js";
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
+import { Prisma } from "../../generated/prisma/client.js";
+
+const makePrismaError = (code: string, msg: string) =>
+    new Prisma.PrismaClientKnownRequestError(msg, { code, clientVersion: "test" });
 
 describe("UnitService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
-    // ─── CREATE ───────────────────────────────────────────────
     describe("create", () => {
-        it("should throw 400 if unit name/slug already exists", async () => {
-            // findUnique by slug returns existing → duplikat
+        it("should throw 400 if unit name/slug already exists (P2002)", async () => {
             // @ts-ignore
-            prisma.unit.findUnique.mockResolvedValue({ id: 1, name: "pcs", slug: "pcs" });
+            prisma.unit.create.mockRejectedValueOnce(
+                makePrismaError("P2002", "Unique constraint failed on slug"),
+            );
 
             await expect(UnitService.create({ name: "pcs" })).rejects.toThrow(ApiError);
         });
 
         it("should create unit successfully when name is unique", async () => {
-            // slug "lusin" belum ada
-            // @ts-ignore
-            prisma.unit.findUnique.mockResolvedValue(null);
             // @ts-ignore
             prisma.unit.create.mockResolvedValue({ id: 5, name: "lusin", slug: "lusin" });
 
@@ -34,7 +35,6 @@ describe("UnitService", () => {
         });
     });
 
-    // ─── LIST ─────────────────────────────────────────────────
     describe("list", () => {
         it("should return list with pagination metadata", async () => {
             // @ts-ignore
@@ -69,33 +69,26 @@ describe("UnitService", () => {
         });
     });
 
-    // ─── UPDATE ───────────────────────────────────────────────
     describe("update", () => {
-        it("should throw 404 if unit not found", async () => {
+        it("should throw 404 if unit not found (P2025)", async () => {
             // @ts-ignore
-            prisma.unit.findUnique.mockResolvedValue(null);
+            prisma.unit.update.mockRejectedValueOnce(
+                makePrismaError("P2025", "Record to update not found"),
+            );
 
             await expect(UnitService.update(999, { name: "new-name" })).rejects.toThrow(ApiError);
         });
 
-        it("should throw 400 if new name slug conflicts with another unit", async () => {
-            // existing unit has slug "pcs"
+        it("should throw 400 if new name slug conflicts (P2002)", async () => {
             // @ts-ignore
-            prisma.unit.findUnique
-                // @ts-ignore
-                .mockResolvedValueOnce({ id: 1, name: "pcs", slug: "pcs" }) // exist check
-                // @ts-ignore
-                .mockResolvedValueOnce({ id: 2, name: "pieces", slug: "pieces" }); // conflict check
+            prisma.unit.update.mockRejectedValueOnce(
+                makePrismaError("P2002", "Unique constraint failed on slug"),
+            );
 
             await expect(UnitService.update(1, { name: "pieces" })).rejects.toThrow(ApiError);
         });
 
         it("should update unit successfully", async () => {
-            // @ts-ignore
-            prisma.unit.findUnique.mockResolvedValueOnce({ id: 1, name: "pcs", slug: "pcs" });
-            // no slug conflict
-            // @ts-ignore
-            prisma.unit.findUnique.mockResolvedValueOnce(null);
             // @ts-ignore
             prisma.unit.update.mockResolvedValue({ id: 1, name: "Pieces", slug: "pieces" });
 
@@ -107,35 +100,26 @@ describe("UnitService", () => {
         });
     });
 
-    // ─── DESTROY ──────────────────────────────────────────────
     describe("delete", () => {
-        it("should throw 404 if unit not found", async () => {
+        it("should throw 404 if unit not found (P2025)", async () => {
             // @ts-ignore
-            prisma.unit.findUnique.mockResolvedValue(null);
+            prisma.unit.delete.mockRejectedValueOnce(
+                makePrismaError("P2025", "Record to delete not found"),
+            );
 
             await expect(UnitService.delete(999)).rejects.toThrow(ApiError);
         });
 
-        it("should throw 400 if unit is still used by products", async () => {
+        it("should throw 409 if unit is still used by products (P2003)", async () => {
             // @ts-ignore
-            prisma.unit.findUnique.mockResolvedValue({
-                id: 1,
-                name: "pcs",
-                slug: "pcs",
-                _count: { products: 3 },
-            });
+            prisma.unit.delete.mockRejectedValueOnce(
+                makePrismaError("P2003", "Foreign key constraint failed"),
+            );
 
             await expect(UnitService.delete(1)).rejects.toThrow(ApiError);
         });
 
         it("should delete unit successfully when not used", async () => {
-            // @ts-ignore
-            prisma.unit.findUnique.mockResolvedValue({
-                id: 1,
-                name: "pcs",
-                slug: "pcs",
-                _count: { products: 0 },
-            });
             // @ts-ignore
             prisma.unit.delete.mockResolvedValue({ id: 1 });
 

@@ -1,3 +1,4 @@
+import { Prisma } from "../../../../generated/prisma/client.js";
 import prisma from "../../../../config/prisma.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { RequestSizeDTO, QuerySizeDTO, ResponseSizeDTO, UpdateSizeDTO } from "./size.schema.js";
@@ -5,12 +6,14 @@ import { GetPagination } from "../../../../lib/utils/pagination.js";
 
 export class ProductSizeService {
     static async create(body: RequestSizeDTO): Promise<ResponseSizeDTO> {
-        const existing = await prisma.productSize.findUnique({ where: { size: body.size } });
-        if (existing) throw new ApiError(400, `Ukuran ${body.size} sudah tersedia`);
-
-        return await prisma.productSize.create({
-            data: { size: body.size },
-        });
+        try {
+            return await prisma.productSize.create({ data: { size: body.size } });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+                throw new ApiError(400, `Ukuran ${body.size} sudah tersedia`);
+            }
+            throw e;
+        }
     }
 
     static async list(query: QuerySizeDTO): Promise<{ data: ResponseSizeDTO[]; len: number }> {
@@ -33,35 +36,35 @@ export class ProductSizeService {
     }
 
     static async update(id: number, body: UpdateSizeDTO): Promise<ResponseSizeDTO> {
-        const existing = await prisma.productSize.findUnique({ where: { id } });
-        if (!existing) throw new ApiError(404, "Ukuran tidak ditemukan");
+        const data = body.size !== undefined ? { size: body.size } : {};
 
-        if (body.size !== undefined && body.size !== existing.size) {
-            const conflict = await prisma.productSize.findUnique({ where: { size: body.size } });
-            if (conflict) throw new ApiError(400, `Ukuran ${body.size} sudah digunakan`);
+        try {
+            return await prisma.productSize.update({ where: { id }, data });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError) {
+                if (e.code === "P2025") throw new ApiError(404, "Ukuran tidak ditemukan");
+                if (e.code === "P2002") {
+                    throw new ApiError(400, `Ukuran ${body.size} sudah digunakan`);
+                }
+            }
+            throw e;
         }
-
-        return await prisma.productSize.update({
-            where: { id },
-            data: { size: body.size ?? existing.size },
-        });
     }
 
     static async delete(id: number): Promise<void> {
-        const existing = await prisma.productSize.findUnique({
-            where: { id },
-            include: { _count: { select: { products: true } } },
-        });
-
-        if (!existing) throw new ApiError(404, "Ukuran tidak ditemukan");
-
-        if (existing._count.products > 0) {
-            throw new ApiError(
-                400,
-                "Ukuran tidak dapat dihapus karena masih digunakan oleh produk",
-            );
+        try {
+            await prisma.productSize.delete({ where: { id } });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError) {
+                if (e.code === "P2025") throw new ApiError(404, "Ukuran tidak ditemukan");
+                if (e.code === "P2003") {
+                    throw new ApiError(
+                        409,
+                        "Ukuran tidak dapat dihapus karena masih digunakan oleh produk",
+                    );
+                }
+            }
+            throw e;
         }
-
-        await prisma.productSize.delete({ where: { id } });
     }
 }
