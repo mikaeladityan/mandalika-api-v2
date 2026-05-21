@@ -1,16 +1,19 @@
-// import.service.ts
 import { randomUUID } from "crypto";
 import prisma from "../../../../config/prisma.js";
+import { redisClient } from "../../../../config/redis.js";
 import { GENDER } from "../../../../generated/prisma/client.js";
+import { ApiError } from "../../../../lib/errors/api.error.js";
 import { normalizeSlug } from "../../../../lib/index.js";
+import { ImportCacheService } from "../../../../lib/utils/import.cache.js";
 import {
+    PRODUCT_IMPORT_HEADERS,
     ProductImportPreviewDTO,
     ProductImportRowSchema,
     ResponseProductImportDTO,
 } from "./import.schema.js";
-import { ImportCacheService } from "../../../../lib/utils/import.cache.js";
 
 const CACHE_PREFIX = "product:import:";
+const LOCK_TTL_SECONDS = 60;
 
 type ImportCachePayload = {
     status: "preview" | "executing";
@@ -21,70 +24,64 @@ type ImportCachePayload = {
     rows: ProductImportPreviewDTO[];
 };
 
-export class ProductImportService {
-    private static mapGender(value: string = ""): GENDER {
-        const normalizedValue = value.toLowerCase();
-        if (["woman", "women"].includes(normalizedValue)) return GENDER.WOMEN;
-        if (["man", "men"].includes(normalizedValue)) return GENDER.MEN;
-        return GENDER.UNISEX;
+function mapGender(value: string = ""): GENDER {
+    const v = value.toLowerCase().trim();
+    if (v === "woman" || v === "women") return GENDER.WOMEN;
+    if (v === "man" || v === "men") return GENDER.MEN;
+    return GENDER.UNISEX;
+}
+
+function errorRow(raw: Record<string, unknown>, errors: string[]): ProductImportPreviewDTO {
+    return {
+        code: String(raw[PRODUCT_IMPORT_HEADERS.code] ?? ""),
+        name: String(raw[PRODUCT_IMPORT_HEADERS.name] ?? ""),
+        gender: GENDER.UNISEX,
+        size: 0,
+        type: null,
+        unit: null,
+        distribution_percentage: 0,
+        safety_percentage: 0,
+        errors,
+    };
+}
+
+function parseRow(raw: Record<string, unknown>): ProductImportPreviewDTO {
+    const parsed = ProductImportRowSchema.safeParse(raw);
+    if (!parsed.success) {
+        return errorRow(
+            raw,
+            parsed.error.issues.map((e) => e.message),
+        );
     }
+    const d = parsed.data;
+    return {
+        code: d[PRODUCT_IMPORT_HEADERS.code].trim(),
+        name: d[PRODUCT_IMPORT_HEADERS.name].trim(),
+        gender: mapGender(d[PRODUCT_IMPORT_HEADERS.gender]),
+        size: d[PRODUCT_IMPORT_HEADERS.size],
+        type: normalizeSlug(d[PRODUCT_IMPORT_HEADERS.type]),
+        unit: normalizeSlug(d[PRODUCT_IMPORT_HEADERS.unit]),
+        distribution_percentage: d[PRODUCT_IMPORT_HEADERS.distribution],
+        safety_percentage: d[PRODUCT_IMPORT_HEADERS.safety],
+        errors: [],
+    };
+}
 
-    static async preview(rows: Record<string, any>[]): Promise<ResponseProductImportDTO> {
-        const parsedResults = rows.map((row) => ProductImportRowSchema.safeParse(row));
-        const parsedRows: ProductImportPreviewDTO[] = rows.map((row, index) => {
-            const parsed = parsedResults[index];
-            if (!parsed) {
-                return {
-                    code: String(row["PRODUCT CODE"] || ""),
-                    name: String(row["PRODUCT NAME"] || ""),
-                    gender: GENDER.UNISEX,
-                    size: 0,
-                    type: null,
-                    unit: null,
-                    distribution_percentage: 0,
-                    safety_percentage: 0,
-                    errors: ["Internal parsing error"],
-                };
-            }
+async function acquireLock(importId: string): Promise<boolean> {
+    const key = `${CACHE_PREFIX}lock:${importId}`;
+    const result = await redisClient.set(key, "1", "EX", LOCK_TTL_SECONDS, "NX");
+    return result === "OK";
+}
 
-            if (!parsed.success) {
-                return {
-                    code: String(row["PRODUCT CODE"] || ""),
-                    name: String(row["PRODUCT NAME"] || ""),
-                    gender: GENDER.UNISEX,
-                    size: 0,
-                    type: null,
-                    unit: null,
-                    distribution_percentage: 0,
-                    safety_percentage: 0,
-                    errors: parsed.error.issues.map((e) => e.message),
-                };
-            }
+async function releaseLock(importId: string): Promise<void> {
+    await redisClient.del(`${CACHE_PREFIX}lock:${importId}`);
+}
 
-            const {
-                "PRODUCT CODE": code,
-                "PRODUCT NAME": name,
-                GENDER: gender,
-                SIZE,
-                TYPE,
-                UOM,
-                EDAR,
-                SAFETY,
-            } = parsed.data;
-
-            return {
-                code: code.trim(),
-                name: name.trim(),
-                gender: this.mapGender(gender),
-                size: SIZE,
-                type: normalizeSlug(TYPE),
-                unit: normalizeSlug(UOM),
-                distribution_percentage: EDAR,
-                safety_percentage: SAFETY,
-                errors: [],
-            };
-        });
-
+export class ProductImportService {
+    static async preview(
+        rows: Array<Record<string, unknown>>,
+    ): Promise<ResponseProductImportDTO> {
+        const parsedRows = rows.map(parseRow);
         const total = parsedRows.length;
         const invalid = parsedRows.filter((r) => r.errors.length > 0).length;
         const valid = total - invalid;
@@ -104,53 +101,82 @@ export class ProductImportService {
         return { import_id, total, valid, invalid };
     }
 
-    static async execute(import_id: string) {
+    static async execute(import_id: string): Promise<{ import_id: string; total: number }> {
         const cache = (await ImportCacheService.get(
             CACHE_PREFIX,
             import_id,
         )) as ImportCachePayload | null;
 
-        if (!cache || cache.status !== "preview") {
-            throw new Error("Import session expired, not found, or already executed");
+        if (!cache) {
+            throw new ApiError(400, "Import session tidak ditemukan atau sudah kadaluarsa");
+        }
+        if (cache.status !== "preview") {
+            throw new ApiError(409, "Import sudah pernah dijalankan");
         }
 
         const validRows = cache.rows.filter((r) => r.errors.length === 0);
         if (!validRows.length) {
-            throw new Error("No valid rows to import");
+            throw new ApiError(400, "Tidak ada baris valid untuk diimport");
         }
 
-        // Lock session to prevent double-execution
-        await ImportCacheService.save(CACHE_PREFIX, import_id, { ...cache, status: "executing" });
+        if (!(await acquireLock(import_id))) {
+            throw new ApiError(409, "Import sedang diproses, coba lagi sebentar");
+        }
 
         try {
+            await ImportCacheService.save(CACHE_PREFIX, import_id, {
+                ...cache,
+                status: "executing",
+            });
             await this.bulkInsert(validRows);
             await ImportCacheService.remove(CACHE_PREFIX, import_id);
-
             return { import_id, total: validRows.length };
         } catch (err) {
-            // Rollback status on failure
+            // Rollback cache status sehingga user bisa retry execute
             await ImportCacheService.save(CACHE_PREFIX, import_id, cache);
             throw err;
+        } finally {
+            await releaseLock(import_id);
         }
+    }
+
+    static async getPreview(import_id: string) {
+        const cache = (await ImportCacheService.get(
+            CACHE_PREFIX,
+            import_id,
+        )) as ImportCachePayload | null;
+
+        if (!cache) {
+            throw new ApiError(404, "Preview import tidak ditemukan atau sudah kadaluarsa");
+        }
+        if (cache.status !== "preview") {
+            throw new ApiError(409, "Import sudah dieksekusi");
+        }
+
+        return {
+            import_id,
+            total: cache.total,
+            valid: cache.valid,
+            invalid: cache.invalid,
+            rows: cache.rows,
+            createdAt: cache.createdAt,
+        };
     }
 
     private static async bulkInsert(data: ProductImportPreviewDTO[]) {
         if (!data.length) return;
 
-        // Dedup data by code to avoid "affect row a second time" error
         const dedupped = new Map<string, ProductImportPreviewDTO>();
         for (const d of data) {
             if (d.code?.trim()) dedupped.set(d.code.trim(), d);
         }
         const finalData = Array.from(dedupped.values());
 
-        // Extract unique master data for dependency tables
         const types = [...new Set(finalData.map((d) => d.type).filter(Boolean))] as string[];
         const units = [...new Set(finalData.map((d) => d.unit).filter(Boolean))] as string[];
-        const sizes = [...new Set(finalData.map((d) => d.size).filter((s) => s > 0))] as number[];
+        const sizes = [...new Set(finalData.map((d) => d.size).filter((s) => s > 0))];
 
         await prisma.$transaction(async (tx) => {
-            // Upsert dependency tables
             if (types.length) {
                 await tx.$executeRaw`
                     INSERT INTO product_types (name, slug)
@@ -178,7 +204,6 @@ export class ProductImportService {
                 `;
             }
 
-            // Map data to arrays for parallel unnesting
             const cols = {
                 codes: finalData.map((d) => d.code),
                 names: finalData.map((d) => d.name),
@@ -190,11 +215,10 @@ export class ProductImportService {
                 safetyPercs: finalData.map((d) => d.safety_percentage || 0),
             };
 
-            // Main product upsert using multi-array unnest for maximum performance and alignment safety
             await tx.$executeRaw`
                 INSERT INTO products (
-                    code, name, gender, size_id, type_id, unit_id, 
-                    distribution_percentage, safety_percentage, 
+                    code, name, gender, size_id, type_id, unit_id,
+                    distribution_percentage, safety_percentage,
                     status, updated_at
                 )
                 SELECT
@@ -232,24 +256,5 @@ export class ProductImportService {
                     updated_at = NOW();
             `;
         });
-    }
-
-    static async getPreview(import_id: string) {
-        const cache = (await ImportCacheService.get(
-            CACHE_PREFIX,
-            import_id,
-        )) as ImportCachePayload | null;
-
-        if (!cache) throw new Error("Import preview not found or expired");
-        if (cache.status !== "preview") throw new Error("Import already executed");
-
-        return {
-            import_id,
-            total: cache.total,
-            valid: cache.valid,
-            invalid: cache.invalid,
-            rows: cache.rows,
-            createdAt: cache.createdAt,
-        };
     }
 }

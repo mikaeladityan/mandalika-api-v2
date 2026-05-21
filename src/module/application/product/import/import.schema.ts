@@ -57,3 +57,9 @@ export type ResponseProductImportDTO = {
     valid: number;
     invalid: number;
 };
+
+export const ExecuteImportSchema = z.object({
+    import_id: z.string().uuid("Import ID tidak valid"),
+});
+
+export type ExecuteImportDTO = z.infer<typeof ExecuteImportSchema>;
