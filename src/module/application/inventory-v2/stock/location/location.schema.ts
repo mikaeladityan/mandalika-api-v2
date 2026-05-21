@@ -1,15 +1,15 @@
 import { z } from "zod";
 
 export const QueryLocationSchema = z.object({
-    page: z.string().optional().transform(Number),
-    take: z.string().optional().transform(Number),
+    page: z.coerce.number().int().positive().default(1).optional(),
+    take: z.coerce.number().int().positive().max(500).default(25).optional(),
     search: z.string().optional(),
     sortBy: z
         .enum(["name", "code", "type", "size", "gender", "updated_at", "total_stock"])
         .optional()
         .default("total_stock"),
     sortOrder: z.enum(["asc", "desc"]).optional().default("desc"),
-    type_id: z.string().optional().transform(Number),
+    type_id: z.coerce.number().int().positive().optional(),
     gender: z.string().optional(),
 });
 

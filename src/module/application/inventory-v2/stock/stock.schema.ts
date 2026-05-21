@@ -39,7 +39,7 @@ export const QueryStockSchema = z.object({
     warehouse_id: z.coerce.number().int().positive().optional(),
     gender: z.enum(GENDER).optional(),
     page: z.coerce.number().int().positive().default(1).optional(),
-    take: z.coerce.number().int().positive().max(100).default(25).optional(),
+    take: z.coerce.number().int().positive().max(500).default(25).optional(),
 
     search: z.string().optional(),
     month: z.coerce
