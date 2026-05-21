@@ -67,12 +67,12 @@ export const ResponseProductSchema = RequestProductSchema.extend({
 });
 
 export const QueryProductSchema = z.object({
-    type_id: z.number().positive().optional(),
-    size_id: z.number().positive().optional(),
+    type_id: z.coerce.number().int().positive().optional(),
+    size_id: z.coerce.number().int().positive().optional(),
     gender: z.enum(GENDER).optional(),
 
-    page: z.number().int().positive().default(1).optional(),
-    take: z.number().int().positive().max(100).default(25).optional(),
+    page: z.coerce.number().int().positive().default(1).optional(),
+    take: z.coerce.number().int().positive().max(100).default(25).optional(),
 
     search: z.string().optional(),
     status: z.enum(STATUS).optional(),
@@ -95,6 +95,23 @@ export const QueryProductSchema = z.object({
     visibleColumns: z.string().optional(),
 });
 
+export const UpdateProductSchema = RequestProductSchema.partial().refine(
+    (v) => Object.keys(v).length > 0,
+    { message: "Minimal satu field harus diisi" },
+);
+
+export const BulkStatusProductSchema = z.object({
+    ids: z.array(z.number().int().positive()).min(1, "Pilih minimal satu produk"),
+    status: z.enum(STATUS),
+});
+
+export const StatusQuerySchema = z.object({
+    status: z.enum(STATUS),
+});
+
 export type RequestProductDTO = z.infer<typeof RequestProductSchema>;
 export type ResponseProductDTO = z.infer<typeof ResponseProductSchema>;
 export type QueryProductDTO = z.infer<typeof QueryProductSchema>;
+export type UpdateProductDTO = z.infer<typeof UpdateProductSchema>;
+export type BulkStatusProductDTO = z.infer<typeof BulkStatusProductSchema>;
+export type StatusQueryDTO = z.infer<typeof StatusQuerySchema>;
