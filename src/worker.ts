@@ -11,12 +11,37 @@ console.log("Worker environment loaded:", {
     REDIS_HOST: env.REDIS_HOST,
 });
 
+// ioredis statuses: "wait" (lazyConnect, belum connect), "connecting", "connect",
+// "ready", "reconnecting", "end". connect() hanya boleh dipanggil saat "wait" / "end".
+async function ensureRedisConnected() {
+    const status = redisClient.status;
+    if (status === "ready" || status === "connect" || status === "connecting") return;
+    await redisClient.connect();
+}
+
+type WorkerHandle = { close: () => Promise<void> };
+let fgImportWorker: WorkerHandle | null = null;
+let rmImportWorker: WorkerHandle | null = null;
+let productImportWorker: WorkerHandle | null = null;
+
 const initialize = async () => {
     try {
         await initializeDatabase();
-        await redisClient.connect();
+        await ensureRedisConnected();
         const pong = await redisClient.ping();
         logger.info(`Worker Redis ping: ${pong}`);
+
+        // Workers baru di-spawn SETELAH redis siap, supaya job yang langsung
+        // tertangkap tidak memicu lazy-connect race condition.
+        fgImportWorker = createFGImportWorker();
+        logger.info("FG import worker listening");
+
+        rmImportWorker = createRMImportWorker();
+        logger.info("RM import worker listening");
+
+        productImportWorker = createProductImportWorker();
+        logger.info("Product import worker listening");
+
         logger.info("Worker initialized");
     } catch (error) {
         logger.error("Worker initialization failed", {
@@ -26,23 +51,14 @@ const initialize = async () => {
     }
 };
 
-const fgImportWorker = createFGImportWorker();
-logger.info("FG import worker listening");
-
-const rmImportWorker = createRMImportWorker();
-logger.info("RM import worker listening");
-
-const productImportWorker = createProductImportWorker();
-logger.info("Product import worker listening");
-
 initialize();
 
 const shutdown = async () => {
     logger.info("Shutting down worker...");
     try {
-        await fgImportWorker.close();
-        await rmImportWorker.close();
-        await productImportWorker.close();
+        await fgImportWorker?.close();
+        await rmImportWorker?.close();
+        await productImportWorker?.close();
         await closeRedisConnection();
         await closeDatabase();
     } catch (error) {

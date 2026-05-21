@@ -4,8 +4,10 @@
     "private": true,
     "scripts": {
         "dev": "tsx watch src/server.ts",
+        "worker:dev": "tsx watch src/worker.ts",
         "build": "tsc",
         "start": "node dist/src/server.js",
+        "worker": "node dist/src/worker.js",
         "test": "vitest run"
     },
     "dependencies": {

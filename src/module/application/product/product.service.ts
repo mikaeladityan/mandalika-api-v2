@@ -257,25 +257,26 @@ export class ProductService {
         const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : [];
         const hasVisibility = visibleCols.length > 0;
 
-        // Round-trip columns (header = PRODUCT_IMPORT_HEADERS, hapus dulu sebelum re-import).
-        // Display-only columns (No / Lead Time / Nilai Z / Status) tidak ada di import schema.
+        // Round-trip columns (header = PRODUCT_IMPORT_HEADERS) WAJIB selalu di-export
+        // supaya hasil CSV bisa langsung di-import ulang tanpa header missing.
+        // Display-only columns (Lead Time / Nilai Z / Status) tunduk pada visibleColumns.
         const allColumns = [
-            { header: "No", key: "no", width: 5, id: "no" },
-            { header: PRODUCT_IMPORT_HEADERS.code, key: "code", width: 15, id: "code" },
-            { header: PRODUCT_IMPORT_HEADERS.name, key: "name", width: 40, id: "name" },
-            { header: PRODUCT_IMPORT_HEADERS.type, key: "type", width: 20, id: "type" },
-            { header: PRODUCT_IMPORT_HEADERS.size, key: "size", width: 10, id: "size" },
-            { header: PRODUCT_IMPORT_HEADERS.unit, key: "unit", width: 10, id: "unit" },
-            { header: PRODUCT_IMPORT_HEADERS.gender, key: "gender", width: 15, id: "gender" },
-            { header: "Lead Time", key: "lead_time", width: 12, id: "lead_time" },
-            { header: "Nilai Z", key: "z_value", width: 10, id: "z_value" },
-            { header: PRODUCT_IMPORT_HEADERS.distribution, key: "distribution", width: 15, id: "distribution_percentage" },
-            { header: PRODUCT_IMPORT_HEADERS.safety, key: "safety", width: 15, id: "safety_percentage" },
-            { header: "Status", key: "status", width: 15, id: "status" },
+            { header: "No", key: "no", width: 5, id: "no", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.code, key: "code", width: 15, id: "code", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.name, key: "name", width: 40, id: "name", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.type, key: "type", width: 20, id: "type", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.size, key: "size", width: 10, id: "size", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.unit, key: "unit", width: 10, id: "unit", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.gender, key: "gender", width: 15, id: "gender", required: true },
+            { header: "Lead Time", key: "lead_time", width: 12, id: "lead_time", required: false },
+            { header: "Nilai Z", key: "z_value", width: 10, id: "z_value", required: false },
+            { header: PRODUCT_IMPORT_HEADERS.distribution, key: "distribution", width: 15, id: "distribution_percentage", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.safety, key: "safety", width: 15, id: "safety_percentage", required: true },
+            { header: "Status", key: "status", width: 15, id: "status", required: false },
         ];
 
         const filteredColumns = hasVisibility
-            ? allColumns.filter((col) => col.id === "no" || visibleCols.includes(col.id))
+            ? allColumns.filter((col) => col.required || visibleCols.includes(col.id))
             : allColumns;
 
         sheet.columns = filteredColumns.map(({ header, key, width }) => ({ header, key, width }));
