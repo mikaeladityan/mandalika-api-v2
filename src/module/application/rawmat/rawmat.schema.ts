@@ -87,7 +87,7 @@ export const ResponseRawMaterialSchema = RequestRawMaterialSchema.omit({
 
 export const QueryRawMaterialSchema = z.object({
     page: z.number().int().positive().default(1).optional(),
-    take: z.number().int().positive().max(100).default(25).optional(),
+    take: z.number().int().positive().max(500).default(25).optional(),
     status: z.enum(["actived", "deleted"]).default("actived"),
     type: z.enum(MaterialType).optional(),
     search: z.string().optional(),

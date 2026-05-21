@@ -30,7 +30,7 @@ export const RequestUpdateReturnSchema = z.object({
 
 export const QueryReturnSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),
-    take: z.coerce.number().int().positive().max(100).default(10).optional(),
+    take: z.coerce.number().int().positive().max(500).default(10).optional(),
     search: z.string().optional(),
     status: z.nativeEnum(ReturnStatus).optional(),
     from_warehouse_id: z.coerce.number().optional(),

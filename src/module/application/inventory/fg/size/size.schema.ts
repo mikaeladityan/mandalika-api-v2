@@ -10,7 +10,7 @@ export const RequestFGSizeSchema = z.object({
 export const QueryFGSizeSchema = z.object({
     search: z.coerce.number().int().positive().optional(),
     page: z.coerce.number().int().positive().default(1),
-    take: z.coerce.number().int().positive().max(100).default(25),
+    take: z.coerce.number().int().positive().max(500).default(25),
 });
 
 export const ResponseFGSizeSchema = z.object({

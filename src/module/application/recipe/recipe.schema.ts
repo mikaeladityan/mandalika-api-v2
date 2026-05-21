@@ -47,7 +47,7 @@ export const QueryRecipeSchema = z.object({
     search: z.string().optional(), // Added search parameter
 
     page: z.number().int().positive().default(1).optional(),
-    take: z.number().int().positive().max(100).default(25).optional(),
+    take: z.number().int().positive().max(500).default(25).optional(),
 
     sortBy: z.enum(["product", "quantity", "current_stock", "total_material", "totalMaterial"]).default("product"),
     sortOrder: z.enum(["asc", "desc"]).default("desc"),

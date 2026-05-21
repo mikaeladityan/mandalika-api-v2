@@ -33,7 +33,7 @@ export type UpdateReceiptDTO = z.infer<typeof UpdateReceiptSchema>;
 
 export const QueryReceiptSchema = z.object({
     page: z.coerce.number().min(1).default(1),
-    take: z.coerce.number().min(1).max(200).default(50),
+    take: z.coerce.number().min(1).max(500).default(50),
     search: z.string().optional(),
     po_id: z.coerce.number().int().positive().optional(),
     warehouse_id: z.coerce.number().int().positive().optional(),
@@ -48,7 +48,7 @@ export type QueryReceiptDTO = z.infer<typeof QueryReceiptSchema>;
 
 export const QueryOpenPOForReceiptSchema = z.object({
     page: z.coerce.number().min(1).default(1),
-    take: z.coerce.number().min(1).max(200).default(50),
+    take: z.coerce.number().min(1).max(500).default(50),
     search: z.string().optional(),
     supplier_id: z.coerce.number().int().positive().optional(),
     warehouse_id: z.coerce.number().int().positive().optional(),

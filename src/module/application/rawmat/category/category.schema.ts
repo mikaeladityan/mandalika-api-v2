@@ -17,7 +17,7 @@ export const ChangeStatusRawMatCategorySchema = z.object({
 
 export const QueryRawMatCategorySchema = z.object({
     page: z.number().int().positive().default(1).optional(),
-    take: z.number().int().positive().max(100).default(25).optional(),
+    take: z.number().int().positive().max(500).default(25).optional(),
 
     search: z.string().optional(),
 

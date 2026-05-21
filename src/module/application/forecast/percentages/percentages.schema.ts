@@ -21,7 +21,7 @@ export const ResponseForecastPercentageSchema = RequestForecastPercentageSchema.
 export const QueryForecastPercentageSchema = z.object({
     year: z.coerce.number().int().min(2000).optional(),
     page: z.coerce.number().int().positive().default(1).optional(),
-    take: z.coerce.number().int().positive().max(100).default(25).optional(),
+    take: z.coerce.number().int().positive().max(500).default(25).optional(),
 });
 
 export type RequestForecastPercentageDTO = z.infer<typeof RequestForecastPercentageSchema>;

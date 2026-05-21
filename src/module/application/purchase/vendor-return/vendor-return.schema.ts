@@ -35,7 +35,7 @@ export type UpdateVendorReturnDTO = z.infer<typeof UpdateVendorReturnSchema>;
 
 export const QueryVendorReturnSchema = z.object({
     page: z.coerce.number().min(1).default(1),
-    take: z.coerce.number().min(1).max(200).default(50),
+    take: z.coerce.number().min(1).max(500).default(50),
     search: z.string().optional(),
     receipt_id: z.coerce.number().int().positive().optional(),
     warehouse_id: z.coerce.number().int().positive().optional(),

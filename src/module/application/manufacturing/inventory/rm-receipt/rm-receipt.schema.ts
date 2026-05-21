@@ -3,7 +3,7 @@ import { TransferStatus } from "../../../../../generated/prisma/client.js";
 
 export const QueryRmReceiptSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),
-    take: z.coerce.number().int().positive().max(100).default(10).optional(),
+    take: z.coerce.number().int().positive().max(500).default(10).optional(),
     search: z.string().optional(),
     status: z.nativeEnum(TransferStatus).optional(),
     fromDate: z.string().optional(),

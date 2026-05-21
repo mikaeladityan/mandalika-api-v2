@@ -11,7 +11,7 @@ export const RequestFGTypeSchema = z.object({
 export const QueryFGTypeSchema = z.object({
     search: z.string().trim().min(1).optional(),
     page: z.coerce.number().int().positive().default(1),
-    take: z.coerce.number().int().positive().max(100).default(25),
+    take: z.coerce.number().int().positive().max(500).default(25),
 });
 
 export const ResponseFGTypeSchema = z.object({

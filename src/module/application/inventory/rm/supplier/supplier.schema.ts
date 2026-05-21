@@ -15,7 +15,7 @@ export const RequestSupplierSchema = z.object({
 
 export const QuerySupplierSchema = z.object({
     page: z.coerce.number().int().positive().default(1),
-    take: z.coerce.number().int().positive().max(100).default(25),
+    take: z.coerce.number().int().positive().max(500).default(25),
     search: z.string().optional(),
     sortBy: z.enum(["country", "name", "updated_at", "created_at"]).default("updated_at"),
     sortOrder: z.enum(["asc", "desc"]).default("desc"),

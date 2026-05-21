@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const QueryStockDiscrepancySchema = z.object({
     page:   z.coerce.number().int().positive().default(1).optional(),
-    take:   z.coerce.number().int().positive().max(100).default(25).optional(),
+    take:   z.coerce.number().int().positive().max(500).default(25).optional(),
     /** Cari berdasarkan transfer_number, product.name, atau product.code */
     search: z.string().trim().min(1).optional(),
 });
