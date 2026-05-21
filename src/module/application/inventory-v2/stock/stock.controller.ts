@@ -1,34 +1,25 @@
 import { Context } from "hono";
-import { QueryStockDTO } from "./stock.schema.js";
+import {
+    QueryStockDTO,
+    QueryStockSchema,
+    RequestUpsertStockDTO,
+} from "./stock.schema.js";
 import { StockService } from "./stock.service.js";
 import { ApiResponse } from "../../../../lib/api.response.js";
+import { ApiError } from "../../../../lib/errors/api.error.js";
+
+function parseListQuery(c: Context): QueryStockDTO {
+    const parsed = QueryStockSchema.safeParse(c.req.query());
+    if (!parsed.success) {
+        const message = parsed.error.issues[0]?.message ?? "Parameter query tidak valid";
+        throw new ApiError(400, message);
+    }
+    return parsed.data;
+}
 
 export class StockController {
     static async listProductStock(c: Context) {
-        const {
-            page,
-            take,
-            gender,
-            search,
-            sortBy,
-            sortOrder,
-            type_id,
-            warehouse_id,
-            month,
-            year,
-        } = c.req.query();
-        const params: QueryStockDTO = {
-            page: page ? Number(page) : undefined,
-            search,
-            sortBy: sortBy as QueryStockDTO["sortBy"],
-            sortOrder: sortOrder as QueryStockDTO["sortOrder"],
-            take: take ? Number(take) : undefined,
-            type_id: type_id ? Number(type_id) : undefined,
-            gender: gender as QueryStockDTO["gender"],
-            warehouse_id: warehouse_id ? Number(warehouse_id) : undefined,
-            month: month ? Number(month) : undefined,
-            year: year ? Number(year) : undefined,
-        };
+        const params = parseListQuery(c);
 
         const {
             data,
@@ -55,32 +46,27 @@ export class StockController {
     }
 
     static async upsertStock(c: Context) {
-        const body = await c.req.json();
+        const body = c.get("body") as RequestUpsertStockDTO;
         const result = await StockService.upsertStock(body);
-        return ApiResponse.sendSuccess(c, result, 201);
+        return ApiResponse.sendSuccess(c, result, 200);
     }
 
     static async exportStock(c: Context) {
-        const { gender, search, type_id, warehouse_id, month, year } = c.req.query();
+        const params = parseListQuery(c);
 
-        const params: QueryStockDTO = {
-            search,
-            gender: gender as QueryStockDTO["gender"],
-            type_id: type_id ? Number(type_id) : undefined,
-            warehouse_id: warehouse_id ? Number(warehouse_id) : undefined,
-            month: month ? Number(month) : undefined,
-            year: year ? Number(year) : undefined,
-        };
-
-        const warehouseName = warehouse_id
-            ? (await StockService.listWarehouses()).find((w) => w.id === Number(warehouse_id))?.name ?? "Gudang"
+        const warehouseName = params.warehouse_id
+            ? (await StockService.listWarehouses()).find((w) => w.id === params.warehouse_id)
+                  ?.name ?? "Gudang"
             : "Semua-Gudang";
 
         const buffer = await StockService.exportStock(params);
-        const filename = `Stok_${warehouseName.replace(/\s+/g, "_")}_${month ?? ""}_${year ?? ""}.csv`;
+        const filename = `Stok_${warehouseName.replace(/\s+/g, "_")}_${params.month ?? ""}_${params.year ?? ""}.csv`;
 
-        c.header("Content-Type", "text/csv");
-        c.header("Content-Disposition", `attachment; filename="${filename}"`);
-        return c.body(buffer as any);
+        return new Response(buffer, {
+            headers: {
+                "Content-Type": "text/csv; charset=utf-8",
+                "Content-Disposition": `attachment; filename="${filename}"`,
+            },
+        });
     }
 }

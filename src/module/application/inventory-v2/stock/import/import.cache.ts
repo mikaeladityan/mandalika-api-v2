@@ -7,13 +7,13 @@ export class StockImportCacheService {
         return `${PREFIX}${importId}`;
     }
 
-    static async save(importId: string, payload: any, ttl = 300) {
+    static async save<T>(importId: string, payload: T, ttl = 300) {
         await redisClient.set(this.key(importId), JSON.stringify(payload), "EX", ttl);
     }
 
-    static async get(importId: string) {
+    static async get<T = unknown>(importId: string): Promise<T | null> {
         const raw = await redisClient.get(this.key(importId));
-        return raw ? JSON.parse(raw) : null;
+        return raw ? (JSON.parse(raw) as T) : null;
     }
 
     static async exists(importId: string) {

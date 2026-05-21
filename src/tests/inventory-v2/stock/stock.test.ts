@@ -41,6 +41,8 @@ describe("StockService", () => {
                 take: 10,
                 month: 1,
                 year: 2024,
+                sortBy: "created_at",
+                sortOrder: "desc",
             });
 
             expect(result.data).toHaveLength(1);
@@ -100,7 +102,7 @@ describe("StockImportService", () => {
             StockImportCacheService.get.mockResolvedValue(null);
 
             await expect(StockImportService.execute("invalid", 1, 1, 2024)).rejects.toThrow(
-                "Import session expired or not found",
+                "Import session tidak ditemukan",
             );
         });
     });

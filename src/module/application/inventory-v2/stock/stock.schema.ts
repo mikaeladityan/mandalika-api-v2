@@ -35,11 +35,11 @@ export const ResponseStockSchema = z.object({
 });
 
 export const QueryStockSchema = z.object({
-    type_id: z.number().positive().optional(),
-    warehouse_id: z.number().positive().optional(),
+    type_id: z.coerce.number().int().positive().optional(),
+    warehouse_id: z.coerce.number().int().positive().optional(),
     gender: z.enum(GENDER).optional(),
-    page: z.number().int().positive().default(1).optional(),
-    take: z.number().int().positive().max(100).default(25).optional(),
+    page: z.coerce.number().int().positive().default(1).optional(),
+    take: z.coerce.number().int().positive().max(100).default(25).optional(),
 
     search: z.string().optional(),
     month: z.coerce
@@ -59,4 +59,4 @@ export const QueryStockSchema = z.object({
 export type RequestStockDTO = z.infer<typeof RequestStockSchema>;
 export type RequestUpsertStockDTO = z.infer<typeof RequestUpsertStockSchema>;
 export type ResponseStockDTO = z.output<typeof ResponseStockSchema>;
-export type QueryStockDTO = z.input<typeof QueryStockSchema>;
+export type QueryStockDTO = z.infer<typeof QueryStockSchema>;

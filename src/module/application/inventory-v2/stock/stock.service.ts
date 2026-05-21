@@ -1,8 +1,41 @@
 import prisma from "../../../../config/prisma.js";
-import { Prisma, STATUS } from "../../../../generated/prisma/client.js";
+import { GENDER, Prisma, STATUS, WarehouseType } from "../../../../generated/prisma/client.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { QueryStockDTO, ResponseStockDTO, RequestUpsertStockDTO } from "./stock.schema.js";
 import ExcelJS from "exceljs";
+
+const SORT_COLUMN_MAP: { [key: string]: Prisma.Sql | undefined } = {
+    created_at: Prisma.sql`p.created_at`,
+    updated_at: Prisma.sql`p.updated_at`,
+    name: Prisma.sql`p.name`,
+    code: Prisma.sql`p.code`,
+    size: Prisma.sql`ps.size`,
+    type: Prisma.sql`pt.name`,
+    amount: Prisma.sql`amount`,
+};
+
+type StockListRow = {
+    id: number;
+    code: string;
+    name: string;
+    type: string;
+    size: number | string | Prisma.Decimal;
+    gender: GENDER;
+    uom: string;
+    amount: number | string | Prisma.Decimal;
+    stocks: Record<string, number | string | Prisma.Decimal>;
+};
+
+type StockExportRow = {
+    code: string;
+    name: string;
+    type: string;
+    size: number | string | Prisma.Decimal;
+    gender: GENDER;
+    uom: string;
+    amount: number | string | Prisma.Decimal;
+    warehouse_name: string | null;
+};
 
 export class StockService {
     private static async getLatestPeriod() {
@@ -18,6 +51,29 @@ export class StockService {
         return latestProduct;
     }
 
+    private static buildOrderBy(sortBy: string, sortOrder: string): Prisma.Sql {
+        const direction = sortOrder.toLowerCase() === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+        const column = SORT_COLUMN_MAP[sortBy] ?? Prisma.sql`p.created_at`;
+        return Prisma.sql`ORDER BY ${column} ${direction}`;
+    }
+
+    private static buildConditions(query: QueryStockDTO): Prisma.Sql[] {
+        const { gender, search, type_id } = query;
+        const conditions: Prisma.Sql[] = [];
+
+        if (type_id) conditions.push(Prisma.sql`p.type_id = ${type_id}`);
+        if (gender !== undefined) {
+            conditions.push(Prisma.sql`p.gender = CAST(${gender} AS "GENDER")`);
+        }
+        if (search) {
+            const pattern = `%${search}%`;
+            conditions.push(
+                Prisma.sql`(p.name ILIKE ${pattern} OR p.code ILIKE ${pattern})`,
+            );
+        }
+        return conditions;
+    }
+
     static async listProductStock(query: QueryStockDTO): Promise<{
         data: Array<ResponseStockDTO>;
         len: number;
@@ -27,12 +83,8 @@ export class StockService {
         let {
             page = 1,
             take = 50,
-            gender,
-            search,
             sortBy = "created_at",
             sortOrder = "desc",
-            type_id,
-            warehouse_id,
             month,
             year,
         } = query;
@@ -42,88 +94,60 @@ export class StockService {
             month = month ?? latest.month;
             year = year ?? latest.year;
         }
+
         const { skip, take: limit } = GetPagination(page, take);
-
-        const conditions: Prisma.Sql[] = [];
-
-        if (type_id) {
-            conditions.push(Prisma.sql`p.type_id = ${type_id}`);
-        }
-
-        if (gender !== undefined) {
-            conditions.push(Prisma.sql`p.gender = CAST(${gender} AS "GENDER")`);
-        }
-
-        if (search) {
-            const searchPattern = `%${search}%`;
-            conditions.push(
-                Prisma.sql`(p.name ILIKE ${searchPattern} OR p.code ILIKE ${searchPattern})`,
-            );
-        }
-
+        const conditions = this.buildConditions(query);
         const whereClause =
             conditions.length > 0
                 ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`
                 : Prisma.empty;
-
-        const validSortColumns: Record<string, string> = {
-            created_at: "p.created_at",
-            updated_at: "p.updated_at",
-            name: "p.name",
-            code: "p.code",
-            size: "ps.size",
-            type: "pt.name",
-            amount: "amount", // Alias hasil SUM
-        };
-
-        const sortColumn = validSortColumns[sortBy] || "p.created_at";
-        const sortDirection = sortOrder.toLowerCase() === "asc" ? "ASC" : "DESC";
-        const orderByClause = Prisma.sql`ORDER BY ${Prisma.raw(`${sortColumn} ${sortDirection}`)}`;
+        const orderByClause = this.buildOrderBy(sortBy, sortOrder);
 
         const [countResult, productsResult] = await Promise.all([
             prisma.$queryRaw<{ total: bigint }[]>`
-            SELECT COUNT(*)::bigint AS total
-            FROM products p
-            ${whereClause}
-        `,
-            prisma.$queryRaw<any[]>`
-            SELECT 
-                p.id,
-                p.code, 
-                p.name, 
-                COALESCE(pt.name, 'Unknown') AS type, 
-                COALESCE(ps.size, 0) AS size, 
-                p.gender::text AS gender, 
-                COALESCE(u.name, 'Unknown') AS uom,
-                COALESCE(SUM(pi.quantity), 0) AS amount,
-                COALESCE(
-                    JSONB_OBJECT_AGG(w.name, pi.quantity) FILTER (WHERE w.name IS NOT NULL),
-                    '{}'::JSONB
-                ) AS stocks
-            FROM products p
-            LEFT JOIN product_types pt ON p.type_id = pt.id
-            LEFT JOIN unit_of_materials u ON p.unit_id = u.id
-            LEFT JOIN product_size ps ON p.size_id = ps.id
-            LEFT JOIN (
-                SELECT product_id, warehouse_id, SUM(quantity) as quantity
-                FROM product_inventories
-                WHERE month = ${month} AND year = ${year}
-                GROUP BY product_id, warehouse_id
-            ) pi ON p.id = pi.product_id
-            LEFT JOIN warehouses w ON pi.warehouse_id = w.id
-            ${whereClause}
-            GROUP BY p.id, pt.name, u.name, ps.size
-            ${orderByClause}
-            LIMIT ${limit} OFFSET ${skip}
-        `,
+                SELECT COUNT(*)::bigint AS total
+                FROM products p
+                ${whereClause}
+            `,
+            prisma.$queryRaw<StockListRow[]>`
+                SELECT
+                    p.id,
+                    p.code,
+                    p.name,
+                    COALESCE(pt.name, 'Unknown') AS type,
+                    COALESCE(ps.size, 0) AS size,
+                    p.gender::text AS gender,
+                    COALESCE(u.name, 'Unknown') AS uom,
+                    COALESCE(SUM(pi.quantity), 0) AS amount,
+                    COALESCE(
+                        JSONB_OBJECT_AGG(w.name, pi.quantity) FILTER (WHERE w.name IS NOT NULL),
+                        '{}'::JSONB
+                    ) AS stocks
+                FROM products p
+                LEFT JOIN product_types pt ON p.type_id = pt.id
+                LEFT JOIN unit_of_materials u ON p.unit_id = u.id
+                LEFT JOIN product_size ps ON p.size_id = ps.id
+                LEFT JOIN (
+                    SELECT product_id, warehouse_id, SUM(quantity) as quantity
+                    FROM product_inventories
+                    WHERE month = ${month} AND year = ${year}
+                    GROUP BY product_id, warehouse_id
+                ) pi ON p.id = pi.product_id
+                LEFT JOIN warehouses w ON pi.warehouse_id = w.id
+                ${whereClause}
+                GROUP BY p.id, pt.name, u.name, ps.size
+                ${orderByClause}
+                LIMIT ${limit} OFFSET ${skip}
+            `,
         ]);
 
-        const len = Number(countResult[0]?.total || 0);
+        const len = Number(countResult[0]?.total ?? 0);
 
         return {
             len,
             month: month as number,
             year: year as number,
+            // reason: ResponseStockDTO doesn't have "stocks" field but downstream consumers (frontend) expect it.
             data: productsResult.map((p) => ({
                 id: Number(p.id),
                 code: p.code,
@@ -134,40 +158,26 @@ export class StockService {
                 uom: p.uom,
                 amount: Number(p.amount),
                 stocks: p.stocks || {},
-            })),
+            })) as unknown as ResponseStockDTO[],
         };
     }
 
     static async listWarehouses() {
         return prisma.warehouse.findMany({
             where: {
-                type: "FINISH_GOODS",
+                type: WarehouseType.FINISH_GOODS,
                 deleted_at: null,
             },
-            select: {
-                id: true,
-                name: true,
-            },
-            orderBy: {
-                name: "asc",
-            },
+            select: { id: true, name: true },
+            orderBy: { name: "asc" },
         });
     }
 
     static async listProducts() {
         return prisma.product.findMany({
-            where: {
-                deleted_at: null,
-                status: STATUS.ACTIVE,
-            },
-            select: {
-                id: true,
-                name: true,
-                code: true,
-            },
-            orderBy: {
-                name: "asc",
-            },
+            where: { deleted_at: null, status: STATUS.ACTIVE },
+            select: { id: true, name: true, code: true },
+            orderBy: { name: "asc" },
         });
     }
 
@@ -184,23 +194,13 @@ export class StockService {
                     year,
                 },
             },
-            update: {
-                quantity,
-                updated_at: new Date(),
-            },
-            create: {
-                product_id,
-                warehouse_id,
-                date: 1,
-                quantity,
-                month,
-                year,
-            },
+            update: { quantity, updated_at: new Date() },
+            create: { product_id, warehouse_id, date: 1, quantity, month, year },
         });
     }
 
-    static async exportStock(query: QueryStockDTO): Promise<Buffer> {
-        let { gender, search, type_id, warehouse_id, month, year } = query;
+    static async exportStock(query: QueryStockDTO) {
+        let { warehouse_id, month, year } = query;
 
         if (!month || !year) {
             const latest = await this.getLatestPeriod();
@@ -208,15 +208,7 @@ export class StockService {
             year = year ?? latest.year;
         }
 
-        const conditions: Prisma.Sql[] = [];
-
-        if (type_id) conditions.push(Prisma.sql`p.type_id = ${type_id}`);
-        if (gender !== undefined) conditions.push(Prisma.sql`p.gender = CAST(${gender} AS "GENDER")`);
-        if (search) {
-            const searchPattern = `%${search}%`;
-            conditions.push(Prisma.sql`(p.name ILIKE ${searchPattern} OR p.code ILIKE ${searchPattern})`);
-        }
-
+        const conditions = this.buildConditions(query);
         const whereClause =
             conditions.length > 0
                 ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`
@@ -226,16 +218,16 @@ export class StockService {
             ? Prisma.sql`AND pi_sub.warehouse_id = ${warehouse_id}`
             : Prisma.empty;
 
-        const rows = await prisma.$queryRaw<any[]>`
+        const rows = await prisma.$queryRaw<StockExportRow[]>`
             SELECT
                 p.code,
                 p.name,
                 COALESCE(pt.name, 'Unknown')  AS type,
-                COALESCE(ps.size, 0)           AS size,
-                p.gender::text                 AS gender,
-                COALESCE(u.name, 'Unknown')    AS uom,
-                COALESCE(SUM(pi.quantity), 0)  AS amount,
-                w.name                         AS warehouse_name
+                COALESCE(ps.size, 0)          AS size,
+                p.gender::text                AS gender,
+                COALESCE(u.name, 'Unknown')   AS uom,
+                COALESCE(SUM(pi.quantity), 0) AS amount,
+                w.name                        AS warehouse_name
             FROM products p
             LEFT JOIN product_types pt ON p.type_id = pt.id
             LEFT JOIN unit_of_materials u  ON p.unit_id = u.id
@@ -285,6 +277,6 @@ export class StockService {
         sheet.getRow(1).fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0070C0" } };
         sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
 
-        return workbook.csv.writeBuffer() as unknown as Buffer;
+        return await workbook.csv.writeBuffer();
     }
 }

@@ -33,7 +33,7 @@ export type ResponseStockImportDTO = {
 };
 
 export const RequestStockImportSchema = z.object({
-    import_id: z.string(),
+    import_id: z.string().uuid("Import ID tidak valid"),
     warehouse_id: z.number().positive(),
     month: z.number().min(1).max(12).optional(),
     year: z.number().min(2000).max(2100).optional(),

@@ -2,11 +2,17 @@ import { Context } from "hono";
 import { QueryLocationSchema } from "./location.schema.js";
 import { LocationService } from "./location.service.js";
 import { ApiResponse } from "../../../../../lib/api.response.js";
+import { ApiError } from "../../../../../lib/errors/api.error.js";
 
 export class LocationController {
     static async listStockLocation(c: Context) {
-        const query = QueryLocationSchema.parse(c.req.query());
-        const result = await LocationService.listStockLocation(query);
+        const parsed = QueryLocationSchema.safeParse(c.req.query());
+        if (!parsed.success) {
+            const message = parsed.error.issues[0]?.message ?? "Parameter query tidak valid";
+            throw new ApiError(400, message);
+        }
+
+        const result = await LocationService.listStockLocation(parsed.data);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 
