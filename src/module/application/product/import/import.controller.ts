@@ -1,5 +1,5 @@
 import { Context } from "hono";
-import { GetUploadedFile } from "../../../../lib/get.file.js";
+import { GetUploadedFile, MAX_ROWS } from "../../../../lib/get.file.js";
 import { ParseCSV } from "../../../../lib/csv.js";
 import { ParseXLSX } from "../../../../lib/excel.js";
 import { ProductImportService } from "./import.service.js";
@@ -7,7 +7,7 @@ import { ApiResponse } from "../../../../lib/api.response.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { ExecuteImportDTO } from "./import.schema.js";
 
-const MAX_ROWS = 10_000;
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseImportId(raw: string | undefined): string {
@@ -19,12 +19,9 @@ function parseImportId(raw: string | undefined): string {
 export class ProductImportController {
     static async preview(c: Context) {
         const { buffer, mimetype, filename } = await GetUploadedFile(c);
-        const isXlsx =
-            mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-            filename.endsWith(".xlsx");
+        const isXlsx = mimetype === XLSX_MIME || filename.endsWith(".xlsx");
 
         const rows = isXlsx ? await ParseXLSX(buffer) : ParseCSV(buffer);
-
         if (rows.length > MAX_ROWS) {
             throw new ApiError(413, `File melebihi batas maksimum ${MAX_ROWS} baris`);
         }
@@ -36,6 +33,12 @@ export class ProductImportController {
     static async execute(c: Context) {
         const { import_id } = c.get("body") as ExecuteImportDTO;
         const result = await ProductImportService.execute(import_id);
+        return ApiResponse.sendSuccess(c, result, 202);
+    }
+
+    static async getStatus(c: Context) {
+        const import_id = parseImportId(c.req.param("import_id"));
+        const result = await ProductImportService.getStatus(import_id);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 

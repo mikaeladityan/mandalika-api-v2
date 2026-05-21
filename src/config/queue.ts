@@ -13,3 +13,6 @@ export const FG_IMPORT_QUEUE_NAME =
 
 export const RM_IMPORT_QUEUE_NAME =
     env.NODE_ENV === "test" ? "test-rm-import" : "rm-import";
+
+export const PRODUCT_IMPORT_QUEUE_NAME =
+    env.NODE_ENV === "test" ? "test-product-import" : "product-import";

@@ -1,5 +1,4 @@
 import { randomUUID } from "crypto";
-import prisma from "../../../../config/prisma.js";
 import { redisClient } from "../../../../config/redis.js";
 import { GENDER } from "../../../../generated/prisma/client.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
@@ -7,16 +6,22 @@ import { normalizeSlug } from "../../../../lib/index.js";
 import { ImportCacheService } from "../../../../lib/utils/import.cache.js";
 import {
     PRODUCT_IMPORT_HEADERS,
+    ImportJobState,
     ProductImportPreviewDTO,
     ProductImportRowSchema,
+    ResponseEnqueueProductImportDTO,
+    ResponseImportStatusDTO,
     ResponseProductImportDTO,
 } from "./import.schema.js";
+import {
+    enqueueProductImport,
+    productImportQueue,
+} from "./queue/product-import.queue.js";
 
 const CACHE_PREFIX = "product:import:";
 const LOCK_TTL_SECONDS = 60;
 
 type ImportCachePayload = {
-    status: "preview" | "executing";
     createdAt: number;
     total: number;
     valid: number;
@@ -77,6 +82,8 @@ async function releaseLock(importId: string): Promise<void> {
     await redisClient.del(`${CACHE_PREFIX}lock:${importId}`);
 }
 
+const TERMINAL_STATES = new Set<ImportJobState>(["completed", "failed"]);
+
 export class ProductImportService {
     static async preview(
         rows: Array<Record<string, unknown>>,
@@ -88,69 +95,74 @@ export class ProductImportService {
         const import_id = randomUUID();
 
         const payload: ImportCachePayload = {
-            status: "preview",
             createdAt: Date.now(),
             total,
             valid,
             invalid,
             rows: parsedRows,
         };
-
         await ImportCacheService.save(CACHE_PREFIX, import_id, payload);
 
         return { import_id, total, valid, invalid };
     }
 
-    static async execute(import_id: string): Promise<{ import_id: string; total: number }> {
-        const cache = (await ImportCacheService.get(
-            CACHE_PREFIX,
-            import_id,
-        )) as ImportCachePayload | null;
-
-        if (!cache) {
-            throw new ApiError(400, "Import session tidak ditemukan atau sudah kadaluarsa");
-        }
-        if (cache.status !== "preview") {
-            throw new ApiError(409, "Import sudah pernah dijalankan");
-        }
-
-        const validRows = cache.rows.filter((r) => r.errors.length === 0);
-        if (!validRows.length) {
-            throw new ApiError(400, "Tidak ada baris valid untuk diimport");
-        }
-
+    static async execute(import_id: string): Promise<ResponseEnqueueProductImportDTO> {
         if (!(await acquireLock(import_id))) {
             throw new ApiError(409, "Import sedang diproses, coba lagi sebentar");
         }
 
         try {
-            await ImportCacheService.save(CACHE_PREFIX, import_id, {
-                ...cache,
-                status: "executing",
-            });
-            await this.bulkInsert(validRows);
-            await ImportCacheService.remove(CACHE_PREFIX, import_id);
-            return { import_id, total: validRows.length };
+            const cache = await ImportCacheService.get<ImportCachePayload>(
+                CACHE_PREFIX,
+                import_id,
+            );
+
+            if (!cache) {
+                throw new ApiError(400, "Import session tidak ditemukan atau sudah kadaluarsa");
+            }
+            if (cache.valid <= 0) {
+                throw new ApiError(400, "Tidak ada baris valid untuk diimport");
+            }
+
+            const job = await enqueueProductImport(import_id);
+            return { import_id, jobId: String(job.id ?? import_id), state: "queued" };
         } catch (err) {
-            // Rollback cache status sehingga user bisa retry execute
-            await ImportCacheService.save(CACHE_PREFIX, import_id, cache);
-            throw err;
-        } finally {
             await releaseLock(import_id);
+            throw err;
         }
     }
 
+    static async getStatus(import_id: string): Promise<ResponseImportStatusDTO> {
+        const job = await productImportQueue.getJob(import_id);
+        if (!job) throw new ApiError(404, "Import job tidak ditemukan");
+
+        const rawState = await job.getState();
+        const state: ImportJobState =
+            rawState === "waiting" ? "queued" : (rawState as ImportJobState);
+
+        const progress = typeof job.progress === "number" ? job.progress : 0;
+        const response: ResponseImportStatusDTO = { import_id, state, progress };
+
+        if (state === "completed" && job.returnvalue) {
+            response.result = job.returnvalue as { import_id: string; total: number };
+        }
+        if (state === "failed") {
+            response.failedReason = job.failedReason ?? "Unknown error";
+            response.attemptsMade = job.attemptsMade ?? 0;
+        }
+
+        if (TERMINAL_STATES.has(state)) {
+            await releaseLock(import_id).catch(() => undefined);
+        }
+
+        return response;
+    }
+
     static async getPreview(import_id: string) {
-        const cache = (await ImportCacheService.get(
-            CACHE_PREFIX,
-            import_id,
-        )) as ImportCachePayload | null;
+        const cache = await ImportCacheService.get<ImportCachePayload>(CACHE_PREFIX, import_id);
 
         if (!cache) {
             throw new ApiError(404, "Preview import tidak ditemukan atau sudah kadaluarsa");
-        }
-        if (cache.status !== "preview") {
-            throw new ApiError(409, "Import sudah dieksekusi");
         }
 
         return {
@@ -161,100 +173,5 @@ export class ProductImportService {
             rows: cache.rows,
             createdAt: cache.createdAt,
         };
-    }
-
-    private static async bulkInsert(data: ProductImportPreviewDTO[]) {
-        if (!data.length) return;
-
-        const dedupped = new Map<string, ProductImportPreviewDTO>();
-        for (const d of data) {
-            if (d.code?.trim()) dedupped.set(d.code.trim(), d);
-        }
-        const finalData = Array.from(dedupped.values());
-
-        const types = [...new Set(finalData.map((d) => d.type).filter(Boolean))] as string[];
-        const units = [...new Set(finalData.map((d) => d.unit).filter(Boolean))] as string[];
-        const sizes = [...new Set(finalData.map((d) => d.size).filter((s) => s > 0))];
-
-        await prisma.$transaction(async (tx) => {
-            if (types.length) {
-                await tx.$executeRaw`
-                    INSERT INTO product_types (name, slug)
-                    SELECT initcap(replace(t.slug, '-', ' ')), t.slug
-                    FROM unnest(${types}::text[]) AS t(slug)
-                    ON CONFLICT (slug) DO NOTHING;
-                `;
-            }
-
-            if (units.length) {
-                await tx.$executeRaw`
-                    INSERT INTO unit_of_materials (name, slug)
-                    SELECT initcap(replace(u.slug, '-', ' ')), u.slug
-                    FROM unnest(${units}::text[]) AS u(slug)
-                    ON CONFLICT (slug) DO NOTHING;
-                `;
-            }
-
-            if (sizes.length) {
-                await tx.$executeRaw`
-                    INSERT INTO product_size (size)
-                    SELECT s.val
-                    FROM unnest(${sizes}::int[]) AS s(val)
-                    ON CONFLICT (size) DO NOTHING;
-                `;
-            }
-
-            const cols = {
-                codes: finalData.map((d) => d.code),
-                names: finalData.map((d) => d.name),
-                genders: finalData.map((d) => d.gender || GENDER.UNISEX),
-                prodSizes: finalData.map((d) => d.size || null),
-                typeSlugs: finalData.map((d) => d.type || null),
-                unitSlugs: finalData.map((d) => d.unit || null),
-                distributionPercs: finalData.map((d) => d.distribution_percentage || 0),
-                safetyPercs: finalData.map((d) => d.safety_percentage || 0),
-            };
-
-            await tx.$executeRaw`
-                INSERT INTO products (
-                    code, name, gender, size_id, type_id, unit_id,
-                    distribution_percentage, safety_percentage,
-                    status, updated_at
-                )
-                SELECT
-                    p.code,
-                    p.name,
-                    p.gender::"GENDER",
-                    ps.id,
-                    pt.id,
-                    u.id,
-                    p.dist_perc,
-                    p.safe_perc,
-                    'ACTIVE'::"STATUS",
-                    NOW()
-                FROM unnest(
-                    ${cols.codes}::text[],
-                    ${cols.names}::text[],
-                    ${cols.genders}::text[],
-                    ${cols.prodSizes}::int[],
-                    ${cols.typeSlugs}::text[],
-                    ${cols.unitSlugs}::text[],
-                    ${cols.distributionPercs}::decimal[],
-                    ${cols.safetyPercs}::decimal[]
-                ) AS p(code, name, gender, prod_size, type_slug, unit_slug, dist_perc, safe_perc)
-                LEFT JOIN product_size ps ON ps.size = p.prod_size
-                LEFT JOIN product_types pt ON pt.slug = p.type_slug
-                LEFT JOIN unit_of_materials u ON u.slug = p.unit_slug
-                ON CONFLICT (code) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    gender = EXCLUDED.gender,
-                    size_id = EXCLUDED.size_id,
-                    type_id = EXCLUDED.type_id,
-                    unit_id = EXCLUDED.unit_id,
-                    distribution_percentage = EXCLUDED.distribution_percentage,
-                    safety_percentage = EXCLUDED.safety_percentage,
-                    updated_at = NOW();
-            `;
-        });
     }
 }

@@ -12,5 +12,6 @@ ProductImportRoutes.post(
     validateBody(ExecuteImportSchema),
     ProductImportController.execute,
 );
+ProductImportRoutes.get("/status/:import_id", ProductImportController.getStatus);
 
 export default ProductImportRoutes;

@@ -63,3 +63,28 @@ export const ExecuteImportSchema = z.object({
 });
 
 export type ExecuteImportDTO = z.infer<typeof ExecuteImportSchema>;
+
+export type ResponseEnqueueProductImportDTO = {
+    import_id: string;
+    jobId: string;
+    state: "queued";
+};
+
+export type ImportJobState =
+    | "queued"
+    | "active"
+    | "completed"
+    | "failed"
+    | "delayed"
+    | "waiting-children"
+    | "prioritized"
+    | "unknown";
+
+export type ResponseImportStatusDTO = {
+    import_id: string;
+    state: ImportJobState;
+    progress: number;
+    result?: { import_id: string; total: number };
+    failedReason?: string;
+    attemptsMade?: number;
+};

@@ -4,6 +4,7 @@ import { closeRedisConnection, redisClient } from "./config/redis.js";
 import { closeDatabase, initializeDatabase } from "./config/prisma.js";
 import { createFGImportWorker } from "./module/application/inventory/fg/import/queue/fg-import.worker.js";
 import { createRMImportWorker } from "./module/application/inventory/rm/import/queue/rm-import.worker.js";
+import { createProductImportWorker } from "./module/application/product/import/queue/product-import.worker.js";
 
 console.log("Worker environment loaded:", {
     NODE_ENV: env.NODE_ENV,
@@ -31,6 +32,9 @@ logger.info("FG import worker listening");
 const rmImportWorker = createRMImportWorker();
 logger.info("RM import worker listening");
 
+const productImportWorker = createProductImportWorker();
+logger.info("Product import worker listening");
+
 initialize();
 
 const shutdown = async () => {
@@ -38,6 +42,7 @@ const shutdown = async () => {
     try {
         await fgImportWorker.close();
         await rmImportWorker.close();
+        await productImportWorker.close();
         await closeRedisConnection();
         await closeDatabase();
     } catch (error) {
