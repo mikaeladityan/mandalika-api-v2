@@ -14,15 +14,28 @@ const sanitizeNumber = (val: unknown) => {
     return Number(val);
 };
 
+// Single source of truth untuk header round-trip (SOP §1.I).
+// Export di product.service.ts WAJIB pakai konstanta ini — jangan duplikasi literal.
+export const PRODUCT_IMPORT_HEADERS = {
+    code: "PRODUCT CODE",
+    name: "PRODUCT NAME",
+    type: "TYPE",
+    gender: "GENDER",
+    size: "SIZE",
+    unit: "UOM",
+    distribution: "EDAR",
+    safety: "SAFETY",
+} as const;
+
 export const ProductImportRowSchema = z.object({
-    "PRODUCT CODE": z.string().min(1),
-    "PRODUCT NAME": z.string().min(1),
-    TYPE: z.string().min(1),
-    GENDER: z.string().optional().default(""),
-    SIZE: z.preprocess(sanitizeNumber, z.coerce.number().positive()),
-    UOM: z.string().min(1),
-    EDAR: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
-    SAFETY: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
+    [PRODUCT_IMPORT_HEADERS.code]: z.string().min(1),
+    [PRODUCT_IMPORT_HEADERS.name]: z.string().min(1),
+    [PRODUCT_IMPORT_HEADERS.type]: z.string().min(1),
+    [PRODUCT_IMPORT_HEADERS.gender]: z.string().optional().default(""),
+    [PRODUCT_IMPORT_HEADERS.size]: z.preprocess(sanitizeNumber, z.coerce.number().positive()),
+    [PRODUCT_IMPORT_HEADERS.unit]: z.string().min(1),
+    [PRODUCT_IMPORT_HEADERS.distribution]: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
+    [PRODUCT_IMPORT_HEADERS.safety]: z.preprocess(sanitizeNumber, z.coerce.number().min(0).optional().default(0)),
 });
 
 export type ProductImportRow = z.infer<typeof ProductImportRowSchema>;
