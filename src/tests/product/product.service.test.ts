@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ProductService } from "../../module/application/product/product.service.js";
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
+import { Prisma } from "../../generated/prisma/client.js";
 
 describe("ProductService", () => {
     beforeEach(() => {
@@ -36,8 +37,12 @@ describe("ProductService", () => {
                 name: "Cool T-Shirt",
             };
 
+            const p2002 = new Prisma.PrismaClientKnownRequestError(
+                "Unique constraint failed on the fields: (`code`)",
+                { code: "P2002", clientVersion: "test" },
+            );
             // @ts-ignore
-            prisma.product.findUnique.mockResolvedValue({ id: 1 });
+            prisma.$transaction.mockRejectedValueOnce(p2002);
 
             await expect(ProductService.create(mockBody as any)).rejects.toThrow(ApiError);
         });
