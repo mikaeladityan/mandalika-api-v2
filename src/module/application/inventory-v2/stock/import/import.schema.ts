@@ -9,13 +9,13 @@ const sanitizeNumber = (val: unknown) => {
     return Number(val);
 };
 
-export const ProductStockImportRowSchema = z.object({
+export const StockImportRowSchema = z.object({
     "PRODUCT CODE": z.string().min(1),
     "CURRENT STOCK": z.preprocess(sanitizeNumber, z.coerce.number().default(0)),
 });
 
-export type ProductStockImportRow = z.infer<typeof ProductStockImportRowSchema>;
-export type ProductStockImportPreviewDTO = {
+export type StockImportRow = z.infer<typeof StockImportRowSchema>;
+export type StockImportPreviewDTO = {
     code: string;
     product_id: number;
     name: string;
@@ -25,18 +25,18 @@ export type ProductStockImportPreviewDTO = {
     errors: string[];
 };
 
-export type ResponseProductStockImportDTO = {
+export type ResponseStockImportDTO = {
     import_id: string;
     total: number;
     valid: number;
     invalid: number;
 };
 
-export const RequestProductStockImportSchema = z.object({
+export const RequestStockImportSchema = z.object({
     import_id: z.string(),
     warehouse_id: z.number().positive(),
     month: z.number().min(1).max(12).optional(),
     year: z.number().min(2000).max(2100).optional(),
 });
 
-export type RequestProductStockImportDTO = z.infer<typeof RequestProductStockImportSchema>;
+export type RequestStockImportDTO = z.infer<typeof RequestStockImportSchema>;

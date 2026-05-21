@@ -1,12 +1,11 @@
-// import.service.ts
 import { randomUUID } from "crypto";
 import {
-    ProductStockImportPreviewDTO,
-    ProductStockImportRowSchema,
-    ResponseProductStockImportDTO,
+    StockImportPreviewDTO,
+    StockImportRowSchema,
+    ResponseStockImportDTO,
 } from "./import.schema.js";
 
-import { ProductStockImportCacheService } from "./import.cache.js";
+import { StockImportCacheService } from "./import.cache.js";
 import prisma from "../../../../../config/prisma.js";
 
 type ImportCachePayload = {
@@ -15,11 +14,11 @@ type ImportCachePayload = {
     total: number;
     valid: number;
     invalid: number;
-    rows: ProductStockImportPreviewDTO[];
+    rows: StockImportPreviewDTO[];
 };
 
-export class ProductStockImportService {
-    static async preview(rows: Record<string, any>[]): Promise<ResponseProductStockImportDTO> {
+export class StockImportService {
+    static async preview(rows: Record<string, any>[]): Promise<ResponseStockImportDTO> {
         // Collect product codes for batch search
         const codes = rows
             .map((r) => r["PRODUCT CODE"])
@@ -39,9 +38,9 @@ export class ProductStockImportService {
             : [];
 
         const productMap = new Map(products.map((p) => [p.code, p]));
-        const parsedResults = rows.map((row) => ProductStockImportRowSchema.safeParse(row));
+        const parsedResults = rows.map((row) => StockImportRowSchema.safeParse(row));
 
-        const parsedRows: ProductStockImportPreviewDTO[] = rows.map((row, index) => {
+        const parsedRows: StockImportPreviewDTO[] = rows.map((row, index) => {
             const parsed = parsedResults[index];
 
             if (!parsed) {
@@ -109,7 +108,7 @@ export class ProductStockImportService {
             rows: parsedRows,
         };
 
-        await ProductStockImportCacheService.save(import_id, payload);
+        await StockImportCacheService.save(import_id, payload);
 
         return {
             import_id,
@@ -120,7 +119,7 @@ export class ProductStockImportService {
     }
 
     static async execute(import_id: string, warehouse_id: number, month: number, year: number) {
-        const cache = (await ProductStockImportCacheService.get(
+        const cache = (await StockImportCacheService.get(
             import_id,
         )) as ImportCachePayload | null;
 
@@ -137,27 +136,27 @@ export class ProductStockImportService {
             throw new Error("No valid rows to import");
         }
 
-        await ProductStockImportCacheService.save(import_id, {
+        await StockImportCacheService.save(import_id, {
             ...cache,
             status: "executing",
         });
 
         try {
             await this.bulkInsert(validRows, warehouse_id, month, year);
-            await ProductStockImportCacheService.remove(import_id);
+            await StockImportCacheService.remove(import_id);
 
             return {
                 import_id,
                 total: validRows.length,
             };
         } catch (err) {
-            await ProductStockImportCacheService.save(import_id, cache);
+            await StockImportCacheService.save(import_id, cache);
             throw err;
         }
     }
 
     private static async bulkInsert(
-        data: ProductStockImportPreviewDTO[],
+        data: StockImportPreviewDTO[],
         warehouse_id: number,
         month: number,
         year: number,
@@ -200,7 +199,7 @@ export class ProductStockImportService {
     }
 
     static async getPreview(import_id: string) {
-        const cache = await ProductStockImportCacheService.get(import_id);
+        const cache = await StockImportCacheService.get(import_id);
 
         if (!cache) {
             throw new Error("Import preview not found or expired");

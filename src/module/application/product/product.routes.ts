@@ -10,14 +10,10 @@ import {
     UpdateProductSchema,
 } from "./product.schema.js";
 import ProductImportRoutes from "./import/import.routes.js";
-import { ProductStockRoutes } from "./stock/product.stock.routes.js";
-import ProductStockLocationRoutes from "./stock-location/product.stock-location.routes.js";
 
 export const ProductRoutes = new Hono();
 
 // -- Sub
-ProductRoutes.route("/stock-locations", ProductStockLocationRoutes);
-ProductRoutes.route("/stocks", ProductStockRoutes);
 ProductRoutes.route("/import", ProductImportRoutes);
 ProductRoutes.route("/units", UnitRoutes);
 ProductRoutes.route("/types", TypeRoutes);

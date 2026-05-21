@@ -1,18 +1,17 @@
-// import.controller.ts
 import { Context } from "hono";
 import { GetUploadedFile } from "../../../../../lib/get.file.js";
 import { ParseCSV } from "../../../../../lib/csv.js";
 import { ParseXLSX } from "../../../../../lib/excel.js";
-import { ProductStockImportService } from "./import.service.js";
+import { StockImportService } from "./import.service.js";
 import { ApiResponse } from "../../../../../lib/api.response.js";
 import { ApiError } from "../../../../../lib/errors/api.error.js";
 
-export class ProductStockImportController {
+export class StockImportController {
     static async preview(c: Context) {
         const { buffer, mimetype } = await GetUploadedFile(c);
         const rows = mimetype === "text/csv" ? ParseCSV(buffer) : await ParseXLSX(buffer);
 
-        const result = await ProductStockImportService.preview(rows);
+        const result = await StockImportService.preview(rows);
         return ApiResponse.sendSuccess(c, result, 201);
     }
 
@@ -27,7 +26,7 @@ export class ProductStockImportController {
             throw new ApiError(400, "Warehouse ID wajib diisi");
         }
 
-        const result = await ProductStockImportService.execute(
+        const result = await StockImportService.execute(
             body.import_id,
             warehouse_id,
             month,
@@ -41,7 +40,7 @@ export class ProductStockImportController {
 
         if (!import_id) throw new ApiError(400, "Import ID wajib dilampirkan");
 
-        const result = await ProductStockImportService.getPreview(import_id);
+        const result = await StockImportService.getPreview(import_id);
 
         return ApiResponse.sendSuccess(c, result, 200);
     }

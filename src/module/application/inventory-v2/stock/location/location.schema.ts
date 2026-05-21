@@ -1,18 +1,21 @@
 import { z } from "zod";
 
-export const QueryStockLocationSchema = z.object({
+export const QueryLocationSchema = z.object({
     page: z.string().optional().transform(Number),
     take: z.string().optional().transform(Number),
     search: z.string().optional(),
-    sortBy: z.enum(["name", "code", "type", "size", "gender", "updated_at", "total_stock"]).optional().default("total_stock"),
+    sortBy: z
+        .enum(["name", "code", "type", "size", "gender", "updated_at", "total_stock"])
+        .optional()
+        .default("total_stock"),
     sortOrder: z.enum(["asc", "desc"]).optional().default("desc"),
     type_id: z.string().optional().transform(Number),
     gender: z.string().optional(),
 });
 
-export type QueryStockLocationDTO = z.infer<typeof QueryStockLocationSchema>;
+export type QueryLocationDTO = z.infer<typeof QueryLocationSchema>;
 
-export interface ResponseStockLocationDTO {
+export interface ResponseLocationDTO {
     code: string;
     name: string;
     type: string;
@@ -20,5 +23,5 @@ export interface ResponseStockLocationDTO {
     gender: string;
     uom: string;
     total_stock: number;
-    location_stocks: Record<string, number>; // { "Warehouse A": 10, "Outlet B": 5 }
+    location_stocks: Record<string, number>;
 }

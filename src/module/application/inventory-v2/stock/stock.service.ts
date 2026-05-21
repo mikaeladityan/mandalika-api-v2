@@ -1,10 +1,10 @@
 import prisma from "../../../../config/prisma.js";
 import { Prisma, STATUS } from "../../../../generated/prisma/client.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
-import { QueryProductStockDTO, ResponseProductStockDTO, RequestUpsertProductStockDTO } from "./product.stock.schema.js";
+import { QueryStockDTO, ResponseStockDTO, RequestUpsertStockDTO } from "./stock.schema.js";
 import ExcelJS from "exceljs";
 
-export class ProductStockService {
+export class StockService {
     private static async getLatestPeriod() {
         const latestProduct = await prisma.productInventory.findFirst({
             orderBy: [{ year: "desc" }, { month: "desc" }],
@@ -18,8 +18,8 @@ export class ProductStockService {
         return latestProduct;
     }
 
-    static async listProductStock(query: QueryProductStockDTO): Promise<{
-        data: Array<ResponseProductStockDTO>;
+    static async listProductStock(query: QueryStockDTO): Promise<{
+        data: Array<ResponseStockDTO>;
         len: number;
         month: number;
         year: number;
@@ -171,7 +171,7 @@ export class ProductStockService {
         });
     }
 
-    static async upsertStock(body: RequestUpsertProductStockDTO) {
+    static async upsertStock(body: RequestUpsertStockDTO) {
         const { product_id, warehouse_id, quantity, month, year } = body;
 
         return prisma.productInventory.upsert({
@@ -199,7 +199,7 @@ export class ProductStockService {
         });
     }
 
-    static async exportStock(query: QueryProductStockDTO): Promise<Buffer> {
+    static async exportStock(query: QueryStockDTO): Promise<Buffer> {
         let { gender, search, type_id, warehouse_id, month, year } = query;
 
         if (!month || !year) {

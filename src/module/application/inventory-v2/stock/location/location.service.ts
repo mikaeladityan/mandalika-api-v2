@@ -1,13 +1,13 @@
-import prisma from "../../../../config/prisma.js";
-import { Prisma } from "../../../../generated/prisma/client.js";
-import { GetPagination } from "../../../../lib/utils/pagination.js";
-import { QueryStockLocationDTO, ResponseStockLocationDTO } from "./product.stock-location.schema.js";
+import prisma from "../../../../../config/prisma.js";
+import { Prisma } from "../../../../../generated/prisma/client.js";
+import { GetPagination } from "../../../../../lib/utils/pagination.js";
+import { QueryLocationDTO } from "./location.schema.js";
 
-export class ProductStockLocationService {
+export class LocationService {
     /**
      * List all products with stock from ALL locations (Warehouses + Outlets)
      */
-    static async listStockLocation(query: QueryStockLocationDTO) {
+    static async listStockLocation(query: QueryLocationDTO) {
         const {
             page = 1,
             take = 50,

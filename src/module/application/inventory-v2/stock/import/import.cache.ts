@@ -1,8 +1,8 @@
 import { redisClient } from "../../../../../config/redis.js";
 
-const PREFIX = "productStock:import:";
+const PREFIX = "stock:import:";
 
-export class ProductStockImportCacheService {
+export class StockImportCacheService {
     static key(importId: string) {
         return `${PREFIX}${importId}`;
     }

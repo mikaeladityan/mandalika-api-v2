@@ -1,7 +1,7 @@
 import z from "zod";
 import { GENDER } from "../../../../generated/prisma/client.js";
 
-export const RequestProductStockSchema = z.object({
+export const RequestStockSchema = z.object({
     code: z.string(),
     amount: z.number(),
     warehouse_id: z.number(),
@@ -9,7 +9,7 @@ export const RequestProductStockSchema = z.object({
     year: z.number().min(2000),
 });
 
-export const RequestUpsertProductStockSchema = z.object({
+export const RequestUpsertStockSchema = z.object({
     product_id: z.number(),
     warehouse_id: z.number(),
     quantity: z.number(),
@@ -17,7 +17,7 @@ export const RequestUpsertProductStockSchema = z.object({
     year: z.number().min(2000),
 });
 
-export const ResponseProductStockSchema = z.object({
+export const ResponseStockSchema = z.object({
     id: z.number(),
     code: z.string(),
     name: z.string(),
@@ -34,7 +34,7 @@ export const ResponseProductStockSchema = z.object({
         .optional(),
 });
 
-export const QueryProductStockSchema = z.object({
+export const QueryStockSchema = z.object({
     type_id: z.number().positive().optional(),
     warehouse_id: z.number().positive().optional(),
     gender: z.enum(GENDER).optional(),
@@ -56,7 +56,7 @@ export const QueryProductStockSchema = z.object({
     sortOrder: z.enum(["asc", "desc"]).default("asc"),
 });
 
-export type RequestProductStockDTO = z.infer<typeof RequestProductStockSchema>;
-export type RequestUpsertProductStockDTO = z.infer<typeof RequestUpsertProductStockSchema>;
-export type ResponseProductStockDTO = z.output<typeof ResponseProductStockSchema>;
-export type QueryProductStockDTO = z.input<typeof QueryProductStockSchema>;
+export type RequestStockDTO = z.infer<typeof RequestStockSchema>;
+export type RequestUpsertStockDTO = z.infer<typeof RequestUpsertStockSchema>;
+export type ResponseStockDTO = z.output<typeof ResponseStockSchema>;
+export type QueryStockDTO = z.input<typeof QueryStockSchema>;
