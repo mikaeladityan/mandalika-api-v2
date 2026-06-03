@@ -5,6 +5,7 @@ import prisma from "../../../config/prisma.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { normalizeSlug } from "../../../lib/index.js";
+import { enqueueProductSheetSync } from "./sheet/product-sheet.queue.js";
 import ExcelJS from "exceljs";
 
 type UpsertBySlugDelegate = {
@@ -144,7 +145,7 @@ export class ProductService {
         const { code, product_type, unit, size, ...reqBody } = body;
 
         try {
-            return await prisma.$transaction(async (tx) => {
+            const created = await prisma.$transaction(async (tx) => {
                 const [type_id, unit_id, size_id] = await Promise.all([
                     product_type ? this.getOrCreate(tx.productType, product_type) : null,
                     unit ? this.getOrCreate(tx.unit, unit) : null,
@@ -158,6 +159,9 @@ export class ProductService {
 
                 return this.toResponseNumbers(result);
             });
+
+            await enqueueProductSheetSync({ action: "upsert", productId: created.id });
+            return created;
         } catch (e) {
             if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
                 throw new ApiError(400, `Produk dengan kode: ${code} telah tersedia`);
@@ -170,7 +174,13 @@ export class ProductService {
         const { code, unit, product_type, size, ...reqBody } = body;
 
         try {
-            return await prisma.$transaction(async (tx) => {
+            const existing = await prisma.product.findUnique({
+                where: { id },
+                select: { code: true },
+            });
+            if (!existing) throw new ApiError(404, "Produk tidak ditemukan");
+
+            const updated = await prisma.$transaction(async (tx) => {
                 const [type_id, unit_id, size_id] = await Promise.all([
                     product_type ? this.getOrCreate(tx.productType, product_type) : undefined,
                     unit ? this.getOrCreate(tx.unit, unit) : undefined,
@@ -191,6 +201,15 @@ export class ProductService {
 
                 return this.toResponseNumbers(result);
             });
+
+            const oldCode =
+                code !== undefined && code !== existing.code ? existing.code : undefined;
+            await enqueueProductSheetSync({
+                action: "upsert",
+                productId: id,
+                ...(oldCode ? { oldCode } : {}),
+            });
+            return updated;
         } catch (e) {
             if (e instanceof Prisma.PrismaClientKnownRequestError) {
                 if (e.code === "P2025") throw new ApiError(404, "Produk tidak ditemukan");
@@ -202,10 +221,27 @@ export class ProductService {
 
     static async status(id: number, status: STATUS) {
         try {
+            const existing = await prisma.product.findUnique({
+                where: { id },
+                select: { code: true },
+            });
+            if (!existing)
+                throw new ApiError(404, `Produk dengan kode ${id} tidak ditemukan`);
+
             await prisma.product.update({
                 where: { id },
                 data: { deleted_at: status === "DELETE" ? new Date() : null, status },
             });
+
+            if (status === "DELETE") {
+                await enqueueProductSheetSync({
+                    action: "delete",
+                    productId: id,
+                    code: existing.code ?? "",
+                });
+            } else {
+                await enqueueProductSheetSync({ action: "upsert", productId: id });
+            }
         } catch (e) {
             if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
                 throw new ApiError(404, `Produk dengan kode ${id} tidak ditemukan`);
