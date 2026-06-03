@@ -163,3 +163,104 @@ describe("ForecastAccuracyService.resolvePeriod", () => {
         });
     });
 });
+
+describe("ForecastAccuracyService.list", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it("returns per-product rows with formatted accuracy strings", async () => {
+        // First $queryRaw call = page rows, second = aggregate
+        // @ts-ignore
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+        (prisma.$queryRaw as ReturnType<typeof vi.fn>)
+            .mockResolvedValueOnce([
+                {
+                    product_id: 1,
+                    product_code: "EDP-AZUR-100",
+                    product_name: "AZURE",
+                    product_type_name: "EDP",
+                    size: 100,
+                    unit_name: "pcs",
+                    forecast: "320",
+                    sales: "310",
+                },
+                {
+                    product_id: 2,
+                    product_code: "EDP-NOVA-100",
+                    product_name: "NOVA",
+                    product_type_name: "EDP",
+                    size: 100,
+                    unit_name: "pcs",
+                    forecast: "150",
+                    sales: "0",
+                },
+            ])
+            .mockResolvedValueOnce([
+                {
+                    product_count: 2,
+                    total_forecast: "320",
+                    total_sales: "310",
+                    excluded_count: 1,
+                },
+            ]);
+
+        const result = await ForecastAccuracyService.list({
+            month: 5,
+            year: 2026,
+            is_others: false,
+            page: 1,
+            take: 25,
+        });
+
+        expect(result.period).toEqual({ month: 5, year: 2026 });
+        expect(result.len).toBe(2);
+        expect(result.data).toHaveLength(2);
+
+        const azure = result.data[0]!;
+        expect(azure.forecast).toBe(320);
+        expect(azure.sales).toBe(310);
+        expect(azure.diff).toBe(10);
+        // (1 - 10/310) × 100 = 96.7741…% → "96.77%"
+        expect(azure.accuracy_percentage).toBe("96.77%");
+
+        const nova = result.data[1]!;
+        expect(nova.sales).toBe(0);
+        expect(nova.accuracy_percentage).toBe("N/A");
+
+        expect(result.summary.total_forecast).toBe(320);
+        expect(result.summary.total_sales).toBe(310);
+        expect(result.summary.accuracy_percentage).toBe("96.77%");
+        expect(result.summary.product_count).toBe(2);
+        expect(result.summary.excluded_count).toBe(1);
+    });
+
+    it("returns empty data + N/A summary when no products match", async () => {
+        // @ts-ignore
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+        (prisma.$queryRaw as ReturnType<typeof vi.fn>)
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([
+                {
+                    product_count: 0,
+                    total_forecast: null,
+                    total_sales: null,
+                    excluded_count: 0,
+                },
+            ]);
+
+        const result = await ForecastAccuracyService.list({
+            month: 5,
+            year: 2026,
+            is_others: false,
+            page: 1,
+            take: 25,
+        });
+
+        expect(result.data).toEqual([]);
+        expect(result.len).toBe(0);
+        expect(result.summary.total_forecast).toBe(0);
+        expect(result.summary.total_sales).toBe(0);
+        expect(result.summary.accuracy_percentage).toBe("N/A");
+    });
+});
