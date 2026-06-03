@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { ForecastAccuracyService } from "../../module/application/forecast/accuracy/accuracy.service.js";
 import {
     QueryForecastAccuracySchema,
     ResponseForecastAccuracySchema,
 } from "../../module/application/forecast/accuracy/accuracy.schema.js";
+import { ForecastAccuracyService } from "../../module/application/forecast/accuracy/accuracy.service.js";
 
 describe("accuracy.schema", () => {
     describe("QueryForecastAccuracySchema", () => {
@@ -92,5 +92,10 @@ describe("ForecastAccuracyService.formatAccuracy", () => {
 
     it("returns N/A when sales is negative (defensive)", () => {
         expect(fmt(50, -5)).toBe("N/A");
+    });
+
+    it("returns 0.00% when forecast is 0 and sales is positive (no clamp needed)", () => {
+        // |0-1|/1 = 1 → (1-1)*100 = 0 — hits 0 exactly without clamping
+        expect(fmt(0, 1)).toBe("0.00%");
     });
 });
