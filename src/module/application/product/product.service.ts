@@ -460,10 +460,38 @@ export class ProductService {
 
         const [products, countResult] = await Promise.all([dataTask, countTask]);
 
+        const pageProductIds = products.map((p) => p.id);
+        const failureRows =
+            pageProductIds.length === 0
+                ? []
+                : await prisma.productSheetSyncFailure.findMany({
+                      where: { product_id: { in: pageProductIds }, resolved_at: null },
+                      orderBy: { created_at: "desc" },
+                      select: { product_id: true, error_message: true },
+                  });
+        const failureByProduct = new Map<number, string>();
+        for (const f of failureRows) {
+            if (!failureByProduct.has(f.product_id)) {
+                failureByProduct.set(f.product_id, f.error_message);
+            }
+        }
+
         return {
             len: Number(countResult[0].count),
             // reason: raw row carries FK columns + group_sort_priority consumed by frontend; preserve passthrough.
-            data: products.map((p) => this.toResponseNumbers(p)) as unknown as ResponseProductDTO[],
+            data: products.map((p) => {
+                const base = this.toResponseNumbers(p) as unknown as ResponseProductDTO & {
+                    sheet_sync_status?: "synced" | "failed";
+                    sheet_sync_error?: string;
+                };
+                if (failureByProduct.has(p.id)) {
+                    base.sheet_sync_status = "failed";
+                    base.sheet_sync_error = failureByProduct.get(p.id);
+                } else {
+                    base.sheet_sync_status = "synced";
+                }
+                return base;
+            }) as unknown as ResponseProductDTO[],
         };
     }
 

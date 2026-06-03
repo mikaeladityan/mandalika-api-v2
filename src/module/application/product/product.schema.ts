@@ -64,6 +64,11 @@ export const ResponseProductSchema = RequestProductSchema.extend({
             }),
         )
         .optional(),
+    // Derived in list response. "synced" means no unresolved sync failure;
+    // "failed" means latest failure row for this product is unresolved.
+    // ("pending" not derived server-side — FE can render from local mutation state.)
+    sheet_sync_status: z.enum(["synced", "failed"]).optional(),
+    sheet_sync_error: z.string().optional(),
 });
 
 export const QueryProductSchema = z.object({
