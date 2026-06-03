@@ -16,3 +16,6 @@ export const RM_IMPORT_QUEUE_NAME =
 
 export const PRODUCT_IMPORT_QUEUE_NAME =
     env.NODE_ENV === "test" ? "test-product-import" : "product-import";
+
+export const PRODUCT_SHEET_QUEUE_NAME =
+    env.NODE_ENV === "test" ? "test-product-sheet-sync" : "product-sheet-sync";
