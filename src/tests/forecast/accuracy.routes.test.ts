@@ -115,4 +115,67 @@ describe("GET /api/app/forecasts/accuracy", () => {
         const body = await res.json();
         expect(body.success).toBe(false);
     });
+
+    it("accepts is_others=true and routes through the filter", async () => {
+        vi.mocked(prisma.$queryRaw)
+            .mockResolvedValueOnce([
+                {
+                    product_id: 7,
+                    product_code: "DISP-A4-50",
+                    product_name: "Display A4",
+                    product_type_name: "Display",
+                    size: 50,
+                    unit_name: "pcs",
+                    forecast: 80,
+                    sales: 80,
+                },
+            ])
+            .mockResolvedValueOnce([
+                {
+                    product_count: "1",
+                    total_forecast: "80",
+                    total_sales: "80",
+                    excluded_count: "0",
+                },
+            ]);
+
+        const res = await app.request(`${BASE}?month=5&year=2026&is_others=true`);
+        expect(res.status).toBe(200);
+
+        const body = await res.json();
+        expect(body.status).toBe("success");
+        expect(body.data.data[0].product_name).toBe("Display A4");
+        expect(body.data.summary.accuracy_percentage).toBe("100.00%");
+
+        // Verify the SQL query string passed to $queryRaw contains an others-slug ILIKE clause.
+        // prisma.$queryRaw is called with a Prisma.Sql object that has a `.strings` template array.
+        const sqlObjs = vi.mocked(prisma.$queryRaw).mock.calls.map((args) => args[0] as { strings?: readonly string[] });
+        const allSql = sqlObjs.map((s) => (s.strings ?? []).join(" ")).join(" ");
+        expect(allSql).toMatch(/ILIKE.*display/i);
+        expect(allSql).toMatch(/ILIKE.*kertas/i);
+    });
+
+    it("propagates pagination to LIMIT/OFFSET in the SQL", async () => {
+        vi.mocked(prisma.$queryRaw)
+            .mockResolvedValueOnce([]) // page rows
+            .mockResolvedValueOnce([
+                {
+                    product_count: "0",
+                    total_forecast: null,
+                    total_sales: null,
+                    excluded_count: "0",
+                },
+            ]);
+
+        const res = await app.request(`${BASE}?month=5&year=2026&page=2&take=10`);
+        expect(res.status).toBe(200);
+
+        const sqlObjs = vi.mocked(prisma.$queryRaw).mock.calls.map((args) => args[0] as { values?: readonly unknown[] });
+        // The first call is the paged query; its values array ends with [take, skip] = [10, 10].
+        const firstCallValues = sqlObjs[0]?.values ?? [];
+        expect(firstCallValues).toContain(10); // take
+        // Either skip (10) is present too; with page=2 take=10 it should be 10.
+        const skipOccurrences = firstCallValues.filter((v) => v === 10).length;
+        expect(skipOccurrences).toBeGreaterThanOrEqual(2);
+    });
 });
