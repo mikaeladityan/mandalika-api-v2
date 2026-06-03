@@ -7,7 +7,10 @@ vi.mock("../../config/redis.js", () => {
         user: { id: 1 },
     });
     const mockRedis = {
-        get: vi.fn().mockResolvedValue(sessionPayload),
+        get: vi.fn().mockImplementation((key: string) => {
+            if (key === "session:mock-session-id") return Promise.resolve(sessionPayload);
+            return Promise.resolve(null);
+        }),
         set: vi.fn().mockResolvedValue("OK"),
         setex: vi.fn().mockResolvedValue("OK"),
         del: vi.fn().mockResolvedValue(1),
@@ -41,17 +44,18 @@ vi.mock("../../config/prisma.js", () => ({
 
 import app from "../../app.js";
 import prisma from "../../config/prisma.js";
+import { sessionCache } from "../../lib/session.management.js";
 
 const BASE = "/api/app/forecasts/accuracy";
 
 describe("GET /api/app/forecasts/accuracy", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        sessionCache.clear();
     });
 
     it("returns 200 with formatted percentages for explicit month+year", async () => {
-        // @ts-ignore
-        prisma.$queryRaw
+        vi.mocked(prisma.$queryRaw)
             .mockResolvedValueOnce([
                 {
                     product_id: 1,
@@ -66,10 +70,10 @@ describe("GET /api/app/forecasts/accuracy", () => {
             ])
             .mockResolvedValueOnce([
                 {
-                    product_count: 1,
-                    total_forecast: 320,
-                    total_sales: 310,
-                    excluded_count: 0,
+                    product_count: "1",
+                    total_forecast: "320",
+                    total_sales: "310",
+                    excluded_count: "0",
                 },
             ]);
 
@@ -77,19 +81,16 @@ describe("GET /api/app/forecasts/accuracy", () => {
         expect(res.status).toBe(200);
 
         const body = await res.json();
-        // ApiResponse.sendSuccess wraps result inside the response body.
-        // Inspect the body shape — if the wrapper key isn't `data`, adapt assertions accordingly.
-        const payload = body.data ?? body;
-        expect(payload.period).toEqual({ month: 5, year: 2026 });
-        expect(payload.data[0].accuracy_percentage).toBe("96.77%");
-        expect(payload.summary.accuracy_percentage).toBe("96.77%");
-        expect(payload.len).toBe(1);
+        expect(body.status).toBe("success");
+        expect(body.data.period).toEqual({ month: 5, year: 2026 });
+        expect(body.data.data[0].accuracy_percentage).toBe("96.77%");
+        expect(body.data.summary.accuracy_percentage).toBe("96.77%");
+        expect(body.data.len).toBe(1);
     });
 
     it("falls back to most recent period when month/year omitted", async () => {
         // First $queryRaw = resolvePeriod fallback lookup
-        // @ts-ignore
-        prisma.$queryRaw
+        vi.mocked(prisma.$queryRaw)
             .mockResolvedValueOnce([{ month: 4, year: 2026 }])     // resolvePeriod
             .mockResolvedValueOnce([])                              // page rows (empty)
             .mockResolvedValueOnce([{                               // aggregate
@@ -103,13 +104,15 @@ describe("GET /api/app/forecasts/accuracy", () => {
         expect(res.status).toBe(200);
 
         const body = await res.json();
-        const payload = body.data ?? body;
-        expect(payload.period).toEqual({ month: 4, year: 2026 });
-        expect(payload.summary.accuracy_percentage).toBe("N/A");
+        expect(body.status).toBe("success");
+        expect(body.data.period).toEqual({ month: 4, year: 2026 });
+        expect(body.data.summary.accuracy_percentage).toBe("N/A");
     });
 
     it("returns 400 on invalid month", async () => {
         const res = await app.request(`${BASE}?month=99&year=2026`);
         expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.success).toBe(false);
     });
 });
