@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { ForecastAccuracyService } from "../../module/application/forecast/accuracy/accuracy.service.js";
 import {
     QueryForecastAccuracySchema,
     ResponseForecastAccuracySchema,
@@ -66,5 +67,30 @@ describe("accuracy.schema", () => {
             });
             expect(ok.data[0]?.accuracy_percentage).toBe("95.00%");
         });
+    });
+});
+
+describe("ForecastAccuracyService.formatAccuracy", () => {
+    const fmt = ForecastAccuracyService.formatAccuracy;
+
+    it("returns 100.00% when forecast equals sales", () => {
+        expect(fmt(100, 100)).toBe("100.00%");
+    });
+
+    it("returns 96.77% for F=320 A=310", () => {
+        expect(fmt(320, 310)).toBe("96.77%");
+    });
+
+    it("clamps to 0.00% when |F-A|/A > 1", () => {
+        // F=1000 A=100 → |F-A|/A = 9 → 1-9 = -8 → clamp 0
+        expect(fmt(1000, 100)).toBe("0.00%");
+    });
+
+    it("returns N/A when sales is 0", () => {
+        expect(fmt(50, 0)).toBe("N/A");
+    });
+
+    it("returns N/A when sales is negative (defensive)", () => {
+        expect(fmt(50, -5)).toBe("N/A");
     });
 });
