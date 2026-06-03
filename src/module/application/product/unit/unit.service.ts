@@ -1,3 +1,4 @@
+import { Prisma } from "../../../../generated/prisma/client.js";
 import prisma from "../../../../config/prisma.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { normalizeSlug } from "../../../../lib/index.js";
@@ -6,14 +7,17 @@ import { GetPagination } from "../../../../lib/utils/pagination.js";
 
 export class UnitService {
     static async create(body: RequestUnitDTO): Promise<ResponseUnitDTO> {
-        const slug = normalizeSlug(body.name);
+        const name = body.name.trim();
+        const slug = normalizeSlug(name);
 
-        const existing = await prisma.unit.findUnique({ where: { slug } });
-        if (existing) throw new ApiError(400, `Satuan "${body.name}" sudah tersedia`);
-
-        return await prisma.unit.create({
-            data: { name: body.name.trim(), slug },
-        });
+        try {
+            return await prisma.unit.create({ data: { name, slug } });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+                throw new ApiError(400, `Satuan "${name}" sudah tersedia`);
+            }
+            throw e;
+        }
     }
 
     static async list(query: QueryUnitDTO): Promise<{ data: ResponseUnitDTO[]; len: number }> {
@@ -38,38 +42,36 @@ export class UnitService {
     }
 
     static async update(id: number, body: UpdateUnitDTO): Promise<ResponseUnitDTO> {
-        const existing = await prisma.unit.findUnique({ where: { id } });
-        if (!existing) throw new ApiError(404, "Satuan tidak ditemukan");
+        const name = body.name?.trim();
+        const data = name !== undefined ? { name, slug: normalizeSlug(name) } : {};
 
-        const name = body.name?.trim() ?? existing.name;
-        const slug = normalizeSlug(name);
-
-        if (slug !== existing.slug) {
-            const conflict = await prisma.unit.findUnique({ where: { slug } });
-            if (conflict) throw new ApiError(400, `Satuan "${name}" sudah digunakan`);
+        try {
+            return await prisma.unit.update({ where: { id }, data });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError) {
+                if (e.code === "P2025") throw new ApiError(404, "Satuan tidak ditemukan");
+                if (e.code === "P2002") {
+                    throw new ApiError(400, `Satuan "${name ?? ""}" sudah digunakan`);
+                }
+            }
+            throw e;
         }
-
-        return await prisma.unit.update({
-            where: { id },
-            data: { name, slug },
-        });
     }
 
     static async delete(id: number): Promise<void> {
-        const existing = await prisma.unit.findUnique({
-            where: { id },
-            include: { _count: { select: { products: true } } },
-        });
-
-        if (!existing) throw new ApiError(404, "Satuan tidak ditemukan");
-
-        if (existing._count.products > 0) {
-            throw new ApiError(
-                400,
-                "Satuan tidak dapat dihapus karena masih digunakan oleh produk",
-            );
+        try {
+            await prisma.unit.delete({ where: { id } });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError) {
+                if (e.code === "P2025") throw new ApiError(404, "Satuan tidak ditemukan");
+                if (e.code === "P2003") {
+                    throw new ApiError(
+                        409,
+                        "Satuan tidak dapat dihapus karena masih digunakan oleh produk",
+                    );
+                }
+            }
+            throw e;
         }
-
-        await prisma.unit.delete({ where: { id } });
     }
 }

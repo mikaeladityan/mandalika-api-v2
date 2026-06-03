@@ -2,28 +2,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TypeService } from "../../module/application/product/type/type.service.js";
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
+import { Prisma } from "../../generated/prisma/client.js";
+
+const makePrismaError = (code: string, msg: string) =>
+    new Prisma.PrismaClientKnownRequestError(msg, { code, clientVersion: "test" });
 
 describe("TypeService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
-    // ─── CREATE ───────────────────────────────────────────────
     describe("create", () => {
-        it("should throw 400 if type name already exists", async () => {
+        it("should throw 400 if type name already exists (P2002)", async () => {
             // @ts-ignore
-            prisma.productType.findUnique.mockResolvedValue({
-                id: 1,
-                name: "Apparel",
-                slug: "apparel",
-            });
+            prisma.productType.create.mockRejectedValueOnce(
+                makePrismaError("P2002", "Unique constraint failed on slug"),
+            );
 
             await expect(TypeService.create({ name: "Apparel" })).rejects.toThrow(ApiError);
         });
 
         it("should create type successfully when name is unique", async () => {
-            // @ts-ignore
-            prisma.productType.findUnique.mockResolvedValue(null);
             // @ts-ignore
             prisma.productType.create.mockResolvedValue({
                 id: 5,
@@ -40,7 +39,6 @@ describe("TypeService", () => {
         });
     });
 
-    // ─── LIST ─────────────────────────────────────────────────
     describe("list", () => {
         it("should return list with total count", async () => {
             // @ts-ignore
@@ -77,35 +75,26 @@ describe("TypeService", () => {
         });
     });
 
-    // ─── UPDATE ───────────────────────────────────────────────
     describe("update", () => {
-        it("should throw 404 if type not found", async () => {
+        it("should throw 404 if type not found (P2025)", async () => {
             // @ts-ignore
-            prisma.productType.findUnique.mockResolvedValue(null);
+            prisma.productType.update.mockRejectedValueOnce(
+                makePrismaError("P2025", "Record to update not found"),
+            );
 
             await expect(TypeService.update(999, { name: "New" })).rejects.toThrow(ApiError);
         });
 
-        it("should throw 400 if new name slug conflicts", async () => {
+        it("should throw 400 if new name slug conflicts (P2002)", async () => {
             // @ts-ignore
-            prisma.productType.findUnique
-                // @ts-ignore
-                .mockResolvedValueOnce({ id: 1, name: "Apparel", slug: "apparel" }) // exist
-                // @ts-ignore
-                .mockResolvedValueOnce({ id: 2, name: "Accessories", slug: "accessories" }); // conflict
+            prisma.productType.update.mockRejectedValueOnce(
+                makePrismaError("P2002", "Unique constraint failed on slug"),
+            );
 
             await expect(TypeService.update(1, { name: "Accessories" })).rejects.toThrow(ApiError);
         });
 
         it("should update type successfully", async () => {
-            // @ts-ignore
-            prisma.productType.findUnique.mockResolvedValueOnce({
-                id: 1,
-                name: "Apparel",
-                slug: "apparel",
-            });
-            // @ts-ignore
-            prisma.productType.findUnique.mockResolvedValueOnce(null); // no conflict
             // @ts-ignore
             prisma.productType.update.mockResolvedValue({
                 id: 1,
@@ -119,35 +108,26 @@ describe("TypeService", () => {
         });
     });
 
-    // ─── DESTROY ──────────────────────────────────────────────
     describe("delete", () => {
-        it("should throw 404 if type not found", async () => {
+        it("should throw 404 if type not found (P2025)", async () => {
             // @ts-ignore
-            prisma.productType.findUnique.mockResolvedValue(null);
+            prisma.productType.delete.mockRejectedValueOnce(
+                makePrismaError("P2025", "Record to delete not found"),
+            );
 
             await expect(TypeService.delete(999)).rejects.toThrow(ApiError);
         });
 
-        it("should throw 400 if type still used by products", async () => {
+        it("should throw 409 if type still used by products (P2003)", async () => {
             // @ts-ignore
-            prisma.productType.findUnique.mockResolvedValue({
-                id: 1,
-                name: "Apparel",
-                slug: "apparel",
-                _count: { products: 5 },
-            });
+            prisma.productType.delete.mockRejectedValueOnce(
+                makePrismaError("P2003", "Foreign key constraint failed"),
+            );
 
             await expect(TypeService.delete(1)).rejects.toThrow(ApiError);
         });
 
         it("should delete type successfully when not referenced", async () => {
-            // @ts-ignore
-            prisma.productType.findUnique.mockResolvedValue({
-                id: 1,
-                name: "Apparel",
-                slug: "apparel",
-                _count: { products: 0 },
-            });
             // @ts-ignore
             prisma.productType.delete.mockResolvedValue({ id: 1 });
 

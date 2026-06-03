@@ -6,7 +6,7 @@ export const PaymentMethodEnum = z.enum(["TRANSFER", "CASH", "GIRO"]);
 
 export const QueryCashSchema = z.object({
     page: z.coerce.number().min(1).default(1),
-    take: z.coerce.number().min(1).max(200).default(50),
+    take: z.coerce.number().min(1).max(500).default(50),
     search: z.string().optional(),
     type: CashEntryTypeEnum.optional(),
     status: CashEntryStatusEnum.optional(),

@@ -28,7 +28,7 @@ export const ResponseSupplierSchema = RequestSupplierSchema.extend({
 
 export const QuerySupplierSchema = z.object({
     page: z.number().int().positive().default(1).optional(),
-    take: z.number().int().positive().max(100).default(25).optional(),
+    take: z.number().int().positive().max(500).default(25).optional(),
     search: z.string().optional(),
     sortBy: z.enum(["country", "name", "updated_at", "created_at"]).default("updated_at"),
     sortOrder: z.enum(["asc", "desc"]).default("asc"),

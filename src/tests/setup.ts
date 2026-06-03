@@ -119,33 +119,33 @@ vi.mock("../config/prisma.js", () => ({
             findUnique: vi.fn().mockImplementation(async (args) => {
                 const { where } = args;
                 if (where.id === 999 || where.barcode === "BARCODE_NOTFOUND") return null;
-                // id 2 is used for "already deleted" scenario in restore tests
                 if (where.id === 2) {
                     return {
                         id: 2,
                         barcode: "RM-002",
                         name: "Kain Deleted",
-                        price: 50000,
+                        min_stock: null,
+                        type: null,
                         deleted_at: new Date("2024-01-01"),
                         created_at: new Date(),
                         updated_at: null,
+                        unit_raw_material: { id: 1, name: "meter", slug: "meter" },
+                        raw_mat_category: null,
+                        supplier_materials: [],
                     };
                 }
                 return {
                     id: where.id || 1,
                     barcode: where.barcode || "RM-001",
                     name: "Kain Katun",
-                    price: 50000,
-                    min_buy: 10,
                     min_stock: 5,
-                    lead_time: 7,
-                    type: "FABRIC",
+                    type: "FO",
                     deleted_at: null,
                     created_at: new Date(),
                     updated_at: null,
                     unit_raw_material: { id: 1, name: "meter", slug: "meter" },
                     raw_mat_category: { id: 1, name: "Fabric", slug: "fabric" },
-                    supplier: null,
+                    supplier_materials: [],
                 };
             }),
             findFirst: vi.fn().mockImplementation(async (args) => {
@@ -155,17 +155,14 @@ vi.mock("../config/prisma.js", () => ({
                     id: where?.id || 1,
                     barcode: "RM-001",
                     name: "Kain Katun",
-                    price: 50000,
-                    min_buy: 10,
                     min_stock: 5,
-                    lead_time: 7,
-                    type: "FABRIC",
+                    type: "FO",
                     deleted_at: null,
                     created_at: new Date(),
                     updated_at: null,
                     unit_raw_material: { id: 1, name: "meter", slug: "meter" },
                     raw_mat_category: { id: 1, name: "Fabric", slug: "fabric" },
-                    supplier: null,
+                    supplier_materials: [],
                 };
             }),
             findMany: vi.fn().mockResolvedValue([
@@ -173,41 +170,55 @@ vi.mock("../config/prisma.js", () => ({
                     id: 1,
                     barcode: "RM-001",
                     name: "Kain Katun",
-                    price: 50000,
-                    min_buy: 10,
                     min_stock: 5,
-                    lead_time: 7,
-                    type: "FABRIC",
+                    type: "FO",
                     deleted_at: null,
                     created_at: new Date(),
                     updated_at: null,
                     unit_raw_material: { id: 1, name: "meter", slug: "meter" },
                     raw_mat_category: { id: 1, name: "Fabric", slug: "fabric" },
-                    supplier: null,
+                    supplier_materials: [],
                 },
             ]),
             create: vi.fn().mockResolvedValue({
                 id: 1,
                 barcode: "RM-001",
                 name: "Kain Katun",
-                price: 50000,
+                min_stock: null,
+                type: null,
                 deleted_at: null,
+                created_at: new Date(),
+                updated_at: null,
                 unit_raw_material: { id: 1, name: "meter", slug: "meter" },
                 raw_mat_category: { id: 1, name: "Fabric", slug: "fabric" },
-                supplier: null,
+                supplier_materials: [],
             }),
             update: vi.fn().mockResolvedValue({
                 id: 1,
                 barcode: "RM-001",
                 name: "Kain Katun Updated",
-                price: 55000,
+                min_stock: null,
+                type: null,
                 deleted_at: null,
+                created_at: new Date(),
+                updated_at: new Date(),
                 unit_raw_material: { id: 1, name: "meter", slug: "meter" },
                 raw_mat_category: { id: 1, name: "Fabric", slug: "fabric" },
-                supplier: null,
+                supplier_materials: [],
             }),
+            updateMany: vi.fn().mockResolvedValue({ count: 1 }),
             count: vi.fn().mockResolvedValue(1),
             deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+        supplierMaterial: {
+            findMany: vi.fn().mockResolvedValue([]),
+            count: vi.fn().mockResolvedValue(0),
+            create: vi.fn().mockResolvedValue({ id: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+            update: vi.fn().mockResolvedValue({ id: 1 }),
+            updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+            upsert: vi.fn().mockResolvedValue({ id: 1 }),
+            deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
         unitRawMaterial: {
             findUnique: vi.fn().mockImplementation(async (args) => {
@@ -389,6 +400,7 @@ vi.mock("../config/prisma.js", () => ({
             deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
             update: vi.fn().mockResolvedValue({ id: 1, quantity: 450 }),
             create: vi.fn().mockResolvedValue({ id: 2, quantity: 50 }),
+            groupBy: vi.fn().mockResolvedValue([]),
         },
         safetyStock: {
             findMany: vi.fn().mockResolvedValue([]),
@@ -466,7 +478,7 @@ vi.mock("../config/prisma.js", () => ({
         },
         outletInventory: {
             findUnique: vi.fn().mockImplementation(async (args) => {
-                const key = args?.where?.outlet_id_product_id;
+                const key = args?.where?.outlet_id_product_id_month_year ?? args?.where?.outlet_id_product_id;
                 if (!key) return null;
                 if (key.product_id === 999 || key.outlet_id === 999) return null;
                 return {
@@ -475,8 +487,26 @@ vi.mock("../config/prisma.js", () => ({
                     product_id: key.product_id,
                     quantity: "10.00",
                     min_stock: "5.00",
+                    month: key.month ?? new Date().getMonth() + 1,
+                    year: key.year ?? new Date().getFullYear(),
                     updated_at: new Date(),
                     product: { id: key.product_id, name: "T-Shirt", code: "TSHIRT" },
+                };
+            }),
+            findFirst: vi.fn().mockImplementation(async (args) => {
+                const w = args?.where;
+                if (!w) return null;
+                if (w.product_id === 999 || w.outlet_id === 999) return null;
+                return {
+                    id: 1,
+                    outlet_id: w.outlet_id,
+                    product_id: w.product_id,
+                    quantity: "10.00",
+                    min_stock: "5.00",
+                    month: new Date().getMonth() + 1,
+                    year: new Date().getFullYear(),
+                    updated_at: new Date(),
+                    product: { id: w.product_id, name: "T-Shirt", code: "TSHIRT" },
                 };
             }),
             findMany: vi.fn().mockResolvedValue([
@@ -486,6 +516,8 @@ vi.mock("../config/prisma.js", () => ({
                     product_id: 1,
                     quantity: "10.00",
                     min_stock: "5.00",
+                    month: new Date().getMonth() + 1,
+                    year: new Date().getFullYear(),
                     updated_at: new Date(),
                     product: { id: 1, name: "T-Shirt", code: "TSHIRT" },
                 },
@@ -498,10 +530,13 @@ vi.mock("../config/prisma.js", () => ({
                 product_id: 1,
                 quantity: "10.00",
                 min_stock: "20.00",
+                month: new Date().getMonth() + 1,
+                year: new Date().getFullYear(),
                 updated_at: new Date(),
                 product: { id: 1, name: "T-Shirt", code: "TSHIRT" },
             }),
             count: vi.fn().mockResolvedValue(1),
+            groupBy: vi.fn().mockResolvedValue([]),
         },
         warehouse: {
             findFirst: vi.fn(),
@@ -634,6 +669,7 @@ vi.mock("../config/prisma.js", () => ({
                 phone: null,
             }),
             delete: vi.fn().mockResolvedValue({ id: 1 }),
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
             count: vi.fn().mockResolvedValue(1),
         },
         purchaseOrder: {
@@ -649,6 +685,7 @@ vi.mock("../config/prisma.js", () => ({
             create: vi.fn(),
             update: vi.fn(),
             deleteMany: vi.fn(),
+            count: vi.fn().mockResolvedValue(0),
         },
         stockMovement: {
             findFirst: vi.fn(),
@@ -669,6 +706,7 @@ vi.mock("../config/prisma.js", () => ({
             findMany: vi.fn().mockResolvedValue([]),
             count: vi.fn().mockResolvedValue(0),
             update: vi.fn().mockResolvedValue({}),
+            groupBy: vi.fn().mockResolvedValue([]),
         },
         goodsReceipt: {
             findUnique: vi.fn().mockImplementation(async (args) => {
@@ -717,8 +755,10 @@ vi.mock("../config/prisma.js", () => ({
         },
         productInventory: {
             findFirst: vi.fn().mockResolvedValue({ id: 1, quantity: 100 }),
+            findMany: vi.fn().mockResolvedValue([]),
             update: vi.fn().mockResolvedValue({ id: 1, quantity: 90 }),
             deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+            groupBy: vi.fn().mockResolvedValue([]),
         },
         account: {
             findUnique: vi.fn().mockImplementation(async (args) => {
@@ -808,6 +848,7 @@ vi.mock("../config/prisma.js", () => ({
             update: vi.fn().mockResolvedValue({}),
             updateMany: vi.fn().mockResolvedValue({ count: 1 }),
             create: vi.fn().mockResolvedValue({}),
+            count: vi.fn().mockResolvedValue(0),
         },
         productionOrderWaste: {
             findMany: vi.fn().mockResolvedValue([]),
@@ -835,6 +876,14 @@ vi.mock("../config/prisma.js", () => ({
                         unit: {},
                         size: {},
                     }),
+                    upsert: vi.fn().mockResolvedValue({
+                        id: 1,
+                        code: "FG_001",
+                        z_value: 1.65,
+                        product_type: {},
+                        unit: {},
+                        size: {},
+                    }),
                 },
                 productType: {
                     findUnique: vi.fn().mockResolvedValue({ id: 1 }),
@@ -856,39 +905,69 @@ vi.mock("../config/prisma.js", () => ({
                         id: 1,
                         barcode: "RM-001",
                         name: "Kain Katun",
-                        price: 50000,
+                        min_stock: null,
+                        type: null,
                         deleted_at: null,
                     }),
+                    findMany: vi.fn().mockResolvedValue([]),
                     create: vi.fn().mockResolvedValue({
                         id: 1,
                         barcode: "RM-001",
                         name: "Kain Katun",
-                        price: 50000,
+                        min_stock: null,
+                        type: null,
                         deleted_at: null,
+                        created_at: new Date(),
+                        updated_at: null,
                         unit_raw_material: { id: 1, name: "meter", slug: "meter" },
                         raw_mat_category: { id: 1, name: "Fabric", slug: "fabric" },
-                        supplier: null,
+                        supplier_materials: [],
                     }),
                     update: vi.fn().mockResolvedValue({
                         id: 1,
                         barcode: "RM-001",
                         name: "Kain Katun Updated",
-                        price: 55000,
+                        min_stock: null,
+                        type: null,
                         deleted_at: null,
+                        created_at: new Date(),
+                        updated_at: new Date(),
                         unit_raw_material: { id: 1, name: "meter", slug: "meter" },
                         raw_mat_category: { id: 1, name: "Fabric", slug: "fabric" },
-                        supplier: null,
+                        supplier_materials: [],
                     }),
+                    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+                },
+                supplierMaterial: {
+                    findMany: vi.fn().mockResolvedValue([]),
+                    upsert: vi.fn().mockResolvedValue({ id: 1 }),
+                    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+                    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+                    createMany: vi.fn().mockResolvedValue({ count: 0 }),
                 },
                 unitRawMaterial: {
                     findUnique: vi.fn().mockResolvedValue({ id: 1, name: "meter", slug: "meter" }),
                     create: vi.fn().mockResolvedValue({ id: 1, name: "meter", slug: "meter" }),
+                    upsert: vi.fn().mockResolvedValue({ id: 1 }),
                 },
                 rawMatCategories: {
                     findUnique: vi
                         .fn()
                         .mockResolvedValue({ id: 1, name: "Fabric", slug: "fabric" }),
                     create: vi.fn().mockResolvedValue({ id: 1, name: "Fabric", slug: "fabric" }),
+                    upsert: vi.fn().mockResolvedValue({ id: 1 }),
+                },
+                purchaseOrderItem: {
+                    count: vi.fn().mockResolvedValue(0),
+                    create: vi.fn(),
+                    createMany: vi.fn(),
+                    deleteMany: vi.fn(),
+                },
+                productionOrderItem: {
+                    count: vi.fn().mockResolvedValue(0),
+                    update: vi.fn().mockResolvedValue({}),
+                    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+                    create: vi.fn().mockResolvedValue({}),
                 },
                 outletWarehouse: {
                     deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -909,7 +988,11 @@ vi.mock("../config/prisma.js", () => ({
                     findMany: vi.fn(),
                 },
                 outletInventory: {
-                    create: vi.fn().mockResolvedValue({ id: 1 }),
+                    findUnique: vi.fn().mockResolvedValue(null),
+                    findFirst: vi.fn().mockResolvedValue(null),
+                    findMany: vi.fn().mockResolvedValue([]),
+                    create: vi.fn().mockResolvedValue({ id: 1, month: new Date().getMonth() + 1, year: new Date().getFullYear() }),
+                    createMany: vi.fn().mockResolvedValue({ count: 1 }),
                     update: vi.fn().mockResolvedValue({ id: 1 }),
                 },
                 productInventory: {
@@ -931,6 +1014,7 @@ vi.mock("../config/prisma.js", () => ({
                     updateMany: vi.fn().mockResolvedValue({ count: 0 }),
                     deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
                     createMany: vi.fn().mockResolvedValue({ count: 2 }),
+                    count: vi.fn().mockResolvedValue(0),
                 },
                 goodsReceipt: {
                     findUnique: vi.fn().mockImplementation(async (args) => {
@@ -995,11 +1079,6 @@ vi.mock("../config/prisma.js", () => ({
                         goods_receipt: null,
                     }),
                 },
-                productionOrderItem: {
-                    update: vi.fn().mockResolvedValue({}),
-                    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-                    create: vi.fn().mockResolvedValue({}),
-                },
                 productionOrderWaste: {
                     create: vi.fn().mockResolvedValue({}),
                 },
@@ -1014,11 +1093,6 @@ vi.mock("../config/prisma.js", () => ({
                 purchaseOrder: {
                     create: vi.fn(),
                     update: vi.fn(),
-                },
-                purchaseOrderItem: {
-                    create: vi.fn(),
-                    createMany: vi.fn(),
-                    deleteMany: vi.fn(),
                 },
                 $executeRawUnsafe: vi.fn().mockResolvedValue(1),
             });
@@ -1069,6 +1143,38 @@ vi.mock("../config/redis.js", () => {
 vi.mock("../module/application/log/log.service.js", () => ({
     CreateLogger: vi.fn().mockResolvedValue({}),
 }));
+
+vi.mock("../module/application/inventory/fg/import/queue/fg-import.queue.js", () => {
+    const addMock = vi.fn().mockImplementation(async (_name: string, _data: unknown, opts?: { jobId?: string }) => ({
+        id: opts?.jobId ?? "job-1",
+    }));
+    const getJobMock = vi.fn().mockResolvedValue(null);
+    return {
+        fgImportQueue: {
+            add: addMock,
+            getJob: getJobMock,
+        },
+        enqueueFGImport: vi.fn().mockImplementation(async (import_id: string) => ({
+            id: import_id,
+        })),
+    };
+});
+
+vi.mock("../module/application/inventory/rm/import/queue/rm-import.queue.js", () => {
+    const addMock = vi.fn().mockImplementation(async (_name: string, _data: unknown, opts?: { jobId?: string }) => ({
+        id: opts?.jobId ?? "job-1",
+    }));
+    const getJobMock = vi.fn().mockResolvedValue(null);
+    return {
+        rmImportQueue: {
+            add: addMock,
+            getJob: getJobMock,
+        },
+        enqueueRMImport: vi.fn().mockImplementation(async (import_id: string) => ({
+            id: import_id,
+        })),
+    };
+});
 
 vi.mock("../lib/logger.js", () => ({
     logger: {

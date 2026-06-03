@@ -63,7 +63,7 @@ export const QueryIssuanceSchema = z.object({
     type: z.nativeEnum(IssuanceType).optional(),
 
     page: z.number().int().positive().default(1).optional(),
-    take: z.number().int().positive().max(100).default(25).optional(),
+    take: z.number().int().positive().max(500).default(25).optional(),
 
     sortBy: z.enum(["product_id", "name", "code", "quantity"]).default("quantity"),
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
@@ -84,7 +84,7 @@ export const QueryIssuanceRekapSchema = z.object({
     size: z.number().optional(),
     variant: z.string().optional(),
     page: z.number().int().positive().default(1).optional(),
-    take: z.number().int().positive().max(100).default(50).optional(),
+    take: z.number().int().positive().max(500).default(50).optional(),
     sortBy: z.enum(["name", "code", "offline", "online", "spin_wheel", "garansi_out", "b2b", "lain_lain", "bagi_vial", "all_qty", "total_qty"]).default("total_qty"),
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
 

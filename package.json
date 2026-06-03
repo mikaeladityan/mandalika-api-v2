@@ -4,8 +4,10 @@
     "private": true,
     "scripts": {
         "dev": "tsx watch src/server.ts",
+        "worker:dev": "tsx watch src/worker.ts",
         "build": "tsc",
         "start": "node dist/src/server.js",
+        "worker": "node dist/src/worker.js",
         "test": "vitest run"
     },
     "dependencies": {
@@ -13,6 +15,7 @@
         "@prisma/adapter-pg": "^7.2.0",
         "@prisma/client": "^6.19.2",
         "bcrypt": "^6.0.0",
+        "bullmq": "^5.76.10",
         "csv-parse": "^6.1.0",
         "dotenv": "^17.2.3",
         "envalid": "^8.1.1",

@@ -12,7 +12,7 @@ export const RequestOutletInventorySetMinStockSchema = z.object({
 
 export const QueryOutletInventorySchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),
-    take: z.coerce.number().int().positive().max(100).default(25).optional(),
+    take: z.coerce.number().int().positive().max(500).default(25).optional(),
     search: z.string().optional(),
     low_stock: z.enum(["true", "false"]).optional(),
     sortBy: z.enum(["quantity", "min_stock", "updated_at"]).default("updated_at").optional(),

@@ -1,3 +1,4 @@
+import { Prisma } from "../../../../generated/prisma/client.js";
 import prisma from "../../../../config/prisma.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { normalizeSlug } from "../../../../lib/index.js";
@@ -6,14 +7,17 @@ import { GetPagination } from "../../../../lib/utils/pagination.js";
 
 export class TypeService {
     static async create(body: RequestTypeDTO): Promise<ResponseTypeDTO> {
-        const slug = normalizeSlug(body.name);
+        const name = body.name.trim();
+        const slug = normalizeSlug(name);
 
-        const existing = await prisma.productType.findUnique({ where: { slug } });
-        if (existing) throw new ApiError(400, `Tipe "${body.name}" sudah tersedia`);
-
-        return await prisma.productType.create({
-            data: { name: body.name.trim(), slug },
-        });
+        try {
+            return await prisma.productType.create({ data: { name, slug } });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+                throw new ApiError(400, `Tipe "${name}" sudah tersedia`);
+            }
+            throw e;
+        }
     }
 
     static async list(query: QueryTypeDTO): Promise<{ data: ResponseTypeDTO[]; len: number }> {
@@ -38,38 +42,36 @@ export class TypeService {
     }
 
     static async update(id: number, body: UpdateTypeDTO): Promise<ResponseTypeDTO> {
-        const existing = await prisma.productType.findUnique({ where: { id } });
-        if (!existing) throw new ApiError(404, "Tipe produk tidak ditemukan");
+        const name = body.name?.trim();
+        const data = name !== undefined ? { name, slug: normalizeSlug(name) } : {};
 
-        const name = body.name?.trim() ?? existing.name;
-        const slug = normalizeSlug(name);
-
-        if (slug !== existing.slug) {
-            const conflict = await prisma.productType.findUnique({ where: { slug } });
-            if (conflict) throw new ApiError(400, `Tipe "${name}" sudah digunakan`);
+        try {
+            return await prisma.productType.update({ where: { id }, data });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError) {
+                if (e.code === "P2025") throw new ApiError(404, "Tipe produk tidak ditemukan");
+                if (e.code === "P2002") {
+                    throw new ApiError(400, `Tipe "${name ?? ""}" sudah digunakan`);
+                }
+            }
+            throw e;
         }
-
-        return await prisma.productType.update({
-            where: { id },
-            data: { name, slug },
-        });
     }
 
     static async delete(id: number): Promise<void> {
-        const existing = await prisma.productType.findUnique({
-            where: { id },
-            include: { _count: { select: { products: true } } },
-        });
-
-        if (!existing) throw new ApiError(404, "Tipe produk tidak ditemukan");
-
-        if (existing._count.products > 0) {
-            throw new ApiError(
-                400,
-                "Tipe produk tidak dapat dihapus karena masih digunakan oleh produk",
-            );
+        try {
+            await prisma.productType.delete({ where: { id } });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError) {
+                if (e.code === "P2025") throw new ApiError(404, "Tipe produk tidak ditemukan");
+                if (e.code === "P2003") {
+                    throw new ApiError(
+                        409,
+                        "Tipe produk tidak dapat dihapus karena masih digunakan oleh produk",
+                    );
+                }
+            }
+            throw e;
         }
-
-        await prisma.productType.delete({ where: { id } });
     }
 }

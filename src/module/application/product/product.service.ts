@@ -1,29 +1,114 @@
-import { Prisma, STATUS } from "../../../generated/prisma/client.js";
+import { GENDER, Prisma, STATUS } from "../../../generated/prisma/client.js";
 import { QueryProductDTO, RequestProductDTO, ResponseProductDTO } from "./product.schema.js";
+import { PRODUCT_IMPORT_HEADERS } from "./import/import.schema.js";
 import prisma from "../../../config/prisma.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { normalizeSlug } from "../../../lib/index.js";
 import ExcelJS from "exceljs";
 
-type RedisProduct = {
-    id: number;
-    code: string;
-    name: string;
-    type?: string;
-    size: string;
+type UpsertBySlugDelegate = {
+    upsert: (args: {
+        where: { slug: string };
+        update: Record<string, never>;
+        create: { name: string; slug: string };
+        select: { id: true };
+    }) => Promise<{ id: number }>;
 };
 
-export class ProductService {
-    // --- Helper Methods ---
+type ProductListRow = {
+    id: number;
+    name: string;
+    code: string;
+    unit_id: number | null;
+    type_id: number | null;
+    size_id: number | null;
+    gender: GENDER;
+    status: STATUS;
+    description: string | null;
+    z_value: Prisma.Decimal;
+    lead_time: number;
+    review_period: number;
+    distribution_percentage: Prisma.Decimal | null;
+    safety_percentage: Prisma.Decimal | null;
+    created_at: Date;
+    updated_at: Date;
+    deleted_at: Date | null;
+    product_type: { id: number | null; name: string | null; slug: string | null };
+    unit: { id: number | null; name: string | null; slug: string | null };
+    size: { id: number | null; size: number | null };
+    group_sort_priority: Prisma.Decimal | number | null;
+};
 
-    private static async getOrCreate(model: any, name: string | number): Promise<number> {
-        if (typeof name !== "string") return name as number;
+const EXPORT_MAX_ROWS = 50_000;
+const CLEAN_TX_TIMEOUT_MS = 60_000;
+const CLEAN_TX_MAX_WAIT_MS = 5_000;
+
+type WithDecimalFields = {
+    z_value: Prisma.Decimal | number;
+    distribution_percentage: Prisma.Decimal | number | null;
+    safety_percentage: Prisma.Decimal | number | null;
+};
+
+const SORT_COLUMN_MAP: { [key: string]: Prisma.Sql | undefined } = {
+    code: Prisma.sql`p.code`,
+    name: Prisma.sql`p.name`,
+    updated_at: Prisma.sql`p.updated_at`,
+    created_at: Prisma.sql`p.created_at`,
+    gender: Prisma.sql`p.gender`,
+    lead_time: Prisma.sql`p.lead_time`,
+    type: Prisma.sql`pt.name`,
+    size: Prisma.sql`ps.size`,
+    distribution_percentage: Prisma.sql`p.distribution_percentage`,
+    safety_percentage: Prisma.sql`p.safety_percentage`,
+};
+
+const FORECAST_DEFAULT_ORDER = Prisma.sql`
+    CASE WHEN pt.name ILIKE '%Display%' THEN 1 ELSE 0 END ASC,
+    group_sort_priority DESC,
+    p.name ASC,
+    CASE
+        WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+        WHEN pt.name ILIKE '%Atomizer%' THEN 2
+        ELSE 3
+    END ASC,
+    ps.size DESC NULLS LAST,
+    CASE
+        WHEN pt.name ILIKE '%EDP%' THEN 1
+        WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
+        ELSE 3
+    END ASC,
+    p.id ASC
+`;
+
+const PRODUCT_DETAIL_INCLUDE = {
+    product_type: true,
+    unit: true,
+    size: true,
+    product_inventories: { include: { warehouse: true } },
+    recipes: {
+        where: { is_active: true },
+        include: {
+            raw_materials: {
+                include: {
+                    unit_raw_material: true,
+                    supplier_materials: { where: { is_preferred: true }, take: 1 },
+                },
+            },
+        },
+    },
+} satisfies Prisma.ProductInclude;
+
+export class ProductService {
+    private static async getOrCreate(
+        model: UpsertBySlugDelegate,
+        name: string | number,
+    ): Promise<number> {
+        if (typeof name !== "string") return name;
 
         const formattedName = name.trim();
         const slug = normalizeSlug(formattedName);
 
-        // upsert is atomic — avoids race condition between concurrent creates with same slug
         const result = await model.upsert({
             where: { slug },
             update: {},
@@ -33,8 +118,10 @@ export class ProductService {
         return result.id;
     }
 
-    private static async getOrCreateSize(tx: any, size: number): Promise<number> {
-        // upsert is atomic — avoids race condition between concurrent creates with same size
+    private static async getOrCreateSize(
+        tx: Prisma.TransactionClient,
+        size: number,
+    ): Promise<number> {
         const result = await tx.productSize.upsert({
             where: { size },
             update: {},
@@ -44,81 +131,87 @@ export class ProductService {
         return result.id;
     }
 
-    // --- Core Methods ---
+    private static toResponseNumbers<T extends WithDecimalFields>(row: T) {
+        return {
+            ...row,
+            z_value: Number(row.z_value),
+            distribution_percentage: Number(row.distribution_percentage ?? 0),
+            safety_percentage: Number(row.safety_percentage ?? 0),
+        };
+    }
+
     static async create(body: RequestProductDTO) {
         const { code, product_type, unit, size, ...reqBody } = body;
 
-        const existing = await prisma.product.findUnique({ where: { code }, select: { id: true } });
-        if (existing) throw new ApiError(400, `Produk dengan kode: ${code} telah tersedia`);
+        try {
+            return await prisma.$transaction(async (tx) => {
+                const [type_id, unit_id, size_id] = await Promise.all([
+                    product_type ? this.getOrCreate(tx.productType, product_type) : null,
+                    unit ? this.getOrCreate(tx.unit, unit) : null,
+                    size ? this.getOrCreateSize(tx, size) : null,
+                ]);
 
-        return await prisma.$transaction(async (tx) => {
-            const [type_id, unit_id, size_id] = await Promise.all([
-                product_type ? this.getOrCreate(tx.productType, product_type) : null,
-                unit ? this.getOrCreate(tx.unit, unit) : null,
-                size ? this.getOrCreateSize(tx, size) : null,
-            ]);
+                const result = await tx.product.create({
+                    data: { ...reqBody, code, type_id, unit_id, size_id },
+                    include: { product_type: true, unit: true, size: true },
+                });
 
-            const result = await tx.product.create({
-                data: { ...reqBody, code, type_id, unit_id, size_id },
-                include: { product_type: true, unit: true, size: true },
+                return this.toResponseNumbers(result);
             });
-
-            return {
-                ...result,
-                z_value: Number(result.z_value),
-                distribution_percentage: Number(result.distribution_percentage),
-                safety_percentage: Number(result.safety_percentage),
-            };
-        });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+                throw new ApiError(400, `Produk dengan kode: ${code} telah tersedia`);
+            }
+            throw e;
+        }
     }
 
     static async update(id: number, body: Partial<RequestProductDTO>) {
-        const product = await prisma.product.findUnique({
-            where: { id },
-            select: { id: true, code: true, type_id: true, unit_id: true, size_id: true },
-        });
-        if (!product) throw new ApiError(404, "Produk tidak ditemukan");
-
         const { code, unit, product_type, size, ...reqBody } = body;
 
-        if (code && code !== product.code) {
-            const existing = await prisma.product.findUnique({
-                where: { code },
-                select: { id: true },
+        try {
+            return await prisma.$transaction(async (tx) => {
+                const [type_id, unit_id, size_id] = await Promise.all([
+                    product_type ? this.getOrCreate(tx.productType, product_type) : undefined,
+                    unit ? this.getOrCreate(tx.unit, unit) : undefined,
+                    size ? this.getOrCreateSize(tx, size) : undefined,
+                ]);
+
+                const result = await tx.product.update({
+                    where: { id },
+                    data: {
+                        ...reqBody,
+                        ...(code !== undefined && { code }),
+                        ...(type_id !== undefined && { type_id }),
+                        ...(unit_id !== undefined && { unit_id }),
+                        ...(size_id !== undefined && { size_id }),
+                    },
+                    include: { product_type: true, unit: true, size: true },
+                });
+
+                return this.toResponseNumbers(result);
             });
-            if (existing) throw new ApiError(400, "Kode Produk telah digunakan");
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError) {
+                if (e.code === "P2025") throw new ApiError(404, "Produk tidak ditemukan");
+                if (e.code === "P2002") throw new ApiError(400, "Kode Produk telah digunakan");
+            }
+            throw e;
         }
-
-        return await prisma.$transaction(async (tx) => {
-            const [type_id, unit_id, size_id] = await Promise.all([
-                product_type ? this.getOrCreate(tx.productType, product_type) : product.type_id,
-                unit ? this.getOrCreate(tx.unit, unit) : product.unit_id,
-                size ? this.getOrCreateSize(tx, size) : product.size_id,
-            ]);
-
-            const result = await tx.product.update({
-                where: { id },
-                data: { ...reqBody, code: code ?? product.code, type_id, unit_id, size_id },
-                include: { product_type: true, unit: true, size: true },
-            });
-
-            return {
-                ...result,
-                z_value: Number(result.z_value),
-                distribution_percentage: Number(result.distribution_percentage),
-                safety_percentage: Number(result.safety_percentage),
-            };
-        });
     }
 
     static async status(id: number, status: STATUS) {
-        const existing = await prisma.product.findUnique({ where: { id }, select: { id: true } });
-        if (!existing) throw new ApiError(404, `Produk dengan kode ${id} tidak ditemukan`);
-
-        await prisma.product.update({
-            where: { id },
-            data: { deleted_at: status === "DELETE" ? new Date() : null, status },
-        });
+        try {
+            await prisma.product.update({
+                where: { id },
+                data: { deleted_at: status === "DELETE" ? new Date() : null, status },
+            });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
+                throw new ApiError(404, `Produk dengan kode ${id} tidak ditemukan`);
+            }
+            throw e;
+        }
     }
 
     static async bulkStatus(ids: number[], status: STATUS) {
@@ -130,8 +223,33 @@ export class ProductService {
         });
     }
 
+    private static buildListWhere(query: QueryProductDTO): Prisma.ProductWhereInput {
+        const { gender, search, status, type_id, size_id } = query;
+        const where: Prisma.ProductWhereInput = {};
+        if (type_id) where.type_id = type_id;
+        if (size_id) where.size_id = size_id;
+        if (gender) where.gender = gender;
+        where.status = status ? status : { not: "DELETE" };
+        if (search) {
+            where.OR = [
+                { name: { contains: search, mode: "insensitive" } },
+                { code: { contains: search, mode: "insensitive" } },
+                { product_type: { name: { contains: search, mode: "insensitive" } } },
+            ];
+        }
+        return where;
+    }
+
     static async export(query: QueryProductDTO) {
-        const { data } = await this.list({ ...query, take: 1000000, page: 1 });
+        const total = await prisma.product.count({ where: this.buildListWhere(query) });
+        if (total > EXPORT_MAX_ROWS) {
+            throw new ApiError(
+                400,
+                `Data melebihi batas export ${EXPORT_MAX_ROWS.toLocaleString("id-ID")} baris. Persempit filter terlebih dahulu.`,
+            );
+        }
+
+        const { data } = await this.list({ ...query, take: EXPORT_MAX_ROWS, page: 1 });
 
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet("Data Produk");
@@ -139,25 +257,26 @@ export class ProductService {
         const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : [];
         const hasVisibility = visibleCols.length > 0;
 
+        // Round-trip columns (header = PRODUCT_IMPORT_HEADERS) WAJIB selalu di-export
+        // supaya hasil CSV bisa langsung di-import ulang tanpa header missing.
+        // Display-only columns (Lead Time / Nilai Z / Status) tunduk pada visibleColumns.
         const allColumns = [
-            { header: "No", key: "no", width: 5, id: "no" },
-            { header: "Kode", key: "code", width: 15, id: "code" },
-            { header: "Nama Produk", key: "name", width: 40, id: "name" },
-            { header: "Tipe", key: "type", width: 20, id: "type" },
-            { header: "Size", key: "size", width: 10, id: "size" },
-            { header: "Unit", key: "unit", width: 10, id: "unit" },
-            { header: "Gender", key: "gender", width: 15, id: "gender" },
-            { header: "Lead Time", key: "lead_time", width: 12, id: "lead_time" },
-            { header: "Nilai Z", key: "z_value", width: 10, id: "z_value" },
-            { header: "Distribusi %", key: "distribution", width: 15, id: "distribution_percentage" },
-            { header: "Safety %", key: "safety", width: 15, id: "safety_percentage" },
-            { header: "Status", key: "status", width: 15, id: "status" },
+            { header: "No", key: "no", width: 5, id: "no", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.code, key: "code", width: 15, id: "code", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.name, key: "name", width: 40, id: "name", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.type, key: "type", width: 20, id: "type", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.size, key: "size", width: 10, id: "size", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.unit, key: "unit", width: 10, id: "unit", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.gender, key: "gender", width: 15, id: "gender", required: true },
+            { header: "Lead Time", key: "lead_time", width: 12, id: "lead_time", required: false },
+            { header: "Nilai Z", key: "z_value", width: 10, id: "z_value", required: false },
+            { header: PRODUCT_IMPORT_HEADERS.distribution, key: "distribution", width: 15, id: "distribution_percentage", required: true },
+            { header: PRODUCT_IMPORT_HEADERS.safety, key: "safety", width: 15, id: "safety_percentage", required: true },
+            { header: "Status", key: "status", width: 15, id: "status", required: false },
         ];
 
-        // Filter columns if visibility is provided. 
-        // Always keep 'no', 'code', 'name' if not explicitly hidden or by default.
-        const filteredColumns = hasVisibility 
-            ? allColumns.filter(col => col.id === "no" || visibleCols.includes(col.id))
+        const filteredColumns = hasVisibility
+            ? allColumns.filter((col) => col.required || visibleCols.includes(col.id))
             : allColumns;
 
         sheet.columns = filteredColumns.map(({ header, key, width }) => ({ header, key, width }));
@@ -167,9 +286,9 @@ export class ProductService {
                 no: index + 1,
                 code: item.code || "-",
                 name: item.name,
-                type: (item.product_type as any)?.name || "-",
-                size: (item.size as any)?.size || "-",
-                unit: (item.unit as any)?.name || "-",
+                type: item.product_type?.name ?? "-",
+                size: item.size?.size ?? "-",
+                unit: item.unit?.name ?? "-",
                 gender: item.gender,
                 lead_time: item.lead_time,
                 z_value: item.z_value,
@@ -179,7 +298,6 @@ export class ProductService {
             });
         });
 
-        // Styling
         sheet.getRow(1).font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } };
         sheet.getRow(1).height = 25;
         sheet.getRow(1).fill = {
@@ -192,7 +310,7 @@ export class ProductService {
         return await workbook.csv.writeBuffer();
     }
 
-    static async clean() {
+    static async clean(): Promise<{ deleted: number }> {
         const products = await prisma.product.findMany({
             where: { deleted_at: { not: null } },
             select: { id: true },
@@ -201,21 +319,24 @@ export class ProductService {
         if (products.length === 0) throw new ApiError(400, "Tidak ada produk yang akan dihapus");
         const ids = products.map((p) => p.id);
 
-        await prisma.$transaction(async (tx) => {
-            // Delete related records in specific order
-            await tx.forecast.deleteMany({ where: { product_id: { in: ids } } });
-            await tx.outletInventory.deleteMany({ where: { product_id: { in: ids } } });
-            await tx.productInventory.deleteMany({ where: { product_id: { in: ids } } });
-            await tx.productIssuance.deleteMany({ where: { product_id: { in: ids } } });
-            await tx.recipes.deleteMany({ where: { product_id: { in: ids } } });
-            await tx.safetyStock.deleteMany({ where: { product_id: { in: ids } } });
-            await tx.stockTransferItem.deleteMany({ where: { product_id: { in: ids } } });
-            await tx.goodsReceiptItem.deleteMany({ where: { product_id: { in: ids } } });
-            await tx.stockReturnItem.deleteMany({ where: { product_id: { in: ids } } });
+        await prisma.$transaction(
+            async (tx) => {
+                await tx.forecast.deleteMany({ where: { product_id: { in: ids } } });
+                await tx.outletInventory.deleteMany({ where: { product_id: { in: ids } } });
+                await tx.productInventory.deleteMany({ where: { product_id: { in: ids } } });
+                await tx.productIssuance.deleteMany({ where: { product_id: { in: ids } } });
+                await tx.recipes.deleteMany({ where: { product_id: { in: ids } } });
+                await tx.safetyStock.deleteMany({ where: { product_id: { in: ids } } });
+                await tx.stockTransferItem.deleteMany({ where: { product_id: { in: ids } } });
+                await tx.goodsReceiptItem.deleteMany({ where: { product_id: { in: ids } } });
+                await tx.stockReturnItem.deleteMany({ where: { product_id: { in: ids } } });
 
-            // Finally delete products
-            await tx.product.deleteMany({ where: { id: { in: ids } } });
-        });
+                await tx.product.deleteMany({ where: { id: { in: ids } } });
+            },
+            { maxWait: CLEAN_TX_MAX_WAIT_MS, timeout: CLEAN_TX_TIMEOUT_MS },
+        );
+
+        return { deleted: ids.length };
     }
 
     static async list(
@@ -257,62 +378,19 @@ export class ProductService {
                 ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`
                 : Prisma.empty;
 
-        // Sorting mapping to avoid SQL injection
-        const allowedSort = [
-            "code",
-            "name",
-            "updated_at",
-            "created_at",
-            "gender",
-            "lead_time",
-            "type",
-            "size",
-            "distribution_percentage",
-            "safety_percentage",
-        ];
-        
-        let orderBy: any;
-        if (sortBy === "forecast_default") {
-            orderBy = Prisma.raw(`
-                CASE 
-                    WHEN pt.name ILIKE '%Display%' THEN 1
-                    ELSE 0
-                END ASC,
-                group_sort_priority DESC,
-                p.name ASC, 
-                CASE 
-                    WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
-                    WHEN pt.name ILIKE '%Atomizer%' THEN 2
-                    ELSE 3
-                END ASC,
-                ps.size DESC NULLS LAST,
-                CASE 
-                    WHEN pt.name ILIKE '%EDP%' THEN 1
-                    WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
-                    ELSE 3
-                END ASC,
-                p.id ASC
-            `);
-        } else if (allowedSort.includes(sortBy)) {
-            const direction = sortOrder.toUpperCase() === "ASC" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
-            if (sortBy === "type") {
-                orderBy = Prisma.sql`pt.name ${direction}`;
-            } else if (sortBy === "size") {
-                orderBy = Prisma.sql`ps.size ${direction}`;
-            } else if (sortBy === "name" || sortBy === "code") {
-                orderBy = Prisma.raw(`p.${sortBy} ${sortOrder.toUpperCase()}`);
-            } else {
-                orderBy = Prisma.raw(`p.${sortBy} ${sortOrder.toUpperCase()}`);
-            }
-        } else {
-            orderBy = Prisma.sql`p.updated_at DESC`;
-        }
+        const direction = sortOrder.toUpperCase() === "ASC" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+        const orderBy: Prisma.Sql = (() => {
+            if (sortBy === "forecast_default") return FORECAST_DEFAULT_ORDER;
+            const column = SORT_COLUMN_MAP[sortBy];
+            if (!column) return Prisma.sql`p.updated_at DESC`;
+            return Prisma.sql`${column} ${direction}`;
+        })();
 
         const currentMonth = new Date().getMonth() + 1;
         const currentYear = new Date().getFullYear();
 
-        const dataTask = prisma.$queryRaw<any[]>`
-            SELECT 
+        const dataTask = prisma.$queryRaw<ProductListRow[]>`
+            SELECT
                 p.*,
                 json_build_object('id', pt.id, 'name', pt.name, 'slug', pt.slug) as product_type,
                 json_build_object('id', u.id, 'name', u.name, 'slug', u.slug) as unit,
@@ -329,7 +407,7 @@ export class ProductService {
         `;
 
         const countTask = prisma.$queryRaw<[{ count: bigint }]>`
-            SELECT COUNT(*)::bigint FROM products p 
+            SELECT COUNT(*)::bigint FROM products p
             LEFT JOIN product_types pt ON p.type_id = pt.id
             ${whereClause}
         `;
@@ -338,59 +416,31 @@ export class ProductService {
 
         return {
             len: Number(countResult[0].count),
-            data: products.map((p) => ({
-                ...p,
-                z_value: Number(p.z_value),
-                distribution_percentage: Number(p.distribution_percentage),
-                safety_percentage: Number(p.safety_percentage),
-            })) as unknown as ResponseProductDTO[],
+            // reason: raw row carries FK columns + group_sort_priority consumed by frontend; preserve passthrough.
+            data: products.map((p) => this.toResponseNumbers(p)) as unknown as ResponseProductDTO[],
         };
     }
+
     static async detail(id: number): Promise<ResponseProductDTO> {
         const product = await prisma.product.findUnique({
             where: { id },
-            include: {
-                product_type: true,
-                unit: true,
-                size: true,
-                product_inventories: {
-                    include: {
-                        warehouse: true,
-                    },
-                },
-                recipes: {
-                    where: { is_active: true },
-                    include: {
-                        raw_materials: {
-                            include: {
-                                unit_raw_material: true,
-                                supplier_materials: {
-                                    where: { is_preferred: true },
-                                    take: 1,
-                                },
-                            },
-                        },
-                    },
-                },
-            },
+            include: PRODUCT_DETAIL_INCLUDE,
         });
-
         if (!product) throw new ApiError(404, "Produk tidak ditemukan");
 
-        // Map and transform Prisma result to DTO
+        return this.toDetailDTO(product);
+    }
+
+    private static toDetailDTO(
+        product: Prisma.ProductGetPayload<{ include: typeof PRODUCT_DETAIL_INCLUDE }>,
+    ): ResponseProductDTO {
         return {
-            ...product,
-            z_value: Number(product.z_value),
-            distribution_percentage: Number(product.distribution_percentage),
-            safety_percentage: Number(product.safety_percentage),
+            ...this.toResponseNumbers(product),
             product_inventories: product.product_inventories.map((i) => ({
                 id: i.id,
                 quantity: Number(i.quantity),
-                min_stock: i.min_stock ? Number(i.min_stock) : null,
-                warehouse: {
-                    id: i.warehouse.id,
-                    name: i.warehouse.name,
-                },
+                min_stock: i.min_stock != null ? Number(i.min_stock) : null,
+                warehouse: { id: i.warehouse.id, name: i.warehouse.name },
             })),
             recipes: product.recipes.map((r) => ({
                 id: r.id,
@@ -400,36 +450,11 @@ export class ProductService {
                 raw_material: {
                     id: r.raw_materials.id,
                     name: r.raw_materials.name,
-                    price: Number((r.raw_materials as any).supplier_materials?.[0]?.unit_price) || 0,
-                    unit_raw_material: {
-                        name: r.raw_materials.unit_raw_material.name,
-                    },
+                    price: Number(r.raw_materials.supplier_materials[0]?.unit_price ?? 0),
+                    unit_raw_material: { name: r.raw_materials.unit_raw_material.name },
                     current_stock: 0,
                 },
             })),
-        } as unknown as ResponseProductDTO;
+        };
     }
-
-    // static async redisProduct(): Promise<RedisProduct[]> {
-    //     const res = await prisma.$queryRaw<any[]>`
-    //         SELECT
-    //             p.id, p.name, p.code,
-    //             ps.size as size_val,
-    //             u.name as unit_name,
-    //             pt.name as type_name
-    //         FROM products p
-    //         LEFT JOIN product_size ps ON p.size_id = ps.id
-    //         LEFT JOIN unit_of_materials u ON p.unit_id = u.id
-    //         LEFT JOIN product_types pt ON p.type_id = pt.id
-    //         WHERE p.status NOT IN ('DELETE', 'PENDING')
-    //     `;
-
-    //     return res.map((r) => ({
-    //         id: r.id,
-    //         code: r.code,
-    //         name: r.name,
-    //         size: `${r.size_val ?? ""}${r.unit_name ?? ""}`,
-    //         type: r.type_name,
-    //     }));
-    // }
 }

@@ -119,7 +119,7 @@ describe("StockTransferService", () => {
             // @ts-ignore
             prisma.stockTransferItem.update.mockResolvedValue(true);
             // @ts-ignore
-            prisma.outletInventory.findUnique.mockResolvedValue(null);
+            prisma.outletInventory.findMany.mockResolvedValue([]);
             // @ts-ignore
             prisma.outletInventory.create.mockResolvedValue(true);
             // @ts-ignore
@@ -134,10 +134,13 @@ describe("StockTransferService", () => {
 
             const result = await StockTransferService.updateStatus(1, payload as any);
             expect(result.status).toBe(TransferStatus.COMPLETED);
-            
+
+            const nowMonth = new Date().getMonth() + 1;
+            const nowYear  = new Date().getFullYear();
+
             // @ts-ignore
             expect(prisma.outletInventory.create).toHaveBeenCalledWith(
-                expect.objectContaining({ data: { outlet_id: 5, product_id: 1, quantity: 50 } })
+                expect.objectContaining({ data: { outlet_id: 5, product_id: 1, quantity: 50, month: nowMonth, year: nowYear } })
             );
         });
 

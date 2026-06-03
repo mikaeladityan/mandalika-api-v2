@@ -1,5 +1,5 @@
 import z from "zod";
-import { GENDER, STATUS } from "../../../../generated/prisma/enums.js";
+import { GENDER, STATUS, WarehouseType, OutletType } from "../../../../generated/prisma/enums.js";
 
 export const RequestFGSchema = z.object({
     code: z.string().max(100).regex(/^\S+$/, { message: "Gunakan '_' (underscore) untuk spasi" }),
@@ -13,7 +13,6 @@ export const RequestFGSchema = z.object({
     z_value: z.number().default(1.65),
     lead_time: z.number().int().min(1).default(14),
     review_period: z.number().int().min(1).default(30),
-    unit: z.string().nullable().optional(),
     product_type: z.string().nullable().optional(),
     distribution_percentage: z.coerce.number().min(0).default(0).optional(),
     safety_percentage: z.coerce.number().min(0).default(0).optional(),
@@ -24,7 +23,6 @@ export const ResponseFGSchema = RequestFGSchema.extend({
     id: z.number(),
     gender: z.enum(GENDER).default("UNISEX"),
     size: z.string("Ukuran tidak boleh kosong"),
-    unit: z.string().nullable().optional(),
     product_type: z.string().nullable().optional(),
     created_at: z.date(),
     updated_at: z.date(),
@@ -37,7 +35,7 @@ export const QueryFGSchema = z.object({
     gender: z.enum(GENDER).optional(),
 
     page: z.coerce.number().int().positive().default(1).optional(),
-    take: z.coerce.number().int().positive().max(100).default(25).optional(),
+    take: z.coerce.number().int().positive().max(500).default(25).optional(),
 
     search: z.string().optional(),
     status: z.enum(STATUS).optional(),
@@ -65,19 +63,67 @@ export const StatusParamFGSchema = z.object({
     status: z.enum(STATUS),
 });
 
-export const FGLookupItemSchema = z.object({
+// --- Detail response (extends list shape dengan relasi recipes + stocks) ---
+
+export const FGRecipeItemSchema = z.object({
     id: z.number(),
-    code: z.string(),
-    name: z.string(),
-    gender: z.enum(GENDER),
-    size: z.string(),
-    unit: z.string().nullable(),
-    product_type: z.string().nullable(),
+    quantity: z.number(),
+    version: z.number(),
+    is_active: z.boolean(),
+    raw_material: z.object({
+        id: z.number(),
+        name: z.string(),
+        unit: z.string().nullable(),
+        preferred_unit_price: z.number().nullable(),
+    }),
 });
-export const FGLookupSchema = z.array(FGLookupItemSchema);
+
+export const FGWarehouseStockSchema = z.object({
+    quantity: z.number(),
+    min_stock: z.number().nullable(),
+    warehouse: z.object({
+        id: z.number(),
+        name: z.string(),
+        code: z.string().nullable(),
+        type: z.enum(WarehouseType),
+    }),
+});
+
+export const FGOutletStockSchema = z.object({
+    quantity: z.number(),
+    min_stock: z.number().nullable(),
+    outlet: z.object({
+        id: z.number(),
+        name: z.string(),
+        code: z.string(),
+        type: z.enum(OutletType),
+    }),
+});
+
+export const FGLatestPeriodSchema = z.object({
+    year: z.number(),
+    month: z.number(),
+    date: z.number(),
+});
+
+export const FGStockSchema = z.object({
+    latest_period: FGLatestPeriodSchema.nullable(),
+    warehouse_stocks: z.array(FGWarehouseStockSchema),
+    outlet_stocks: z.array(FGOutletStockSchema),
+});
+
+export const ResponseFGDetailSchema = ResponseFGSchema.extend({
+    recipes: z.array(FGRecipeItemSchema),
+    stock: FGStockSchema,
+});
 
 export type RequestFGDTO = z.infer<typeof RequestFGSchema>;
 export type ResponseFGDTO = z.infer<typeof ResponseFGSchema>;
+export type ResponseFGDetailDTO = z.infer<typeof ResponseFGDetailSchema>;
+export type FGRecipeItemDTO = z.infer<typeof FGRecipeItemSchema>;
+export type FGWarehouseStockDTO = z.infer<typeof FGWarehouseStockSchema>;
+export type FGOutletStockDTO = z.infer<typeof FGOutletStockSchema>;
+export type FGLatestPeriodDTO = z.infer<typeof FGLatestPeriodSchema>;
+export type FGStockDTO = z.infer<typeof FGStockSchema>;
 export type QueryFGDTO = z.infer<typeof QueryFGSchema>;
 export type BulkStatusFGDTO = z.infer<typeof BulkStatusFGSchema>;
-export type FGLookupDTO = z.infer<typeof FGLookupItemSchema>;

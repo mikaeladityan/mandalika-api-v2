@@ -4,7 +4,7 @@ export const JournalStatusEnum = z.enum(["DRAFT", "POSTED"]);
 
 export const QueryJournalSchema = z.object({
     page: z.coerce.number().min(1).default(1),
-    take: z.coerce.number().min(1).max(200).default(50),
+    take: z.coerce.number().min(1).max(500).default(50),
     search: z.string().optional(),
     status: JournalStatusEnum.optional(),
     source: z.string().optional(),

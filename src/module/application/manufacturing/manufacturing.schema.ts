@@ -71,7 +71,7 @@ export type RequestQcActionDTO = z.infer<typeof RequestQcActionSchema>;
 
 export const QueryProductionSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),
-    take: z.coerce.number().int().positive().max(100).default(10).optional(),
+    take: z.coerce.number().int().positive().max(500).default(10).optional(),
     sortBy: z.enum(["created_at", "mfg_number", "target_date"]).default("created_at").optional(),
     sortOrder: z.enum(["asc", "desc"]).default("desc").optional(),
     search: z.string().optional(),
@@ -96,7 +96,7 @@ export type RequestUpdateProductionDTO = z.infer<typeof RequestUpdateProductionS
 
 export const QueryWasteSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),
-    take: z.coerce.number().int().positive().max(100).default(10).optional(),
+    take: z.coerce.number().int().positive().max(500).default(10).optional(),
     waste_type: z.string().optional(),
     search: z.string().optional(),
 });

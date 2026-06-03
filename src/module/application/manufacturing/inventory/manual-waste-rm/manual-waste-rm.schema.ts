@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const QueryManualWasteRMSchema = z.object({
     page: z.coerce.number().int().positive().default(1).optional(),
-    take: z.coerce.number().int().positive().max(100).default(10).optional(),
+    take: z.coerce.number().int().positive().max(500).default(10).optional(),
     search: z.string().optional(),
     status: z.enum(["ACTIVE", "RETURNED"]).optional(),
     fromDate: z.string().optional(),

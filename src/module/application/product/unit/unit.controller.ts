@@ -4,6 +4,13 @@ import { ApiResponse } from "../../../../lib/api.response.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { QueryUnitDTO } from "./unit.schema.js";
 
+function parseId(raw: string | undefined): number {
+    if (!raw) throw new ApiError(400, "ID wajib dilampirkan");
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0) throw new ApiError(400, "ID tidak valid");
+    return id;
+}
+
 export class UnitController {
     static async create(c: Context) {
         const body = c.get("body");
@@ -25,19 +32,17 @@ export class UnitController {
     }
 
     static async update(c: Context) {
-        const id = c.req.param("id");
-        if (!id) throw new ApiError(400, "ID wajib dilampirkan");
-
+        const id = parseId(c.req.param("id"));
         const body = c.get("body");
-        const result = await UnitService.update(Number(id), body);
-        return ApiResponse.sendSuccess(c, result, 201);
+
+        const result = await UnitService.update(id, body);
+        return ApiResponse.sendSuccess(c, result, 200);
     }
 
     static async delete(c: Context) {
-        const id = c.req.param("id");
-        if (!id) throw new ApiError(400, "ID wajib dilampirkan");
+        const id = parseId(c.req.param("id"));
 
-        await UnitService.delete(Number(id));
+        await UnitService.delete(id);
         return ApiResponse.sendSuccess(c, {}, 200);
     }
 }

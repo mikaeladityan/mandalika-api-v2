@@ -15,7 +15,6 @@ const makeFGBody = (overrides: Partial<RequestFGDTO> = {}): RequestFGDTO => ({
     z_value: 1.65,
     lead_time: 14,
     review_period: 30,
-    unit: "ml",
     product_type: "Parfum",
     distribution_percentage: 0,
     safety_percentage: 0,
@@ -154,7 +153,6 @@ describe("FGService", () => {
                     distribution_percentage: "0.5",
                     safety_percentage: "0.1",
                     product_type: { id: 1, name: "Parfum", slug: "parfum" },
-                    unit: { id: 1, name: "ml", slug: "ml" },
                     size: { id: 1, size: 100 },
                 } as never,
             ]);
@@ -166,7 +164,7 @@ describe("FGService", () => {
             expect(result.len).toBe(1);
             expect(result.data[0]?.z_value).toBe(1.65);
             expect(result.data[0]?.product_type).toBe("Parfum");
-            expect(result.data[0]?.size).toBe("100ml");
+            expect(result.data[0]?.size).toBe("100 ML");
         });
 
         it("filter status default ke != DELETE saat status undefined", async () => {
@@ -186,82 +184,191 @@ describe("FGService", () => {
     });
 
     describe("detail", () => {
+        const baseProduct = {
+            id: 1,
+            code: "FG_001",
+            name: "FG One",
+            z_value: "1.65",
+            distribution_percentage: "0.5",
+            safety_percentage: "0.1",
+            product_type: { id: 1, name: "Parfum", slug: "parfum" },
+            size: { id: 1, size: 100 },
+        } as never;
+
         it("throws 404 jika produk tidak ditemukan", async () => {
             vi.mocked(prisma.product.findUnique).mockResolvedValueOnce(null);
+            vi.mocked(prisma.productInventory.findFirst).mockResolvedValueOnce(null);
+            vi.mocked(prisma.recipes.findMany).mockResolvedValueOnce([] as never);
+            vi.mocked(prisma.outletInventory.findMany).mockResolvedValueOnce([] as never);
 
             await expect(FGService.detail(999)).rejects.toBeInstanceOf(ApiError);
         });
 
-        it("flatten size/unit/product_type ke string", async () => {
-            vi.mocked(prisma.product.findUnique).mockResolvedValueOnce({
-                id: 1,
-                code: "FG_001",
-                name: "FG One",
-                z_value: "1.65",
-                distribution_percentage: "0.5",
-                safety_percentage: "0.1",
-                product_type: { id: 1, name: "Parfum", slug: "parfum" },
-                unit: { id: 1, name: "ml", slug: "ml" },
-                size: { id: 1, size: 100 },
-                product_inventories: [],
-                recipes: [],
-            } as never);
+        it("flatten size/unit/product_type ke string + arrays kosong saat tidak ada relasi", async () => {
+            vi.mocked(prisma.product.findUnique).mockResolvedValueOnce(baseProduct);
+            vi.mocked(prisma.productInventory.findFirst).mockResolvedValueOnce(null);
+            vi.mocked(prisma.recipes.findMany).mockResolvedValueOnce([] as never);
+            vi.mocked(prisma.outletInventory.findMany).mockResolvedValueOnce([] as never);
 
             const result = await FGService.detail(1);
 
-            expect(result.size).toBe("100ml");
-            expect(result.unit).toBe("ml");
+            expect(result.size).toBe("100 ML");
             expect(result.product_type).toBe("Parfum");
             expect(typeof result.z_value).toBe("number");
-        });
-    });
-
-    describe("lookup", () => {
-        it("returns flat shape (id/code/name/gender/size/unit/product_type)", async () => {
-            vi.mocked(prisma.product.findMany).mockResolvedValueOnce([
-                {
-                    id: 1,
-                    code: "FG_001",
-                    name: "FG One",
-                    gender: "UNISEX",
-                    size: { size: 100 },
-                    unit: { name: "ml" },
-                    product_type: { name: "Parfum" },
-                } as never,
-            ]);
-
-            const result = await FGService.lookup();
-
-            expect(result).toHaveLength(1);
-            expect(result[0]).toEqual({
-                id: 1,
-                code: "FG_001",
-                name: "FG One",
-                gender: "UNISEX",
-                size: "100ml",
-                unit: "ml",
-                product_type: "Parfum",
+            expect(result.recipes).toEqual([]);
+            expect(result.stock).toEqual({
+                latest_period: null,
+                warehouse_stocks: [],
+                outlet_stocks: [],
             });
         });
 
-        it("handle null relations dengan fallback string kosong/null", async () => {
-            vi.mocked(prisma.product.findMany).mockResolvedValueOnce([
+        it("map recipe aktif: quantity Decimal→Number + preferred supplier price", async () => {
+            vi.mocked(prisma.product.findUnique).mockResolvedValueOnce(baseProduct);
+            vi.mocked(prisma.productInventory.findFirst).mockResolvedValueOnce(null);
+            vi.mocked(prisma.recipes.findMany).mockResolvedValueOnce([
                 {
-                    id: 2,
-                    code: "FG_002",
-                    name: "FG No Relations",
-                    gender: "UNISEX",
-                    size: null,
-                    unit: null,
-                    product_type: null,
-                } as never,
-            ]);
+                    id: 11,
+                    quantity: "2.5",
+                    version: 3,
+                    is_active: true,
+                    raw_materials: {
+                        id: 50,
+                        name: "Citrus Burst",
+                        unit_raw_material: { name: "ML" },
+                        supplier_materials: [{ unit_price: "12500.00" }],
+                    },
+                },
+            ] as never);
+            vi.mocked(prisma.outletInventory.findMany).mockResolvedValueOnce([] as never);
 
-            const result = await FGService.lookup();
+            const result = await FGService.detail(1);
 
-            expect(result[0]?.size).toBe("");
-            expect(result[0]?.unit).toBeNull();
-            expect(result[0]?.product_type).toBeNull();
+            expect(result.recipes).toHaveLength(1);
+            expect(result.recipes[0]).toMatchObject({
+                id: 11,
+                quantity: 2.5,
+                version: 3,
+                is_active: true,
+                raw_material: {
+                    id: 50,
+                    name: "Citrus Burst",
+                    unit: "ML",
+                    preferred_unit_price: 12500,
+                },
+            });
+        });
+
+        it("recipe tanpa preferred supplier → preferred_unit_price null", async () => {
+            vi.mocked(prisma.product.findUnique).mockResolvedValueOnce(baseProduct);
+            vi.mocked(prisma.productInventory.findFirst).mockResolvedValueOnce(null);
+            vi.mocked(prisma.recipes.findMany).mockResolvedValueOnce([
+                {
+                    id: 12,
+                    quantity: "1.00",
+                    version: 1,
+                    is_active: true,
+                    raw_materials: {
+                        id: 51,
+                        name: "Bottle 110ml",
+                        unit_raw_material: { name: "PCS" },
+                        supplier_materials: [],
+                    },
+                },
+            ] as never);
+            vi.mocked(prisma.outletInventory.findMany).mockResolvedValueOnce([] as never);
+
+            const result = await FGService.detail(1);
+
+            expect(result.recipes[0]?.raw_material.preferred_unit_price).toBeNull();
+        });
+
+        it("filter recipes hanya is_active=true (passed ke where Prisma)", async () => {
+            vi.mocked(prisma.product.findUnique).mockResolvedValueOnce(baseProduct);
+            vi.mocked(prisma.productInventory.findFirst).mockResolvedValueOnce(null);
+            vi.mocked(prisma.recipes.findMany).mockResolvedValueOnce([] as never);
+            vi.mocked(prisma.outletInventory.findMany).mockResolvedValueOnce([] as never);
+
+            await FGService.detail(1);
+
+            const recipesCall = vi.mocked(prisma.recipes.findMany).mock.calls[0]?.[0];
+            expect(recipesCall?.where).toMatchObject({ product_id: 1, is_active: true });
+        });
+
+        it("warehouse_stocks: query findMany dipanggil dengan period terbaru", async () => {
+            vi.mocked(prisma.product.findUnique).mockResolvedValueOnce(baseProduct);
+            vi.mocked(prisma.productInventory.findFirst).mockResolvedValueOnce({
+                year: 2026,
+                month: 5,
+                date: 19,
+            } as never);
+            vi.mocked(prisma.recipes.findMany).mockResolvedValueOnce([] as never);
+            vi.mocked(prisma.outletInventory.findMany).mockResolvedValueOnce([] as never);
+            vi.mocked(prisma.productInventory.findMany).mockResolvedValueOnce([
+                {
+                    quantity: "120.00",
+                    min_stock: "50.00",
+                    warehouse: { id: 1, name: "Gudang Pusat", code: "WH-01", type: "FINISH_GOODS" },
+                },
+            ] as never);
+
+            const result = await FGService.detail(1);
+
+            const stockCall = vi.mocked(prisma.productInventory.findMany).mock.calls[0]?.[0];
+            expect(stockCall?.where).toMatchObject({
+                product_id: 1,
+                year: 2026,
+                month: 5,
+                date: 19,
+            });
+            expect(result.stock.latest_period).toEqual({ year: 2026, month: 5, date: 19 });
+            expect(result.stock.warehouse_stocks).toHaveLength(1);
+            expect(result.stock.warehouse_stocks[0]).toMatchObject({
+                quantity: 120,
+                min_stock: 50,
+                warehouse: { id: 1, name: "Gudang Pusat", code: "WH-01", type: "FINISH_GOODS" },
+            });
+        });
+
+        it("warehouse_stocks: skip query findMany jika tidak ada period (latestPeriod=null)", async () => {
+            vi.mocked(prisma.product.findUnique).mockResolvedValueOnce(baseProduct);
+            vi.mocked(prisma.productInventory.findFirst).mockResolvedValueOnce(null);
+            vi.mocked(prisma.recipes.findMany).mockResolvedValueOnce([] as never);
+            vi.mocked(prisma.outletInventory.findMany).mockResolvedValueOnce([] as never);
+            const stockSpy = vi.mocked(prisma.productInventory.findMany).mockClear();
+
+            const result = await FGService.detail(1);
+
+            expect(stockSpy).not.toHaveBeenCalled();
+            expect(result.stock.warehouse_stocks).toEqual([]);
+            expect(result.stock.latest_period).toBeNull();
+        });
+
+        it("outlet_stocks: filter outlet.deleted_at = null", async () => {
+            vi.mocked(prisma.product.findUnique).mockResolvedValueOnce(baseProduct);
+            vi.mocked(prisma.productInventory.findFirst).mockResolvedValueOnce(null);
+            vi.mocked(prisma.recipes.findMany).mockResolvedValueOnce([] as never);
+            vi.mocked(prisma.outletInventory.findMany).mockResolvedValueOnce([
+                {
+                    quantity: "40.00",
+                    min_stock: null,
+                    outlet: { id: 7, name: "Outlet Sudirman", code: "OUT-SDR", type: "RETAIL" },
+                },
+            ] as never);
+
+            const result = await FGService.detail(1);
+
+            const outletCall = vi.mocked(prisma.outletInventory.findMany).mock.calls[0]?.[0];
+            expect(outletCall?.where).toMatchObject({
+                product_id: 1,
+                outlet: { deleted_at: null },
+            });
+            expect(result.stock.outlet_stocks).toHaveLength(1);
+            expect(result.stock.outlet_stocks[0]).toMatchObject({
+                quantity: 40,
+                min_stock: null,
+                outlet: { id: 7, name: "Outlet Sudirman", code: "OUT-SDR", type: "RETAIL" },
+            });
         });
     });
 
@@ -287,7 +394,6 @@ describe("FGService", () => {
                     safety_percentage: "0.1",
                     lead_time: 14,
                     product_type: { id: 1, name: "Parfum", slug: "parfum" },
-                    unit: { id: 1, name: "ml", slug: "ml" },
                     size: { id: 1, size: 100 },
                 } as never,
             ]);

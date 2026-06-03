@@ -88,14 +88,14 @@ CSRF=$(grep csrf cookie.txt | awk '{print $7}')
 curl -X POST https://api.../api/auth/ \
   -b cookie.txt -c cookie.txt \
   -H "Content-Type: application/json" \
-  -H "x-csrf-token: $CSRF" \
+  -H "x-xsrf-header: $CSRF" \
   -d '{"email":"a@b.com","password":"Aa1@safe","remember":true}'
 
 # 4. Get current account
 curl -b cookie.txt https://api.../api/auth/
 
 # 5. Logout
-curl -X DELETE -b cookie.txt -H "x-csrf-token: $CSRF" https://api.../api/auth/
+curl -X DELETE -b cookie.txt -H "x-xsrf-header: $CSRF" https://api.../api/auth/
 ```
 
 ---

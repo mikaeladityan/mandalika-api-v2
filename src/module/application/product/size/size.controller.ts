@@ -4,6 +4,13 @@ import { ApiResponse } from "../../../../lib/api.response.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { QuerySizeDTO } from "./size.schema.js";
 
+function parseId(raw: string | undefined): number {
+    if (!raw) throw new ApiError(400, "ID wajib dilampirkan");
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0) throw new ApiError(400, "ID tidak valid");
+    return id;
+}
+
 export class ProductSizeController {
     static async create(c: Context) {
         const body = c.get("body");
@@ -25,19 +32,17 @@ export class ProductSizeController {
     }
 
     static async update(c: Context) {
-        const id = c.req.param("id");
-        if (!id) throw new ApiError(400, "ID wajib dilampirkan");
-
+        const id = parseId(c.req.param("id"));
         const body = c.get("body");
-        const result = await ProductSizeService.update(Number(id), body);
-        return ApiResponse.sendSuccess(c, result, 201);
+
+        const result = await ProductSizeService.update(id, body);
+        return ApiResponse.sendSuccess(c, result, 200);
     }
 
     static async delete(c: Context) {
-        const id = c.req.param("id");
-        if (!id) throw new ApiError(400, "ID wajib dilampirkan");
+        const id = parseId(c.req.param("id"));
 
-        await ProductSizeService.delete(Number(id));
+        await ProductSizeService.delete(id);
         return ApiResponse.sendSuccess(c, {}, 200);
     }
 }

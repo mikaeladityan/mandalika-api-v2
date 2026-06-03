@@ -4,6 +4,7 @@ import { RequestStockTransferDTO, QueryStockTransferDTO, RequestUpdateStockTrans
 import { TransferStatus, MovementType, MovementEntityType, MovementRefType } from "../../../generated/prisma/client.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
+import { InventoryHelper } from "../shared/inventory.helper.js";
 
 function generateTransferNumber() {
     const date = new Date();
@@ -240,23 +241,32 @@ export class StockTransferService {
     }
 
     private static async deductOutletInventory(tx: any, outlet_id: number, items: any[], transfer_id: number, userId: string) {
+        const { month, year } = InventoryHelper.getCurrentInventoryPeriod();
+
         for (const item of items) {
             const deductAmount = Number(item.quantity_packed || item.quantity_requested);
-            const oi = await tx.outletInventory.findUnique({
-                where: { outlet_id_product_id: { outlet_id, product_id: item.product_id } }
-            });
 
-            if (!oi || Number(oi.quantity) < deductAmount) {
+            const latest = (await tx.outletInventory.findMany({
+                where: { outlet_id, product_id: item.product_id },
+                orderBy: [{ year: 'desc' }, { month: 'desc' }],
+                take: 1,
+            }))[0] ?? null;
+
+            const qty_before = latest ? Number(latest.quantity) : 0;
+            if (qty_before < deductAmount) {
                 throw new ApiError(400, `Insufficient stock in Outlet for product ${item.product_id}`);
             }
 
-            const qty_before = Number(oi.quantity);
             const qty_after = qty_before - deductAmount;
+            const isCurrentPeriod = latest?.month === month && latest?.year === year;
 
-            await tx.outletInventory.update({
-                where: { id: oi.id },
-                data: { quantity: qty_after }
-            });
+            if (isCurrentPeriod) {
+                await tx.outletInventory.update({ where: { id: latest.id }, data: { quantity: qty_after } });
+            } else {
+                await tx.outletInventory.create({
+                    data: { outlet_id, product_id: item.product_id, quantity: qty_after, month, year },
+                });
+            }
 
             await tx.stockMovement.create({
                 data: {
@@ -325,30 +335,28 @@ export class StockTransferService {
     }
 
     private static async addOutletInventory(tx: any, outlet_id: number, items: any[], transfer_id: number, userId: string) {
+        const { month, year } = InventoryHelper.getCurrentInventoryPeriod();
+
         for (const item of items) {
             const addAmount = Number(item.quantity_fulfilled);
-            let oi = await tx.outletInventory.findUnique({
-                where: { outlet_id_product_id: { outlet_id, product_id: item.product_id } }
-            });
-            
-            let qty_before = oi ? Number(oi.quantity) : 0;
-            
-            if (oi) {
-                await tx.outletInventory.update({
-                    where: { id: oi.id },
-                    data: { quantity: qty_before + addAmount }
-                });
+
+            const latest = (await tx.outletInventory.findMany({
+                where: { outlet_id, product_id: item.product_id },
+                orderBy: [{ year: 'desc' }, { month: 'desc' }],
+                take: 1,
+            }))[0] ?? null;
+
+            const qty_before = latest ? Number(latest.quantity) : 0;
+            const qty_after = qty_before + addAmount;
+            const isCurrentPeriod = latest?.month === month && latest?.year === year;
+
+            if (isCurrentPeriod) {
+                await tx.outletInventory.update({ where: { id: latest.id }, data: { quantity: qty_after } });
             } else {
                 await tx.outletInventory.create({
-                    data: {
-                        outlet_id,
-                        product_id: item.product_id,
-                        quantity: addAmount
-                    }
+                    data: { outlet_id, product_id: item.product_id, quantity: qty_after, month, year },
                 });
             }
-
-            const qty_after = qty_before + addAmount;
 
             await tx.stockMovement.create({
                 data: {

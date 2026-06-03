@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { validateBody } from "../../../middleware/validation.js";
 import { ForecastPercentageRoutes } from "./percentages/percentages.routes.js";
+import { ForecastAccuracyRoutes } from "./accuracy/accuracy.routes.js";
 import { ForecastController } from "./forecast.controller.js";
 import {
     DeleteForecastByPeriodSchema,
@@ -12,6 +13,7 @@ import {
 export const ForecastRoutes = new Hono();
 
 ForecastRoutes.route("/forecast-percentages", ForecastPercentageRoutes);
+ForecastRoutes.route("/accuracy", ForecastAccuracyRoutes);
 
 // Static routes (must be before /:product_id / /:id)
 ForecastRoutes.post("/run", validateBody(RunForecastSchema), ForecastController.run);

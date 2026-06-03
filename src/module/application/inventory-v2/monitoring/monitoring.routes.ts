@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import StockTotalRoutes   from "./stock-total/stock-total.routes.js";
-import StockCardRoutes    from "./stock-card/stock-card.routes.js";
+import StockTotalRoutes    from "./stock-total/stock-total.routes.js";
+import StockCardRoutes     from "./stock-card/stock-card.routes.js";
 import StockLocationRoutes from "./stock-location/stock-location.routes.js";
 import DiscrepancyRoutes   from "./discrepancy/discrepancy.routes.js";
 

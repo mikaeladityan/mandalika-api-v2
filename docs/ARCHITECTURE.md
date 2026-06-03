@@ -87,7 +87,7 @@ Eksekusi top-down di `app.ts`:
 8.  sanitizer                          # strip XSS
 9.  rateLimiter                        # Redis token bucket (skip /health /metrics /csrf)
 10. sessionMiddleware                  # resolve session cookie → c.set(session cookie name)
-11. csrfMiddleware                     # validate x-csrf-token vs Redis (exempt GET/HEAD/OPTIONS + /csrf + /health)
+11. csrfMiddleware                     # validate x-xsrf-header vs Redis (exempt GET/HEAD/OPTIONS + /csrf + /health)
 12. /health, /csrf, /api/*             # routing
 13. app.notFound                       # 404 JSON
 ```

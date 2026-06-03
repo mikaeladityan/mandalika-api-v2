@@ -43,7 +43,7 @@ export const ResponseWarehouseSchema = RequestWarehouseSchema.pick({
 export const QueryWarehouseSchema = z.object({
     page: z.number().int().positive().default(1).optional(),
     type: z.enum(WarehouseType).optional(),
-    take: z.number().int().positive().max(100).default(25).optional(),
+    take: z.number().int().positive().max(500).default(25).optional(),
     search: z.string().optional(),
     month: z.coerce.number().int().min(1).max(12).optional(),
     year: z.coerce.number().int().min(2000).optional(),

@@ -413,8 +413,9 @@ export class DOService {
         }
 
         if (outlet_id) {
-            const oi = await prisma.outletInventory.findUnique({
-                where: { outlet_id_product_id: { outlet_id, product_id: Number(product_id) } },
+            const oi = await prisma.outletInventory.findFirst({
+                where: { outlet_id, product_id: Number(product_id) },
+                orderBy: [{ year: "desc" }, { month: "desc" }],
             });
             return Number(oi?.quantity ?? 0);
         }
