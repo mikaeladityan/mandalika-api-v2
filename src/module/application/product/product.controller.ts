@@ -133,4 +133,10 @@ export class ProductController {
 
         return ApiResponse.sendSuccess(c, result, 200);
     }
+
+    static async resync(c: Context) {
+        const id = parseId(c.req.param("id"));
+        const result = await ProductService.resync(id);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
 }

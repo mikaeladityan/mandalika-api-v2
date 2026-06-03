@@ -250,6 +250,25 @@ export class ProductService {
         }
     }
 
+    static async resync(id: number) {
+        const product = await prisma.product.findUnique({
+            where: { id },
+            select: { id: true, code: true, deleted_at: true },
+        });
+        if (!product) throw new ApiError(404, `Produk dengan id ${id} tidak ditemukan`);
+
+        if (product.deleted_at !== null) {
+            await enqueueProductSheetSync({
+                action: "delete",
+                productId: product.id,
+                code: product.code ?? "",
+            });
+        } else {
+            await enqueueProductSheetSync({ action: "upsert", productId: product.id });
+        }
+        return { message: "Sync ulang dijadwalkan" };
+    }
+
     private static buildListWhere(query: QueryProductDTO): Prisma.ProductWhereInput {
         const { gender, search, status, type_id, size_id } = query;
         const where: Prisma.ProductWhereInput = {};

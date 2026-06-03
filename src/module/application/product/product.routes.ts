@@ -18,6 +18,7 @@ ProductRoutes.route("/sizes", SizeRoutes);
 // -- Main
 ProductRoutes.get("/export", ProductController.export);
 ProductRoutes.patch("/status/:id", ProductController.status);
+ProductRoutes.post("/:id/resync", ProductController.resync);
 ProductRoutes.delete("/clean", ProductController.clean);
 
 ProductRoutes.put("/:id", validateBody(UpdateProductSchema), ProductController.update);
