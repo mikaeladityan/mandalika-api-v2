@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { productToRow } from "../../module/application/product/sheet/product-sheet.mapper.js";
-import { PRODUCT_IMPORT_HEADERS } from "../../module/application/product/import/import.schema.js";
 
 describe("productToRow", () => {
     const baseProduct = {
@@ -15,9 +14,12 @@ describe("productToRow", () => {
         size: { size: 100 },
     };
 
-    it("returns 8 cells in PRODUCT_IMPORT_HEADERS order", () => {
+    // Sheet column layout B–I (column A reserved for external UID):
+    //   B: CODE | C: SAFETY % | D: NAME | E: TYPE | F: GENDER |
+    //   G: SIZE | H: UOM | I: DISTRIBUTION %
+    it("returns 8 cells matching the FG sheet column order (B–I)", () => {
         const row = productToRow(baseProduct as never);
-        expect(row).toEqual(["EDP-AZUR-100", "AZURE", "EDP", "UNISEX", "100", "pcs", "50", "25"]);
+        expect(row).toEqual(["EDP-AZUR-100", "25", "AZURE", "EDP", "UNISEX", "100", "pcs", "50"]);
         expect(row).toHaveLength(8);
     });
 
@@ -28,37 +30,24 @@ describe("productToRow", () => {
             unit: null,
             size: null,
         } as never);
-        expect(row[2]).toBe("");
-        expect(row[4]).toBe("");
+        // Indices: 3=TYPE, 5=SIZE (was 'size'), 6=UOM (was 'unit')
+        expect(row[3]).toBe("");
         expect(row[5]).toBe("");
+        expect(row[6]).toBe("");
     });
 
     it("defaults gender to UNISEX when null", () => {
         const row = productToRow({ ...baseProduct, gender: null } as never);
-        expect(row[3]).toBe("UNISEX");
+        expect(row[4]).toBe("UNISEX");
     });
 
-    it("defaults distribution and safety to 0 when null", () => {
+    it("defaults safety (index 1) and distribution (index 7) to 0 when null", () => {
         const row = productToRow({
             ...baseProduct,
             distribution_percentage: null,
             safety_percentage: null,
         } as never);
-        expect(row[6]).toBe("0");
+        expect(row[1]).toBe("0");
         expect(row[7]).toBe("0");
-    });
-
-    it("preserves PRODUCT_IMPORT_HEADERS canonical column order", () => {
-        const expected = [
-            "PRODUCT CODE",
-            "PRODUCT NAME",
-            "TYPE",
-            "GENDER",
-            "SIZE",
-            "UOM",
-            "EDAR",
-            "SAFETY",
-        ];
-        expect(Object.values(PRODUCT_IMPORT_HEADERS)).toEqual(expected);
     });
 });

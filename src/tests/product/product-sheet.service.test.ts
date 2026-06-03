@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const HEADERS = ["PRODUCT CODE", "PRODUCT NAME", "TYPE", "GENDER", "SIZE", "UOM", "EDAR", "SAFETY"];
+const HEADERS = ["CODE", "SAFETY %", "NAME", "TYPE", "GENDER", "SIZE", "UOM", "DISTRIBUTION %"];
 
 vi.mock("../../config/env.js", () => ({
     env: {
@@ -23,7 +23,7 @@ vi.mock("../../config/prisma.js", () => ({
 vi.mock("../../lib/google-sheets.js", () => ({
     GoogleSheetsClient: {
         readHeader: vi.fn().mockResolvedValue([
-            "PRODUCT CODE", "PRODUCT NAME", "TYPE", "GENDER", "SIZE", "UOM", "EDAR", "SAFETY",
+            "CODE", "SAFETY %", "NAME", "TYPE", "GENDER", "SIZE", "UOM", "DISTRIBUTION %",
         ]),
         findRowByCode: vi.fn(),
         appendRow: vi.fn(),
@@ -62,11 +62,11 @@ describe("ProductSheetSyncService.handle", () => {
             await ProductSheetSyncService.handle({ action: "upsert", productId: 1 });
 
             expect(GoogleSheetsClient.findRowByCode).toHaveBeenCalledWith(
-                "test-sheet", "PRODUCTS", "EDP-AZUR-100",
+                "test-sheet", "PRODUCTS", "B2:B", "EDP-AZUR-100",
             );
             expect(GoogleSheetsClient.updateRow).toHaveBeenCalledWith(
-                "test-sheet", "PRODUCTS", 5,
-                ["EDP-AZUR-100", "AZURE", "EDP", "UNISEX", "100", "pcs", "50", "25"],
+                "test-sheet", "PRODUCTS", "B5:I5",
+                ["EDP-AZUR-100", "25", "AZURE", "EDP", "UNISEX", "100", "pcs", "50"],
             );
             expect(GoogleSheetsClient.appendRow).not.toHaveBeenCalled();
         });
@@ -78,8 +78,8 @@ describe("ProductSheetSyncService.handle", () => {
             await ProductSheetSyncService.handle({ action: "upsert", productId: 1 });
 
             expect(GoogleSheetsClient.appendRow).toHaveBeenCalledWith(
-                "test-sheet", "PRODUCTS",
-                ["EDP-AZUR-100", "AZURE", "EDP", "UNISEX", "100", "pcs", "50", "25"],
+                "test-sheet", "PRODUCTS", "B:B",
+                ["EDP-AZUR-100", "25", "AZURE", "EDP", "UNISEX", "100", "pcs", "50"],
             );
             expect(GoogleSheetsClient.updateRow).not.toHaveBeenCalled();
         });
@@ -95,11 +95,11 @@ describe("ProductSheetSyncService.handle", () => {
             });
 
             expect(GoogleSheetsClient.findRowByCode).toHaveBeenCalledWith(
-                "test-sheet", "PRODUCTS", "OLD-CODE",
+                "test-sheet", "PRODUCTS", "B2:B", "OLD-CODE",
             );
             expect(GoogleSheetsClient.updateRow).toHaveBeenCalledWith(
-                "test-sheet", "PRODUCTS", 7,
-                ["EDP-AZUR-100", "AZURE", "EDP", "UNISEX", "100", "pcs", "50", "25"],
+                "test-sheet", "PRODUCTS", "B7:I7",
+                ["EDP-AZUR-100", "25", "AZURE", "EDP", "UNISEX", "100", "pcs", "50"],
             );
         });
 
@@ -116,11 +116,11 @@ describe("ProductSheetSyncService.handle", () => {
             });
 
             expect(GoogleSheetsClient.findRowByCode).toHaveBeenNthCalledWith(1,
-                "test-sheet", "PRODUCTS", "OLD-CODE");
+                "test-sheet", "PRODUCTS", "B2:B", "OLD-CODE");
             expect(GoogleSheetsClient.findRowByCode).toHaveBeenNthCalledWith(2,
-                "test-sheet", "PRODUCTS", "EDP-AZUR-100");
+                "test-sheet", "PRODUCTS", "B2:B", "EDP-AZUR-100");
             expect(GoogleSheetsClient.updateRow).toHaveBeenCalledWith(
-                "test-sheet", "PRODUCTS", 9,
+                "test-sheet", "PRODUCTS", "B9:I9",
                 expect.any(Array),
             );
         });
@@ -153,6 +153,9 @@ describe("ProductSheetSyncService.handle", () => {
                 code: "EDP-AZUR-100",
             });
 
+            expect(GoogleSheetsClient.findRowByCode).toHaveBeenCalledWith(
+                "test-sheet", "PRODUCTS", "B2:B", "EDP-AZUR-100",
+            );
             expect(GoogleSheetsClient.deleteRow).toHaveBeenCalledWith(
                 "test-sheet", "PRODUCTS", 3,
             );

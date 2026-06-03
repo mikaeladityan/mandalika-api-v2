@@ -41,36 +41,37 @@ describe("GoogleSheetsClient", () => {
     });
 
     describe("readHeader", () => {
-        it("returns the header row values", async () => {
+        it("returns the header row values for the given range", async () => {
             mockValuesGet.mockResolvedValueOnce({
-                data: { values: [["PRODUCT CODE", "PRODUCT NAME", "TYPE"]] },
+                data: { values: [["CODE", "SAFETY %", "NAME"]] },
             });
-            const result = await GoogleSheetsClient.readHeader("sheet-id", "PRODUCTS");
-            expect(result).toEqual(["PRODUCT CODE", "PRODUCT NAME", "TYPE"]);
+            const result = await GoogleSheetsClient.readHeader("sheet-id", "PRODUCTS", "B1:I1");
+            expect(result).toEqual(["CODE", "SAFETY %", "NAME"]);
             expect(mockValuesGet).toHaveBeenCalledWith(
                 expect.objectContaining({
                     spreadsheetId: "sheet-id",
-                    range: "PRODUCTS!1:1",
+                    range: "PRODUCTS!B1:I1",
                 }),
             );
         });
 
         it("returns empty array when sheet is empty", async () => {
             mockValuesGet.mockResolvedValueOnce({ data: {} });
-            const result = await GoogleSheetsClient.readHeader("sheet-id", "PRODUCTS");
+            const result = await GoogleSheetsClient.readHeader("sheet-id", "PRODUCTS", "B1:I1");
             expect(result).toEqual([]);
         });
     });
 
     describe("findRowByCode", () => {
-        it("returns 1-based row index when code is present", async () => {
+        it("returns 1-based row index when code is present in column B", async () => {
             mockValuesGet.mockResolvedValueOnce({
                 data: { values: [["A-1"], ["A-2"], ["A-3"]] },
             });
-            const row = await GoogleSheetsClient.findRowByCode("sid", "PRODUCTS", "A-2");
+            const row = await GoogleSheetsClient.findRowByCode("sid", "PRODUCTS", "B2:B", "A-2");
+            // First data row is sheet row 2 (per range "B2:B"), A-2 is at index 1 → row 3
             expect(row).toBe(3);
             expect(mockValuesGet).toHaveBeenCalledWith(
-                expect.objectContaining({ range: "PRODUCTS!A2:A" }),
+                expect.objectContaining({ range: "PRODUCTS!B2:B" }),
             );
         });
 
@@ -78,25 +79,25 @@ describe("GoogleSheetsClient", () => {
             mockValuesGet.mockResolvedValueOnce({
                 data: { values: [["A-1"], ["A-3"]] },
             });
-            const row = await GoogleSheetsClient.findRowByCode("sid", "PRODUCTS", "A-2");
+            const row = await GoogleSheetsClient.findRowByCode("sid", "PRODUCTS", "B2:B", "A-2");
             expect(row).toBeNull();
         });
 
         it("returns null when sheet has no data rows", async () => {
             mockValuesGet.mockResolvedValueOnce({ data: {} });
-            const row = await GoogleSheetsClient.findRowByCode("sid", "PRODUCTS", "ANY");
+            const row = await GoogleSheetsClient.findRowByCode("sid", "PRODUCTS", "B2:B", "ANY");
             expect(row).toBeNull();
         });
     });
 
     describe("appendRow", () => {
-        it("calls values.append with INSERT_ROWS and RAW", async () => {
+        it("calls values.append with INSERT_ROWS, RAW, and the anchor range", async () => {
             mockValuesAppend.mockResolvedValueOnce({});
-            await GoogleSheetsClient.appendRow("sid", "PRODUCTS", ["A", "B", "C"]);
+            await GoogleSheetsClient.appendRow("sid", "PRODUCTS", "B:B", ["A", "B", "C"]);
             expect(mockValuesAppend).toHaveBeenCalledWith(
                 expect.objectContaining({
                     spreadsheetId: "sid",
-                    range: "PRODUCTS!A:A",
+                    range: "PRODUCTS!B:B",
                     valueInputOption: "RAW",
                     insertDataOption: "INSERT_ROWS",
                     requestBody: { values: [["A", "B", "C"]] },
@@ -106,13 +107,13 @@ describe("GoogleSheetsClient", () => {
     });
 
     describe("updateRow", () => {
-        it("calls values.update with the correct range and values", async () => {
+        it("calls values.update with the given row range and values", async () => {
             mockValuesUpdate.mockResolvedValueOnce({});
-            await GoogleSheetsClient.updateRow("sid", "PRODUCTS", 5, ["A", "B"]);
+            await GoogleSheetsClient.updateRow("sid", "PRODUCTS", "B5:I5", ["A", "B"]);
             expect(mockValuesUpdate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     spreadsheetId: "sid",
-                    range: "PRODUCTS!A5:H5",
+                    range: "PRODUCTS!B5:I5",
                     valueInputOption: "RAW",
                     requestBody: { values: [["A", "B"]] },
                 }),

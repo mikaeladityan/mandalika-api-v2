@@ -28,56 +28,74 @@ async function getSheetGid(spreadsheetId: string, tabName: string): Promise<numb
 }
 
 export class GoogleSheetsClient {
-    static async readHeader(spreadsheetId: string, tabName: string): Promise<string[]> {
+    /** Read a single-row range (e.g. "A1:H1" or "B1:I1") and return its cell values. */
+    static async readHeader(
+        spreadsheetId: string,
+        tabName: string,
+        headerRange: string,
+    ): Promise<string[]> {
         const res = await getClient().spreadsheets.values.get({
             spreadsheetId,
-            range: `${tabName}!1:1`,
+            range: `${tabName}!${headerRange}`,
         });
         const row = res.data.values?.[0];
         return Array.isArray(row) ? row.map(String) : [];
     }
 
+    /**
+     * Scan a single column (e.g. "B2:B") for the given code. Returns the
+     * 1-based sheet row index of the match, or null.
+     */
     static async findRowByCode(
         spreadsheetId: string,
         tabName: string,
+        codeColumnRange: string,
         code: string,
     ): Promise<number | null> {
         const res = await getClient().spreadsheets.values.get({
             spreadsheetId,
-            range: `${tabName}!A2:A`,
+            range: `${tabName}!${codeColumnRange}`,
         });
         const rows = res.data.values ?? [];
+        // Derive starting row from the range suffix (e.g. "B2:B" → 2).
+        const startRow = parseStartRow(codeColumnRange);
         for (let i = 0; i < rows.length; i++) {
             if (String(rows[i]?.[0] ?? "") === code) {
-                return i + 2; // first data row is sheet row 2
+                return i + startRow;
             }
         }
         return null;
     }
 
+    /**
+     * Append values as a new row, anchored to the given column range
+     * (e.g. "B:B" makes the append start at column B).
+     */
     static async appendRow(
         spreadsheetId: string,
         tabName: string,
+        anchorRange: string,
         values: string[],
     ): Promise<void> {
         await getClient().spreadsheets.values.append({
             spreadsheetId,
-            range: `${tabName}!A:A`,
+            range: `${tabName}!${anchorRange}`,
             valueInputOption: "RAW",
             insertDataOption: "INSERT_ROWS",
             requestBody: { values: [values] },
         });
     }
 
+    /** Update a specific row range (e.g. "B5:I5") with the given values. */
     static async updateRow(
         spreadsheetId: string,
         tabName: string,
-        rowIndex: number,
+        rowRange: string,
         values: string[],
     ): Promise<void> {
         await getClient().spreadsheets.values.update({
             spreadsheetId,
-            range: `${tabName}!A${rowIndex}:H${rowIndex}`,
+            range: `${tabName}!${rowRange}`,
             valueInputOption: "RAW",
             requestBody: { values: [values] },
         });
@@ -107,4 +125,10 @@ export class GoogleSheetsClient {
             },
         });
     }
+}
+
+// Internal helper — extract the numeric row from a range like "B2:B" → 2.
+function parseStartRow(range: string): number {
+    const match = range.match(/^[A-Z]+(\d+):/);
+    return match ? Number(match[1]) : 2;
 }
