@@ -35,9 +35,6 @@ jobs:
                       git pull origin main
                       git clean -fd
 
-                      echo "📦 Installing dependencies..."
-                      npm ci
-
                       echo "🗃️ Pushing Prisma schema..."
                       npx prisma db push
                       npx prisma generate
@@ -49,6 +46,7 @@ jobs:
                       npm prune --production
 
                       echo "♻️ Restarting application..."
-                      pm2 restart api-erp
+                      pm2 restart server
+                      pm2 restart erp-worker
 
                       echo "✅ Production deployment complete!"
