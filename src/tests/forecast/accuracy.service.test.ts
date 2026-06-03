@@ -44,6 +44,14 @@ describe("accuracy.schema", () => {
         it("rejects take > 500", () => {
             expect(() => QueryForecastAccuracySchema.parse({ take: "501" })).toThrow();
         });
+
+        it("parses is_others string variants correctly", () => {
+            expect(QueryForecastAccuracySchema.parse({ is_others: "true" }).is_others).toBe(true);
+            expect(QueryForecastAccuracySchema.parse({ is_others: "false" }).is_others).toBe(false);
+            expect(QueryForecastAccuracySchema.parse({ is_others: "1" }).is_others).toBe(true);
+            expect(QueryForecastAccuracySchema.parse({ is_others: "0" }).is_others).toBe(false);
+            expect(QueryForecastAccuracySchema.parse({}).is_others).toBe(false);
+        });
     });
 
     describe("ResponseForecastAccuracySchema", () => {

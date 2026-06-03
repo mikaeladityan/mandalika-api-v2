@@ -5,7 +5,9 @@ const ACCURACY_PERCENTAGE_REGEX = /^(\d+\.\d{2}%|N\/A)$/;
 export const QueryForecastAccuracySchema = z.object({
     month: z.coerce.number().int().min(1).max(12).optional(),
     year: z.coerce.number().int().min(2000).max(2100).optional(),
-    is_others: z.coerce.boolean().optional().default(false),
+    is_others: z
+        .preprocess((v) => v === true || v === "true" || v === "1", z.boolean())
+        .default(false),
     type_id: z.coerce.number().int().positive().optional(),
     size_id: z.coerce.number().int().positive().optional(),
     search: z.string().trim().min(1).optional(),
