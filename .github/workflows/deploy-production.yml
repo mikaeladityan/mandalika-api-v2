@@ -49,6 +49,7 @@ jobs:
                       npm prune --production
 
                       echo "♻️ Restarting application..."
-                      pm2 restart api-erp
+                      pm2 restart server
+                      pm2 restart erp-worker
 
                       echo "✅ Production deployment complete!"
