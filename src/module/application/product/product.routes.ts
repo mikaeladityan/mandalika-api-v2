@@ -4,11 +4,7 @@ import { ProductController } from "./product.controller.js";
 import { UnitRoutes } from "./unit/unit.routes.js";
 import { TypeRoutes } from "./type/type.routes.js";
 import { SizeRoutes } from "./size/size.routes.js";
-import {
-    BulkStatusProductSchema,
-    RequestProductSchema,
-    UpdateProductSchema,
-} from "./product.schema.js";
+import { RequestProductSchema, UpdateProductSchema } from "./product.schema.js";
 import ProductImportRoutes from "./import/import.routes.js";
 
 export const ProductRoutes = new Hono();
@@ -21,8 +17,8 @@ ProductRoutes.route("/sizes", SizeRoutes);
 
 // -- Main
 ProductRoutes.get("/export", ProductController.export);
-ProductRoutes.put("/bulk-status", validateBody(BulkStatusProductSchema), ProductController.bulkStatus);
 ProductRoutes.patch("/status/:id", ProductController.status);
+ProductRoutes.post("/:id/resync", ProductController.resync);
 ProductRoutes.delete("/clean", ProductController.clean);
 
 ProductRoutes.put("/:id", validateBody(UpdateProductSchema), ProductController.update);

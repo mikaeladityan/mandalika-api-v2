@@ -30,6 +30,9 @@ vi.mock("../config/env.js", () => ({
         GOOGLE_PRIVATE_KEY: "private-key",
         GOOGLE_SHEET_ID: "sheet-id",
         SHEET_FORECAST: "forecast",
+        GOOGLE_FG_SHEET_ID: "fg-sheet-id",
+        GOOGLE_FG_TAB_NAME: "PRODUCTS",
+        PRODUCT_SHEET_SYNC_ENABLED: false,
         isDevelopment: true,
         isProduction: false,
         isProd: false,
@@ -759,6 +762,11 @@ vi.mock("../config/prisma.js", () => ({
             update: vi.fn().mockResolvedValue({ id: 1, quantity: 90 }),
             deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
             groupBy: vi.fn().mockResolvedValue([]),
+        },
+        productSheetSyncFailure: {
+            findMany: vi.fn().mockResolvedValue([]),
+            create: vi.fn().mockResolvedValue({}),
+            updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
         account: {
             findUnique: vi.fn().mockImplementation(async (args) => {

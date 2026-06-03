@@ -5,7 +5,6 @@ import { ApiError } from "../../../lib/errors/api.error.js";
 import { CreateLogger } from "../shared/activity-logger.js";
 import { CreateLoggingActivityDTO } from "../shared/activity-logger.js";
 import {
-    BulkStatusProductDTO,
     QueryProductDTO,
     QueryProductSchema,
     StatusQuerySchema,
@@ -89,22 +88,6 @@ export class ProductController {
         return ApiResponse.sendSuccess(c, {}, 200);
     }
 
-    static async bulkStatus(c: Context) {
-        const { ids, status } = c.get("body") as BulkStatusProductDTO;
-
-        await ProductService.bulkStatus(ids, status);
-
-        const accountSession = c.get("session");
-        const log: CreateLoggingActivityDTO = {
-            activity: "UPDATE",
-            description: `Ubah status massal ${Table} (${ids.length} item)`,
-            email: accountSession.email,
-        };
-        await CreateLogger(log);
-
-        return ApiResponse.sendSuccess(c, {}, 200);
-    }
-
     static async export(c: Context) {
         const params = parseListQuery(c);
 
@@ -148,6 +131,12 @@ export class ProductController {
 
         const result = await ProductService.detail(id);
 
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async resync(c: Context) {
+        const id = parseId(c.req.param("id"));
+        const result = await ProductService.resync(id);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 }

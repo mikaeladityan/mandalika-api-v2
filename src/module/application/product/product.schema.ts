@@ -64,6 +64,11 @@ export const ResponseProductSchema = RequestProductSchema.extend({
             }),
         )
         .optional(),
+    // Derived in list response. "synced" means no unresolved sync failure;
+    // "failed" means latest failure row for this product is unresolved.
+    // ("pending" not derived server-side — FE can render from local mutation state.)
+    sheet_sync_status: z.enum(["synced", "failed"]).optional(),
+    sheet_sync_error: z.string().optional(),
 });
 
 export const QueryProductSchema = z.object({
@@ -100,11 +105,6 @@ export const UpdateProductSchema = RequestProductSchema.partial().refine(
     { message: "Minimal satu field harus diisi" },
 );
 
-export const BulkStatusProductSchema = z.object({
-    ids: z.array(z.number().int().positive()).min(1, "Pilih minimal satu produk"),
-    status: z.enum(STATUS),
-});
-
 export const StatusQuerySchema = z.object({
     status: z.enum(STATUS),
 });
@@ -113,5 +113,4 @@ export type RequestProductDTO = z.infer<typeof RequestProductSchema>;
 export type ResponseProductDTO = z.infer<typeof ResponseProductSchema>;
 export type QueryProductDTO = z.infer<typeof QueryProductSchema>;
 export type UpdateProductDTO = z.infer<typeof UpdateProductSchema>;
-export type BulkStatusProductDTO = z.infer<typeof BulkStatusProductSchema>;
 export type StatusQueryDTO = z.infer<typeof StatusQuerySchema>;

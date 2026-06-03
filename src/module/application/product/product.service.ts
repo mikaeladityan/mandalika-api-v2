@@ -5,6 +5,7 @@ import prisma from "../../../config/prisma.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { normalizeSlug } from "../../../lib/index.js";
+import { enqueueProductSheetSync } from "./sheet/product-sheet.queue.js";
 import ExcelJS from "exceljs";
 
 type UpsertBySlugDelegate = {
@@ -144,7 +145,7 @@ export class ProductService {
         const { code, product_type, unit, size, ...reqBody } = body;
 
         try {
-            return await prisma.$transaction(async (tx) => {
+            const created = await prisma.$transaction(async (tx) => {
                 const [type_id, unit_id, size_id] = await Promise.all([
                     product_type ? this.getOrCreate(tx.productType, product_type) : null,
                     unit ? this.getOrCreate(tx.unit, unit) : null,
@@ -158,6 +159,9 @@ export class ProductService {
 
                 return this.toResponseNumbers(result);
             });
+
+            await enqueueProductSheetSync({ action: "upsert", productId: created.id });
+            return created;
         } catch (e) {
             if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
                 throw new ApiError(400, `Produk dengan kode: ${code} telah tersedia`);
@@ -170,7 +174,13 @@ export class ProductService {
         const { code, unit, product_type, size, ...reqBody } = body;
 
         try {
-            return await prisma.$transaction(async (tx) => {
+            const existing = await prisma.product.findUnique({
+                where: { id },
+                select: { code: true },
+            });
+            if (!existing) throw new ApiError(404, "Produk tidak ditemukan");
+
+            const updated = await prisma.$transaction(async (tx) => {
                 const [type_id, unit_id, size_id] = await Promise.all([
                     product_type ? this.getOrCreate(tx.productType, product_type) : undefined,
                     unit ? this.getOrCreate(tx.unit, unit) : undefined,
@@ -191,6 +201,15 @@ export class ProductService {
 
                 return this.toResponseNumbers(result);
             });
+
+            const oldCode =
+                code !== undefined && code !== existing.code ? existing.code : undefined;
+            await enqueueProductSheetSync({
+                action: "upsert",
+                productId: id,
+                ...(oldCode ? { oldCode } : {}),
+            });
+            return updated;
         } catch (e) {
             if (e instanceof Prisma.PrismaClientKnownRequestError) {
                 if (e.code === "P2025") throw new ApiError(404, "Produk tidak ditemukan");
@@ -202,10 +221,27 @@ export class ProductService {
 
     static async status(id: number, status: STATUS) {
         try {
+            const existing = await prisma.product.findUnique({
+                where: { id },
+                select: { code: true },
+            });
+            if (!existing)
+                throw new ApiError(404, `Produk dengan kode ${id} tidak ditemukan`);
+
             await prisma.product.update({
                 where: { id },
                 data: { deleted_at: status === "DELETE" ? new Date() : null, status },
             });
+
+            if (status === "DELETE") {
+                await enqueueProductSheetSync({
+                    action: "delete",
+                    productId: id,
+                    code: existing.code ?? "",
+                });
+            } else {
+                await enqueueProductSheetSync({ action: "upsert", productId: id });
+            }
         } catch (e) {
             if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
                 throw new ApiError(404, `Produk dengan kode ${id} tidak ditemukan`);
@@ -214,13 +250,23 @@ export class ProductService {
         }
     }
 
-    static async bulkStatus(ids: number[], status: STATUS) {
-        if (!ids || ids.length === 0) throw new ApiError(400, "Tidak ada produk yang dipilih");
-
-        await prisma.product.updateMany({
-            where: { id: { in: ids } },
-            data: { deleted_at: status === "DELETE" ? new Date() : null, status },
+    static async resync(id: number) {
+        const product = await prisma.product.findUnique({
+            where: { id },
+            select: { id: true, code: true, deleted_at: true },
         });
+        if (!product) throw new ApiError(404, `Produk dengan id ${id} tidak ditemukan`);
+
+        if (product.deleted_at !== null) {
+            await enqueueProductSheetSync({
+                action: "delete",
+                productId: product.id,
+                code: product.code ?? "",
+            });
+        } else {
+            await enqueueProductSheetSync({ action: "upsert", productId: product.id });
+        }
+        return { message: "Sync ulang dijadwalkan" };
     }
 
     private static buildListWhere(query: QueryProductDTO): Prisma.ProductWhereInput {
@@ -414,10 +460,38 @@ export class ProductService {
 
         const [products, countResult] = await Promise.all([dataTask, countTask]);
 
+        const pageProductIds = products.map((p) => p.id);
+        const failureRows =
+            pageProductIds.length === 0
+                ? []
+                : await prisma.productSheetSyncFailure.findMany({
+                      where: { product_id: { in: pageProductIds }, resolved_at: null },
+                      orderBy: { created_at: "desc" },
+                      select: { product_id: true, error_message: true },
+                  });
+        const failureByProduct = new Map<number, string>();
+        for (const f of failureRows) {
+            if (!failureByProduct.has(f.product_id)) {
+                failureByProduct.set(f.product_id, f.error_message);
+            }
+        }
+
         return {
             len: Number(countResult[0].count),
             // reason: raw row carries FK columns + group_sort_priority consumed by frontend; preserve passthrough.
-            data: products.map((p) => this.toResponseNumbers(p)) as unknown as ResponseProductDTO[],
+            data: products.map((p) => {
+                const base = this.toResponseNumbers(p) as unknown as ResponseProductDTO & {
+                    sheet_sync_status?: "synced" | "failed";
+                    sheet_sync_error?: string;
+                };
+                if (failureByProduct.has(p.id)) {
+                    base.sheet_sync_status = "failed";
+                    base.sheet_sync_error = failureByProduct.get(p.id);
+                } else {
+                    base.sheet_sync_status = "synced";
+                }
+                return base;
+            }) as unknown as ResponseProductDTO[],
         };
     }
 
