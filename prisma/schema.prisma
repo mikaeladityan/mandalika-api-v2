@@ -142,6 +142,7 @@ model Product {
   production_orders        ProductionOrder[]
   production_fg_wastes     ProductionOrderWaste[]  @relation("ProductionWasteFG")
   production_order_outputs ProductionOrderOutput[]
+  sheet_sync_failures      ProductSheetSyncFailure[]
 
   @@index([type_id])
   @@index([size_id])
@@ -149,6 +150,23 @@ model Product {
   @@index([updated_at])
   @@index([gender, status])
   @@map("products")
+}
+
+model ProductSheetSyncFailure {
+  id                Int       @id @default(autoincrement())
+  product_id        Int
+  action            String
+  error_message     String    @db.Text
+  attempt_count     Int
+  last_attempted_at DateTime
+  resolved_at       DateTime?
+  created_at        DateTime  @default(now())
+
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([product_id])
+  @@index([resolved_at])
+  @@map("product_sheet_sync_failures")
 }
 
 model ProductSize {
