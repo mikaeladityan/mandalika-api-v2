@@ -100,11 +100,6 @@ export const UpdateProductSchema = RequestProductSchema.partial().refine(
     { message: "Minimal satu field harus diisi" },
 );
 
-export const BulkStatusProductSchema = z.object({
-    ids: z.array(z.number().int().positive()).min(1, "Pilih minimal satu produk"),
-    status: z.enum(STATUS),
-});
-
 export const StatusQuerySchema = z.object({
     status: z.enum(STATUS),
 });
@@ -113,5 +108,4 @@ export type RequestProductDTO = z.infer<typeof RequestProductSchema>;
 export type ResponseProductDTO = z.infer<typeof ResponseProductSchema>;
 export type QueryProductDTO = z.infer<typeof QueryProductSchema>;
 export type UpdateProductDTO = z.infer<typeof UpdateProductSchema>;
-export type BulkStatusProductDTO = z.infer<typeof BulkStatusProductSchema>;
 export type StatusQueryDTO = z.infer<typeof StatusQuerySchema>;

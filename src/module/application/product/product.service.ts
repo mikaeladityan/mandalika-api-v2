@@ -214,15 +214,6 @@ export class ProductService {
         }
     }
 
-    static async bulkStatus(ids: number[], status: STATUS) {
-        if (!ids || ids.length === 0) throw new ApiError(400, "Tidak ada produk yang dipilih");
-
-        await prisma.product.updateMany({
-            where: { id: { in: ids } },
-            data: { deleted_at: status === "DELETE" ? new Date() : null, status },
-        });
-    }
-
     private static buildListWhere(query: QueryProductDTO): Prisma.ProductWhereInput {
         const { gender, search, status, type_id, size_id } = query;
         const where: Prisma.ProductWhereInput = {};
