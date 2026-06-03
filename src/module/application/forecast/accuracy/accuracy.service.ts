@@ -48,9 +48,7 @@ export class ForecastAccuracyService {
         const period = await ForecastAccuracyService.resolvePeriod(query);
         const { month, year } = period;
 
-        const page = query.page ?? 1;
-        const take = query.take ?? 25;
-        const { skip, take: limit } = GetPagination(page, take);
+        const { skip, take: limit } = GetPagination(query.page, query.take);
 
         const searchRaw = query.search ? `%${query.search}%` : null;
 
