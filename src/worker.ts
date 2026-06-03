@@ -5,6 +5,7 @@ import { closeDatabase, initializeDatabase } from "./config/prisma.js";
 import { createFGImportWorker } from "./module/application/inventory/fg/import/queue/fg-import.worker.js";
 import { createRMImportWorker } from "./module/application/inventory/rm/import/queue/rm-import.worker.js";
 import { createProductImportWorker } from "./module/application/product/import/queue/product-import.worker.js";
+import { createProductSheetSyncWorker } from "./module/application/product/sheet/product-sheet.worker.js";
 
 console.log("Worker environment loaded:", {
     NODE_ENV: env.NODE_ENV,
@@ -23,6 +24,7 @@ type WorkerHandle = { close: () => Promise<void> };
 let fgImportWorker: WorkerHandle | null = null;
 let rmImportWorker: WorkerHandle | null = null;
 let productImportWorker: WorkerHandle | null = null;
+let productSheetSyncWorker: WorkerHandle | null = null;
 
 const initialize = async () => {
     try {
@@ -42,6 +44,9 @@ const initialize = async () => {
         productImportWorker = createProductImportWorker();
         logger.info("Product import worker listening");
 
+        productSheetSyncWorker = createProductSheetSyncWorker();
+        logger.info("Product sheet-sync worker listening");
+
         logger.info("Worker initialized");
     } catch (error) {
         logger.error("Worker initialization failed", {
@@ -59,6 +64,7 @@ const shutdown = async () => {
         await fgImportWorker?.close();
         await rmImportWorker?.close();
         await productImportWorker?.close();
+        await productSheetSyncWorker?.close();
         await closeRedisConnection();
         await closeDatabase();
     } catch (error) {
