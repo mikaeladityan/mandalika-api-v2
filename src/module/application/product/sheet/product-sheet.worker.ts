@@ -1,8 +1,7 @@
 import { Worker } from "bullmq";
-import { redisClient } from "../../../../config/redis.js";
+import { bullConnection, PRODUCT_SHEET_QUEUE_NAME } from "../../../../config/queue.js";
 import prisma from "../../../../config/prisma.js";
 import { logger } from "../../../../lib/logger.js";
-import { PRODUCT_SHEET_QUEUE_NAME } from "./product-sheet.queue.js";
 import { ProductSheetSyncService } from "./product-sheet.service.js";
 import type { ProductSheetSyncJob } from "./product-sheet.schema.js";
 
@@ -10,7 +9,7 @@ export function createProductSheetSyncWorker(): { close: () => Promise<void> } {
     const worker = new Worker<ProductSheetSyncJob>(
         PRODUCT_SHEET_QUEUE_NAME,
         async (job) => ProductSheetSyncService.handle(job.data),
-        { connection: redisClient, concurrency: 2 },
+        { connection: bullConnection, concurrency: 2 },
     );
 
     worker.on("failed", async (job, err) => {
