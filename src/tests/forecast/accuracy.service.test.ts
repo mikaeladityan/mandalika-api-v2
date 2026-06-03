@@ -1,9 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
     QueryForecastAccuracySchema,
     ResponseForecastAccuracySchema,
 } from "../../module/application/forecast/accuracy/accuracy.schema.js";
 import { ForecastAccuracyService } from "../../module/application/forecast/accuracy/accuracy.service.js";
+import prisma from "../../config/prisma.js";
+
+vi.mock("../../config/prisma.js", () => ({
+    default: {
+        $queryRaw: vi.fn(),
+    },
+}));
 
 describe("accuracy.schema", () => {
     describe("QueryForecastAccuracySchema", () => {
@@ -100,15 +107,6 @@ describe("ForecastAccuracyService.formatAccuracy", () => {
     });
 });
 
-import { vi, beforeEach } from "vitest";
-import prisma from "../../config/prisma.js";
-
-vi.mock("../../config/prisma.js", () => ({
-    default: {
-        $queryRaw: vi.fn(),
-    },
-}));
-
 describe("ForecastAccuracyService.resolvePeriod", () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -142,7 +140,7 @@ describe("ForecastAccuracyService.resolvePeriod", () => {
         // @ts-ignore
         prisma.$queryRaw.mockResolvedValueOnce([{ month: 4, year: 2026 }]);
         const result = await ForecastAccuracyService.resolvePeriod({
-            month: 5,
+            month: 5, // year missing → guard fails, fallback path executes
             is_others: false,
             page: 1,
             take: 25,
