@@ -1,11 +1,35 @@
 import prisma from "../../../../config/prisma.js";
 import { env } from "../../../../config/env.js";
 import { GoogleSheetsClient } from "../../../../lib/google-sheets.js";
-import { PRODUCT_IMPORT_HEADERS } from "../import/import.schema.js";
 import { productToRow, type ProductWithSheetRelations } from "./product-sheet.mapper.js";
 import type { ProductSheetSyncJob } from "./product-sheet.schema.js";
 
-const EXPECTED_HEADERS = Object.values(PRODUCT_IMPORT_HEADERS);
+/**
+ * FG sheet layout:
+ *   A: UID (managed by other linked sheets — sync MUST leave it alone)
+ *   B: CODE
+ *   C: SAFETY %
+ *   D: NAME
+ *   E: TYPE
+ *   F: GENDER
+ *   G: SIZE
+ *   H: UOM
+ *   I: DISTRIBUTION %
+ */
+const EXPECTED_HEADERS = [
+    "CODE",
+    "SAFETY %",
+    "NAME",
+    "TYPE",
+    "GENDER",
+    "SIZE",
+    "UOM",
+    "DISTRIBUTION %",
+] as const;
+const HEADER_RANGE = "B1:I1";
+const CODE_COLUMN_RANGE = "B2:B";
+const APPEND_ANCHOR_RANGE = "B:B";
+const rowDataRange = (n: number) => `B${n}:I${n}`;
 
 const SHEET_INCLUDES = {
     product_type: { select: { name: true } },
@@ -20,7 +44,7 @@ export class ProductSheetSyncService {
         const sheetId = env.GOOGLE_FG_SHEET_ID;
         const tab = env.GOOGLE_FG_TAB_NAME;
 
-        const headers = await GoogleSheetsClient.readHeader(sheetId, tab);
+        const headers = await GoogleSheetsClient.readHeader(sheetId, tab, HEADER_RANGE);
         if (
             headers.length < EXPECTED_HEADERS.length ||
             EXPECTED_HEADERS.some((h, i) => headers[i] !== h)
@@ -39,26 +63,37 @@ export class ProductSheetSyncService {
 
             const values = productToRow(product);
             const primarySearchCode = job.oldCode ?? product.code ?? "";
-            let rowIndex = await GoogleSheetsClient.findRowByCode(sheetId, tab, primarySearchCode);
+            let rowIndex = await GoogleSheetsClient.findRowByCode(
+                sheetId,
+                tab,
+                CODE_COLUMN_RANGE,
+                primarySearchCode,
+            );
 
             if (rowIndex === null && job.oldCode) {
                 rowIndex = await GoogleSheetsClient.findRowByCode(
                     sheetId,
                     tab,
+                    CODE_COLUMN_RANGE,
                     product.code ?? "",
                 );
             }
 
             if (rowIndex === null) {
-                await GoogleSheetsClient.appendRow(sheetId, tab, values);
+                await GoogleSheetsClient.appendRow(sheetId, tab, APPEND_ANCHOR_RANGE, values);
             } else {
-                await GoogleSheetsClient.updateRow(sheetId, tab, rowIndex, values);
+                await GoogleSheetsClient.updateRow(sheetId, tab, rowDataRange(rowIndex), values);
             }
             return;
         }
 
         // action === "delete"
-        const rowIndex = await GoogleSheetsClient.findRowByCode(sheetId, tab, job.code);
+        const rowIndex = await GoogleSheetsClient.findRowByCode(
+            sheetId,
+            tab,
+            CODE_COLUMN_RANGE,
+            job.code,
+        );
         if (rowIndex !== null) {
             await GoogleSheetsClient.deleteRow(sheetId, tab, rowIndex);
         }
