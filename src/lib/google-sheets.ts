@@ -1,4 +1,5 @@
-import { google, sheets_v4 } from "googleapis";
+import sheetsApi, { type sheets_v4 } from "@googleapis/sheets";
+import { JWT } from "google-auth-library";
 import { env } from "../config/env.js";
 
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
@@ -7,12 +8,12 @@ let cachedClient: sheets_v4.Sheets | null = null;
 
 function getClient(): sheets_v4.Sheets {
     if (cachedClient) return cachedClient;
-    const auth = new google.auth.JWT({
+    const auth = new JWT({
         email: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
         key: env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
         scopes: SCOPES,
     });
-    cachedClient = google.sheets({ version: "v4", auth });
+    cachedClient = sheetsApi.sheets({ version: "v4", auth });
     return cachedClient;
 }
 

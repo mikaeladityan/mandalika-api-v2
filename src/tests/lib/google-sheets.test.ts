@@ -6,9 +6,8 @@ const mockValuesUpdate = vi.fn();
 const mockBatchUpdate = vi.fn();
 const mockGetSpreadsheet = vi.fn();
 
-vi.mock("googleapis", () => ({
-    google: {
-        auth: { JWT: function MockJWT() { return {}; } },
+vi.mock("@googleapis/sheets", () => ({
+    default: {
         sheets: vi.fn(() => ({
             spreadsheets: {
                 values: {
@@ -21,6 +20,10 @@ vi.mock("googleapis", () => ({
             },
         })),
     },
+}));
+
+vi.mock("google-auth-library", () => ({
+    JWT: function MockJWT() { return {}; },
 }));
 
 vi.mock("../../config/env.js", () => ({
