@@ -99,3 +99,69 @@ describe("ForecastAccuracyService.formatAccuracy", () => {
         expect(fmt(0, 1)).toBe("0.00%");
     });
 });
+
+import { vi, beforeEach } from "vitest";
+import prisma from "../../config/prisma.js";
+
+vi.mock("../../config/prisma.js", () => ({
+    default: {
+        $queryRaw: vi.fn(),
+    },
+}));
+
+describe("ForecastAccuracyService.resolvePeriod", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it("returns explicit month/year unchanged", async () => {
+        const result = await ForecastAccuracyService.resolvePeriod({
+            month: 3,
+            year: 2026,
+            is_others: false,
+            page: 1,
+            take: 25,
+        });
+        expect(result).toEqual({ month: 3, year: 2026 });
+        expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it("falls back to most recent period with sales when both missing", async () => {
+        // @ts-ignore — mock
+        prisma.$queryRaw.mockResolvedValueOnce([{ month: 4, year: 2026 }]);
+        const result = await ForecastAccuracyService.resolvePeriod({
+            is_others: false,
+            page: 1,
+            take: 25,
+        });
+        expect(result).toEqual({ month: 4, year: 2026 });
+        expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    });
+
+    it("treats partial input (only month) as missing → fallback", async () => {
+        // @ts-ignore
+        prisma.$queryRaw.mockResolvedValueOnce([{ month: 4, year: 2026 }]);
+        const result = await ForecastAccuracyService.resolvePeriod({
+            month: 5,
+            is_others: false,
+            page: 1,
+            take: 25,
+        });
+        expect(result).toEqual({ month: 4, year: 2026 });
+    });
+
+    it("falls back to current month/year when no period has sales", async () => {
+        // @ts-ignore
+        prisma.$queryRaw.mockResolvedValueOnce([]);
+        const now = new Date();
+        const result = await ForecastAccuracyService.resolvePeriod({
+            is_others: false,
+            page: 1,
+            take: 25,
+        });
+        expect(result).toEqual({
+            month: now.getUTCMonth() + 1,
+            year: now.getUTCFullYear(),
+        });
+    });
+});
