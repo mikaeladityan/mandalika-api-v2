@@ -336,6 +336,25 @@ vi.mock("../config/prisma.js", () => ({
             count: vi.fn().mockResolvedValue(2),
             upsert: vi.fn().mockResolvedValue({ id: 1, month: 1, year: 2025, value: "10.50" }),
         },
+        forecastPercentageHistory: {
+            findMany: vi.fn().mockResolvedValue([
+                {
+                    id: 1,
+                    forecast_percentage_id: 1,
+                    month: 6,
+                    year: 2026,
+                    old_value: "19.00",
+                    new_value: "25.00",
+                    action: "UPDATE",
+                    changed_by: "test@example.com",
+                    reason: null,
+                    created_at: new Date("2026-06-04T10:00:00Z"),
+                },
+            ]),
+            create: vi.fn().mockResolvedValue({ id: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+            count: vi.fn().mockResolvedValue(1),
+        },
         recipes: {
             findUnique: vi.fn().mockImplementation(async (args) => {
                 const { where } = args;
@@ -870,11 +889,42 @@ vi.mock("../config/prisma.js", () => ({
             findMany: vi.fn().mockResolvedValue([]),
             create: vi.fn().mockResolvedValue({}),
         },
+        loggingActivity: {
+            create: vi.fn().mockResolvedValue({ id: 1 }),
+        },
         $transaction: vi.fn((cbOrArray) => {
             // Array form: prisma.$transaction([op1, op2])
             if (Array.isArray(cbOrArray)) return Promise.all(cbOrArray);
             // Callback form: prisma.$transaction(async (tx) => { ... })
             return cbOrArray({
+                $queryRaw: vi.fn().mockResolvedValue([{ id: 1 }]),
+                forecastPercentage: {
+                    findUnique: vi.fn().mockResolvedValue({
+                        id: 1,
+                        month: 6,
+                        year: 2026,
+                        value: { equals: () => false, toString: () => "19.00" },
+                    }),
+                    findMany: vi.fn().mockResolvedValue([
+                        { id: 1, month: 6, year: 2026, value: { equals: () => false } },
+                    ]),
+                    update: vi.fn().mockResolvedValue({
+                        id: 1,
+                        month: 6,
+                        year: 2026,
+                        value: "25.00",
+                    }),
+                    upsert: vi.fn().mockResolvedValue({
+                        id: 1,
+                        month: 6,
+                        year: 2026,
+                        value: "25.00",
+                    }),
+                },
+                forecastPercentageHistory: {
+                    create: vi.fn().mockResolvedValue({ id: 1 }),
+                    createMany: vi.fn().mockResolvedValue({ count: 1 }),
+                },
                 product: {
                     create: vi.fn().mockResolvedValue({
                         id: 1,

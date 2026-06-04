@@ -1,9 +1,11 @@
 import { Hono } from "hono";
-import { validateBody } from "../../../../middleware/validation.js";
+import { validate, validateBody } from "../../../../middleware/validation.js";
 import {
+    QueryForecastPercentageHistorySchema,
     RequestForecastPercentageBulkSchema,
     RequestForecastPercentageDeleteBulkSchema,
     RequestForecastPercentageSchema,
+    RequestForecastPercentageUpdateSchema,
 } from "./percentages.schema.js";
 import { ForecastPercentageController } from "./percentages.controller.js";
 
@@ -20,10 +22,20 @@ ForecastPercentageRoutes.post(
     ForecastPercentageController.createMany,
 );
 
+ForecastPercentageRoutes.get(
+    "/history",
+    validate(QueryForecastPercentageHistorySchema),
+    ForecastPercentageController.listHistoryGlobal,
+);
+ForecastPercentageRoutes.get(
+    "/:id/history",
+    ForecastPercentageController.listHistory,
+);
+
 ForecastPercentageRoutes.get("/:id", ForecastPercentageController.detail);
 ForecastPercentageRoutes.put(
     "/:id",
-    validateBody(RequestForecastPercentageSchema.partial()),
+    validateBody(RequestForecastPercentageUpdateSchema),
     ForecastPercentageController.update,
 );
 ForecastPercentageRoutes.delete("/:id", ForecastPercentageController.destroy);

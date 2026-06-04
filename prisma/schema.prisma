@@ -441,15 +441,39 @@ model ProductIssuance {
 }
 
 model ForecastPercentage {
-  id        Int        @id @default(autoincrement())
-  month     Int        @db.SmallInt
-  year      Int        @db.SmallInt
-  value     Decimal    @default(0) @db.Decimal(5, 2)
+  id        Int                         @id @default(autoincrement())
+  month     Int                         @db.SmallInt
+  year      Int                         @db.SmallInt
+  value     Decimal                     @default(0) @db.Decimal(5, 2)
   forecasts Forecast[]
+  histories ForecastPercentageHistory[]
 
   @@unique([id, month, year])
   @@unique([month, year])
   @@map("forecasts_percentages")
+}
+
+enum ForecastPercentageHistoryAction {
+  UPDATE
+  BULK_UPDATE
+}
+
+model ForecastPercentageHistory {
+  id                     Int                             @id @default(autoincrement())
+  month                  Int                             @db.SmallInt
+  year                   Int                             @db.SmallInt
+  forecast_percentage_id Int?
+  forecast_percentage    ForecastPercentage?             @relation(fields: [forecast_percentage_id], references: [id], onDelete: SetNull)
+  old_value              Decimal                         @db.Decimal(5, 2)
+  new_value              Decimal                         @db.Decimal(5, 2)
+  action                 ForecastPercentageHistoryAction @default(UPDATE)
+  changed_by             String?
+  reason                 String?                         @db.Text
+  created_at             DateTime                        @default(now())
+
+  @@index([month, year, created_at(sort: Desc)])
+  @@index([forecast_percentage_id])
+  @@map("forecast_percentage_histories")
 }
 
 model Forecast {
