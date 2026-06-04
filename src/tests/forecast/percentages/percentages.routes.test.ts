@@ -3,7 +3,13 @@ import app from "../../../app.js";
 
 vi.mock("../../../config/redis.js", () => {
     const mockRedis = {
-        get: vi.fn().mockResolvedValue(null),
+        get: vi.fn().mockResolvedValue(
+            JSON.stringify({
+                email: "test@example.com",
+                role: "SUPER_ADMIN",
+                user: { id: "user-123", name: "Test User" },
+            }),
+        ),
         set: vi.fn().mockResolvedValue("OK"),
         setex: vi.fn().mockResolvedValue("OK"),
         del: vi.fn().mockResolvedValue(1),
@@ -198,5 +204,42 @@ describe("ForecastPercentageRoutes", () => {
         });
 
         expect(res.status).toBe(400);
+    });
+
+    // ─── GET /history (global) ─────────────────────────────────────────────────
+
+    it("GET /history?month=6&year=2026 should return 200", async () => {
+        const res = await app.request(`${BASE}/history?month=6&year=2026`, {
+            method: "GET",
+        });
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body.status).toBe("success");
+        expect(body.data).toHaveProperty("data");
+        expect(body.data).toHaveProperty("len");
+    });
+
+    it("GET /history without month should return 400", async () => {
+        const res = await app.request(`${BASE}/history?year=2026`, {
+            method: "GET",
+        });
+        expect(res.status).toBe(400);
+    });
+
+    // ─── GET /:id/history ──────────────────────────────────────────────────────
+
+    it("GET /:id/history should return 200 when parent exists", async () => {
+        const res = await app.request(`${BASE}/1/history`, { method: "GET" });
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body.status).toBe("success");
+        expect(body.data).toHaveProperty("data");
+    });
+
+    it("GET /:id/history should return 404 when parent not found", async () => {
+        const res = await app.request(`${BASE}/999/history`, { method: "GET" });
+        expect(res.status).toBe(404);
     });
 });

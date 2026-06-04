@@ -4,7 +4,10 @@ import { ApiResponse } from "../../../../lib/api.response.js";
 import { CreateLogger } from "../../shared/activity-logger.js";
 import type { CreateLoggingActivityDTO } from "../../shared/activity-logger.js";
 import { ForecastPercentageService } from "./percentages.service.js";
-import { QueryForecastPercentageDTO } from "./percentages.schema.js";
+import {
+    QueryForecastPercentageDTO,
+    QueryForecastPercentageHistoryDTO,
+} from "./percentages.schema.js";
 
 const Table = "ForecastPercentage";
 
@@ -28,7 +31,9 @@ export class ForecastPercentageController {
         const body = c.get("body");
         const session = c.get("session");
 
-        const result = await ForecastPercentageService.createMany(body);
+        const result = await ForecastPercentageService.createMany(body, {
+            changed_by: session.email,
+        });
 
         await CreateLogger({
             activity: "CREATE",
@@ -67,7 +72,9 @@ export class ForecastPercentageController {
         const body = c.get("body");
         const session = c.get("session");
 
-        const result = await ForecastPercentageService.update(Number(id), body);
+        const result = await ForecastPercentageService.update(Number(id), body, {
+            changed_by: session.email,
+        });
 
         await CreateLogger({
             activity: "UPDATE",
@@ -108,5 +115,37 @@ export class ForecastPercentageController {
         } satisfies CreateLoggingActivityDTO);
 
         return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async listHistory(c: Context) {
+        const id = c.req.param("id");
+        if (!id) throw new ApiError(400, "Kesalahan pada proses permintaan data");
+
+        const parent = await ForecastPercentageService.detail(Number(id));
+
+        const { page, take } = c.req.query();
+        const params: QueryForecastPercentageHistoryDTO = {
+            month: parent.month,
+            year: parent.year,
+            page: page ? Number(page) : 1,
+            take: take ? Number(take) : 25,
+        };
+
+        const result = await ForecastPercentageService.listHistory(params);
+        return ApiResponse.sendSuccess(c, result, 200, params);
+    }
+
+    static async listHistoryGlobal(c: Context) {
+        const { month, year, page, take } = c.req.query();
+
+        const params: QueryForecastPercentageHistoryDTO = {
+            month: Number(month),
+            year: Number(year),
+            page: page ? Number(page) : 1,
+            take: take ? Number(take) : 25,
+        };
+
+        const result = await ForecastPercentageService.listHistory(params);
+        return ApiResponse.sendSuccess(c, result, 200, params);
     }
 }

@@ -54,18 +54,30 @@ describe("ForecastPercentageService", () => {
 
     describe("createMany", () => {
         it("should upsert multiple forecast percentages", async () => {
+            const txMock = {
+                forecastPercentage: {
+                    findMany: vi.fn().mockResolvedValue([]),
+                    upsert: vi.fn().mockImplementation(async ({ create }: any) => ({
+                        id: create.month,
+                        month: create.month,
+                        year: create.year,
+                        value: String(create.value),
+                    })),
+                },
+                forecastPercentageHistory: { createMany: vi.fn() },
+            };
             // @ts-ignore
-            prisma.$transaction.mockResolvedValue([
-                { id: 1, month: 1, year: 2025, value: "10.50" },
-                { id: 2, month: 2, year: 2025, value: "12.00" },
-            ]);
+            prisma.$transaction.mockImplementationOnce(async (cb: any) => cb(txMock));
 
-            const result = await ForecastPercentageService.createMany({
-                items: [
-                    { month: 1, year: 2025, value: 10.5 },
-                    { month: 2, year: 2025, value: 12 },
-                ],
-            });
+            const result = await ForecastPercentageService.createMany(
+                {
+                    items: [
+                        { month: 1, year: 2025, value: 10.5 },
+                        { month: 2, year: 2025, value: 12 },
+                    ],
+                },
+                { changed_by: "test@example.com" },
+            );
 
             expect(result.count).toBe(2);
             expect(result.data).toHaveLength(2);
@@ -142,28 +154,52 @@ describe("ForecastPercentageService", () => {
 
     describe("update", () => {
         it("should update successfully", async () => {
+            const txMock = {
+                $queryRaw: vi.fn().mockResolvedValue([{ id: 1 }]),
+                forecastPercentage: {
+                    findUnique: vi.fn().mockResolvedValue({
+                        id: 1,
+                        month: 1,
+                        year: 2025,
+                        value: { equals: () => false, toString: () => "10.50" },
+                    }),
+                    update: vi.fn().mockResolvedValue({
+                        id: 1,
+                        month: 1,
+                        year: 2025,
+                        value: "15.00",
+                    }),
+                },
+                forecastPercentageHistory: { create: vi.fn() },
+            };
             // @ts-ignore
-            prisma.forecastPercentage.findUnique.mockResolvedValue({ id: 1 });
-            // @ts-ignore
-            prisma.forecastPercentage.update.mockResolvedValue({
-                id: 1,
-                month: 1,
-                year: 2025,
-                value: "15.00",
-            });
+            prisma.$transaction.mockImplementationOnce(async (cb: any) => cb(txMock));
 
-            const result = await ForecastPercentageService.update(1, { value: 15 });
+            const result = await ForecastPercentageService.update(
+                1,
+                { value: 15 },
+                { changed_by: "test@example.com" },
+            );
 
             expect(result.value).toBe(15);
         });
 
         it("should throw ApiError 404 if not found on update", async () => {
+            const txMock = {
+                $queryRaw: vi.fn().mockResolvedValue([]),
+                forecastPercentage: { findUnique: vi.fn().mockResolvedValue(null) },
+                forecastPercentageHistory: { create: vi.fn() },
+            };
             // @ts-ignore
-            prisma.forecastPercentage.findUnique.mockResolvedValue(null);
+            prisma.$transaction.mockImplementationOnce(async (cb: any) => cb(txMock));
 
-            await expect(ForecastPercentageService.update(999, { value: 15 })).rejects.toThrow(
-                ApiError,
-            );
+            await expect(
+                ForecastPercentageService.update(
+                    999,
+                    { value: 15 },
+                    { changed_by: "test@example.com" },
+                ),
+            ).rejects.toThrow(ApiError);
         });
     });
 
