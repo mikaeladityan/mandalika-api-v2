@@ -25,6 +25,7 @@ vi.mock("../../lib/google-sheets.js", () => ({
         readHeader: vi.fn().mockResolvedValue([
             "CODE", "SAFETY %", "NAME", "TYPE", "GENDER", "SIZE", "UOM", "DISTRIBUTION %",
         ]),
+        readColumn: vi.fn().mockResolvedValue([]),
         findRowByCode: vi.fn(),
         appendRow: vi.fn(),
         updateRow: vi.fn(),
@@ -34,7 +35,7 @@ vi.mock("../../lib/google-sheets.js", () => ({
 
 import prisma from "../../config/prisma.js";
 import { GoogleSheetsClient } from "../../lib/google-sheets.js";
-import { ProductSheetSyncService } from "../../module/application/product/sheet/product-sheet.service.js";
+import { ProductSheetSyncService, computeNextUid } from "../../module/application/product/sheet/product-sheet.service.js";
 
 const productFixture = {
     id: 1,
@@ -48,10 +49,33 @@ const productFixture = {
     size: { size: 100 },
 };
 
+describe("computeNextUid", () => {
+    it("returns '1' for an empty column", () => {
+        expect(computeNextUid([])).toBe("1");
+    });
+
+    it("returns '1' when column has only non-numeric values", () => {
+        expect(computeNextUid(["abc", "", "X-1"])).toBe("1");
+    });
+
+    it("returns max numeric + 1", () => {
+        expect(computeNextUid(["1", "2", "5", "3"])).toBe("6");
+    });
+
+    it("ignores non-integer numerics", () => {
+        expect(computeNextUid(["1", "2.5", "3", "abc"])).toBe("4");
+    });
+
+    it("ignores negative numbers and zero", () => {
+        expect(computeNextUid(["-5", "0", "2"])).toBe("3");
+    });
+});
+
 describe("ProductSheetSyncService.handle", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(GoogleSheetsClient.readHeader).mockResolvedValue(HEADERS);
+        vi.mocked(GoogleSheetsClient.readColumn).mockResolvedValue([]);
     });
 
     describe("upsert", () => {
@@ -71,17 +95,34 @@ describe("ProductSheetSyncService.handle", () => {
             expect(GoogleSheetsClient.appendRow).not.toHaveBeenCalled();
         });
 
-        it("calls appendRow when product missing in sheet (self-heal)", async () => {
+        it("calls appendRow with UID + 8 data cells anchored to A:I (no column shift)", async () => {
             vi.mocked(prisma.product.findUnique).mockResolvedValueOnce(productFixture as never);
             vi.mocked(GoogleSheetsClient.findRowByCode).mockResolvedValueOnce(null);
+            vi.mocked(GoogleSheetsClient.readColumn).mockResolvedValueOnce(["1", "2", "3"]);
+
+            await ProductSheetSyncService.handle({ action: "upsert", productId: 1 });
+
+            expect(GoogleSheetsClient.readColumn).toHaveBeenCalledWith(
+                "test-sheet", "PRODUCTS", "A2:A",
+            );
+            expect(GoogleSheetsClient.appendRow).toHaveBeenCalledWith(
+                "test-sheet", "PRODUCTS", "A:I",
+                ["4", "EDP-AZUR-100", "25", "AZURE", "EDP", "UNISEX", "100", "pcs", "50"],
+            );
+            expect(GoogleSheetsClient.updateRow).not.toHaveBeenCalled();
+        });
+
+        it("uses UID '1' when column A is empty on first-ever append", async () => {
+            vi.mocked(prisma.product.findUnique).mockResolvedValueOnce(productFixture as never);
+            vi.mocked(GoogleSheetsClient.findRowByCode).mockResolvedValueOnce(null);
+            vi.mocked(GoogleSheetsClient.readColumn).mockResolvedValueOnce([]);
 
             await ProductSheetSyncService.handle({ action: "upsert", productId: 1 });
 
             expect(GoogleSheetsClient.appendRow).toHaveBeenCalledWith(
-                "test-sheet", "PRODUCTS", "B:B",
-                ["EDP-AZUR-100", "25", "AZURE", "EDP", "UNISEX", "100", "pcs", "50"],
+                "test-sheet", "PRODUCTS", "A:I",
+                ["1", "EDP-AZUR-100", "25", "AZURE", "EDP", "UNISEX", "100", "pcs", "50"],
             );
-            expect(GoogleSheetsClient.updateRow).not.toHaveBeenCalled();
         });
 
         it("uses oldCode for lookup when SKU changed", async () => {

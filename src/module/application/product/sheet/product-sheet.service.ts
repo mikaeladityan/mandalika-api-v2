@@ -28,8 +28,22 @@ const EXPECTED_HEADERS = [
 ] as const;
 const HEADER_RANGE = "B1:I1";
 const CODE_COLUMN_RANGE = "B2:B";
-const APPEND_ANCHOR_RANGE = "B:B";
+const UID_COLUMN_RANGE = "A2:A";
+// Anchor spans A-I so values.append writes from column A (UID + 8 data cols).
+// Anchor "B:B" silently shifted everything left because the API detects the
+// table starting at A when row 1 has UID populated.
+const APPEND_ANCHOR_RANGE = "A:I";
 const rowDataRange = (n: number) => `B${n}:I${n}`;
+
+/** Pick the next sequential integer UID for column A: max existing + 1, or 1 if none. */
+export function computeNextUid(column: string[]): string {
+    let max = 0;
+    for (const v of column) {
+        const n = Number(v);
+        if (Number.isFinite(n) && Math.floor(n) === n && n > max) max = n;
+    }
+    return String(max + 1);
+}
 
 const SHEET_INCLUDES = {
     product_type: { select: { name: true } },
@@ -80,7 +94,18 @@ export class ProductSheetSyncService {
             }
 
             if (rowIndex === null) {
-                await GoogleSheetsClient.appendRow(sheetId, tab, APPEND_ANCHOR_RANGE, values);
+                const uidColumn = await GoogleSheetsClient.readColumn(
+                    sheetId,
+                    tab,
+                    UID_COLUMN_RANGE,
+                );
+                const nextUid = computeNextUid(uidColumn);
+                await GoogleSheetsClient.appendRow(
+                    sheetId,
+                    tab,
+                    APPEND_ANCHOR_RANGE,
+                    [nextUid, ...values],
+                );
             } else {
                 await GoogleSheetsClient.updateRow(sheetId, tab, rowDataRange(rowIndex), values);
             }
