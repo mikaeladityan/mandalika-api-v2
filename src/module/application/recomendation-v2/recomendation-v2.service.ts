@@ -16,7 +16,6 @@ import { GetPagination } from "../../../lib/utils/pagination.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 import * as ExcelJS from "exceljs";
 import { ApiError } from "../../../lib/errors/api.error.js";
-import { generatePONumber } from "../../../lib/utils/generate-number.js";
 
 const EDITABLE_PO_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "ORDERED"] as const;
 type EditablePOStatus = typeof EDITABLE_PO_STATUSES[number];
@@ -746,8 +745,9 @@ export class RecomendationV2Service {
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 return await prisma.$transaction(async (tx) => {
-                    // Serialize concurrent po_number generation across all flows that
-                    // also acquire this advisory lock. Released on tx commit/rollback.
+                    // Serialize concurrent createOpenPoCell calls. Released on tx end.
+                    // Doesn't fully cover cross-flow races with generatePONumber (count+1
+                    // in purchase/po, purchase/rfq) — the retry below handles those.
                     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('po_number_seq'))`;
 
                     const rm = await tx.rawMaterial.findUnique({
@@ -768,11 +768,14 @@ export class RecomendationV2Service {
 
                     const today = new Date();
                     const datePrefix = `PO-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}-`;
+                    // MAX(seq)+1 — robust against deletions (count+1 is not).
                     const maxRows = await tx.$queryRaw<{ max_seq: number | null }[]>`
                         SELECT MAX(CAST(SUBSTRING(po_number FROM ${datePrefix.length + 1}) AS INTEGER)) AS max_seq
                         FROM purchase_orders
                         WHERE po_number LIKE ${datePrefix + "%"}
                     `;
+                    // Bump by attempt# so retries land on a fresh slot even if a
+                    // concurrent generator inserted between our SELECT and INSERT.
                     const nextSeq = Number(maxRows[0]?.max_seq ?? 0) + 1 + attempt;
                     const poNumber = `${datePrefix}${String(nextSeq).padStart(3, "0")}`;
                     const poDate = new Date(Date.UTC(year, month - 1, 1));
@@ -833,13 +836,12 @@ export class RecomendationV2Service {
                     };
                 });
             } catch (e) {
-                // Safety net: another flow (e.g. generatePONumber count-based) may have
-                // produced the same po_number outside this lock. Bump seq and retry.
+                // PurchaseOrder's only unique constraint is po_number, so any P2002
+                // from purchaseOrder.create is a po_number collision. Retry up to
+                // MAX_RETRIES to ride past races with concurrent generators.
                 if (
                     e instanceof Prisma.PrismaClientKnownRequestError &&
                     e.code === "P2002" &&
-                    Array.isArray((e.meta as { target?: string[] })?.target) &&
-                    (e.meta as { target: string[] }).target.includes("po_number") &&
                     attempt < MAX_RETRIES - 1
                 ) {
                     lastError = e;
