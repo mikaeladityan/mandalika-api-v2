@@ -43,6 +43,23 @@ export class GoogleSheetsClient {
     }
 
     /**
+     * Read all cell values in a single-column range (e.g. "A2:A").
+     * Missing cells are normalized to "".
+     */
+    static async readColumn(
+        spreadsheetId: string,
+        tabName: string,
+        columnRange: string,
+    ): Promise<string[]> {
+        const res = await getClient().spreadsheets.values.get({
+            spreadsheetId,
+            range: `${tabName}!${columnRange}`,
+        });
+        const rows = res.data.values ?? [];
+        return rows.map((r) => String(r?.[0] ?? ""));
+    }
+
+    /**
      * Scan a single column (e.g. "B2:B") for the given code. Returns the
      * 1-based sheet row index of the match, or null.
      */

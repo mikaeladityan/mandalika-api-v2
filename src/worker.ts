@@ -6,6 +6,7 @@ import { createFGImportWorker } from "./module/application/inventory/fg/import/q
 import { createRMImportWorker } from "./module/application/inventory/rm/import/queue/rm-import.worker.js";
 import { createProductImportWorker } from "./module/application/product/import/queue/product-import.worker.js";
 import { createProductSheetSyncWorker } from "./module/application/product/sheet/product-sheet.worker.js";
+import { createRawMatSheetSyncWorker } from "./module/application/rawmat/sheet/rawmat-sheet.worker.js";
 
 console.log("Worker environment loaded:", {
     NODE_ENV: env.NODE_ENV,
@@ -25,6 +26,7 @@ let fgImportWorker: WorkerHandle | null = null;
 let rmImportWorker: WorkerHandle | null = null;
 let productImportWorker: WorkerHandle | null = null;
 let productSheetSyncWorker: WorkerHandle | null = null;
+let rawmatSheetSyncWorker: WorkerHandle | null = null;
 
 const initialize = async () => {
     try {
@@ -47,6 +49,9 @@ const initialize = async () => {
         productSheetSyncWorker = createProductSheetSyncWorker();
         logger.info("Product sheet-sync worker listening");
 
+        rawmatSheetSyncWorker = createRawMatSheetSyncWorker();
+        logger.info("RawMat sheet-sync worker listening");
+
         logger.info("Worker initialized");
     } catch (error) {
         logger.error("Worker initialization failed", {
@@ -65,6 +70,7 @@ const shutdown = async () => {
         await rmImportWorker?.close();
         await productImportWorker?.close();
         await productSheetSyncWorker?.close();
+        await rawmatSheetSyncWorker?.close();
         await closeRedisConnection();
         await closeDatabase();
     } catch (error) {

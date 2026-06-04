@@ -69,6 +69,11 @@ export const env = cleanEnv(process.env, {
     GOOGLE_FG_SHEET_ID: str(),
     GOOGLE_FG_TAB_NAME: str({ default: "PRODUCTS" }),
     PRODUCT_SHEET_SYNC_ENABLED: bool({ default: false }),
+
+    // RM raw material mirror sheet (separate workbook)
+    GOOGLE_RM_SHEET_ID: str(),
+    GOOGLE_RM_TAB_NAME: str({ default: "MANDALIKA" }),
+    RAWMAT_SHEET_SYNC_ENABLED: bool({ default: false }),
 });
 
 export const corsConfig = {

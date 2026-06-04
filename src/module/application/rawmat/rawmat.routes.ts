@@ -41,6 +41,7 @@ RawMaterialRoutes.patch(
     RawMaterialController.update,
 );
 RawMaterialRoutes.patch("/:id/restore", RawMaterialController.restore);
+RawMaterialRoutes.post("/:id/resync", RawMaterialController.resync);
 RawMaterialRoutes.delete("/:id", RawMaterialController.delete);
 
 RawMaterialRoutes.post("/", validateBody(RequestRawMaterialSchema), RawMaterialController.create);

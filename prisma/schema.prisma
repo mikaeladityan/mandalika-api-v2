@@ -169,6 +169,22 @@ model ProductSheetSyncFailure {
   @@map("product_sheet_sync_failures")
 }
 
+model RawMaterialSheetSyncFailure {
+  id                Int          @id @default(autoincrement())
+  raw_material_id   Int
+  action            String       @db.VarChar(16)
+  error_message     String       @db.Text
+  attempt_count     Int          @default(1)
+  last_attempted_at DateTime     @default(now())
+  resolved_at       DateTime?
+  created_at        DateTime     @default(now())
+  raw_material      RawMaterial  @relation(fields: [raw_material_id], references: [id], onDelete: Cascade)
+
+  @@index([raw_material_id, resolved_at])
+  @@index([resolved_at])
+  @@map("raw_material_sheet_sync_failures")
+}
+
 model ProductSize {
   id       Int       @id @default(autoincrement())
   size     Int       @unique
@@ -249,6 +265,7 @@ model RawMaterial {
   po_items                          PurchaseOrderItem[]
   receipt_items                     PurchaseReceiptItem[]
   vendor_return_items               VendorReturnItem[]
+  sheet_sync_failures               RawMaterialSheetSyncFailure[]
 
   @@index([deleted_at])
   @@index([type])

@@ -106,6 +106,36 @@ describe("GoogleSheetsClient", () => {
         });
     });
 
+    describe("readColumn", () => {
+        it("returns string values from a single-column range", async () => {
+            mockValuesGet.mockResolvedValueOnce({
+                data: { values: [["1"], ["2"], ["3"]] },
+            });
+            const result = await GoogleSheetsClient.readColumn("sid", "PRODUCTS", "A2:A");
+            expect(result).toEqual(["1", "2", "3"]);
+            expect(mockValuesGet).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    spreadsheetId: "sid",
+                    range: "PRODUCTS!A2:A",
+                }),
+            );
+        });
+
+        it("returns empty array when sheet has no values", async () => {
+            mockValuesGet.mockResolvedValueOnce({ data: {} });
+            const result = await GoogleSheetsClient.readColumn("sid", "PRODUCTS", "A2:A");
+            expect(result).toEqual([]);
+        });
+
+        it("coerces cell values to strings and substitutes '' for missing cells", async () => {
+            mockValuesGet.mockResolvedValueOnce({
+                data: { values: [["1"], [], ["3"], [null]] },
+            });
+            const result = await GoogleSheetsClient.readColumn("sid", "PRODUCTS", "A2:A");
+            expect(result).toEqual(["1", "", "3", ""]);
+        });
+    });
+
     describe("updateRow", () => {
         it("calls values.update with the given row range and values", async () => {
             mockValuesUpdate.mockResolvedValueOnce({});

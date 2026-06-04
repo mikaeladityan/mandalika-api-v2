@@ -138,6 +138,12 @@ export class RawMaterialController {
         return ApiResponse.sendSuccess(c, result, 200);
     }
 
+    static async resync(c: Context) {
+        const id = Number(c.req.param("id"));
+        const result = await RawMaterialService.resync(id);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
     static async bulkStatus(c: Context) {
         const { ids, status } = c.get("body");
         const accountSession = c.get("session");

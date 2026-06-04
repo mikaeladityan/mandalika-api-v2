@@ -16,6 +16,7 @@ import {
 import { normalizeSlug } from "../../../lib/index.js";
 import { MaterialType } from "../../../generated/prisma/client.js";
 import ExcelJS from "exceljs";
+import { enqueueRawMatSheetSync } from "./sheet/rawmat-sheet.queue.js";
 
 type RawRow = {
     id: number;
@@ -99,7 +100,7 @@ export class RawMaterialService {
             if (!findSupplier) throw new ApiError(404, "Supplier tidak ditemukan");
         }
 
-        return prisma.$transaction(async (tx) => {
+        const created = await prisma.$transaction(async (tx) => {
             const unitRelation = findSlugUnit
                 ? { connect: { id: findSlugUnit.id } }
                 : { create: { name: data.unit, slug: slugUnit } };
@@ -148,13 +149,23 @@ export class RawMaterialService {
                 });
             }
 
-            return this.detail(rm.id);
+            return rm;
         });
+
+        if (created.barcode) {
+            await enqueueRawMatSheetSync({
+                action: "upsert",
+                rawMaterialId: created.id,
+            });
+        }
+
+        return this.detail(created.id);
     }
 
     static async update(id: number, payload: Partial<RequestRawMaterialDTO>) {
-        const find = await this.findRaw(id);
-        if (!find) throw new ApiError(404, "Data raw material tidak ditemukan");
+        const existing = await this.findRaw(id);
+        if (!existing) throw new ApiError(404, "Data raw material tidak ditemukan");
+        const oldBarcode = existing.barcode ?? null;
 
         if (typeof payload.supplier_id === "number" && payload.supplier_id > 0) {
             const findSupplier = await prisma.supplier.findUnique({
@@ -163,7 +174,7 @@ export class RawMaterialService {
             if (!findSupplier) throw new ApiError(404, "Supplier tidak ditemukan");
         }
 
-        return prisma.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx) => {
             const exists = await tx.rawMaterial.findFirst({ where: { id, deleted_at: null } });
             if (!exists) throw new ApiError(404, "Raw material tidak ditemukan");
 
@@ -280,8 +291,25 @@ export class RawMaterialService {
                 });
             }
 
-            return this.detail(id);
         });
+
+        // Re-read post-update state so we know the current barcode and deleted_at
+        const post = await prisma.rawMaterial.findUnique({
+            where: { id },
+            select: { barcode: true, deleted_at: true },
+        });
+
+        if (post?.deleted_at == null && post?.barcode) {
+            const oldOpt =
+                oldBarcode && oldBarcode !== post.barcode ? { oldBarcode } : {};
+            await enqueueRawMatSheetSync({
+                action: "upsert",
+                rawMaterialId: id,
+                ...oldOpt,
+            });
+        }
+
+        return this.detail(id);
     }
 
     static async detail(id: number): Promise<ResponseRawMaterialDTO> {
@@ -425,7 +453,38 @@ export class RawMaterialService {
             `),
         ]);
 
-        return { len: Number(count), data: rows.map(toDTO) };
+        const pageIds = rows.map((r) => r.id);
+        const failureRows =
+            pageIds.length === 0
+                ? []
+                : await prisma.rawMaterialSheetSyncFailure.findMany({
+                      where: { raw_material_id: { in: pageIds }, resolved_at: null },
+                      orderBy: { created_at: "desc" },
+                      select: { raw_material_id: true, error_message: true },
+                  });
+        const failureByRm = new Map<number, string>();
+        for (const f of failureRows) {
+            if (!failureByRm.has(f.raw_material_id)) {
+                failureByRm.set(f.raw_material_id, f.error_message);
+            }
+        }
+
+        return {
+            len: Number(count),
+            data: rows.map((r) => {
+                const dto = toDTO(r) as ResponseRawMaterialDTO & {
+                    sheet_sync_status?: "synced" | "failed";
+                    sheet_sync_error?: string;
+                };
+                if (failureByRm.has(r.id)) {
+                    dto.sheet_sync_status = "failed";
+                    dto.sheet_sync_error = failureByRm.get(r.id);
+                } else {
+                    dto.sheet_sync_status = "synced";
+                }
+                return dto;
+            }),
+        };
     }
 
     static async delete(id: number) {
@@ -434,10 +493,20 @@ export class RawMaterialService {
         if (find.deleted_at !== null)
             throw new ApiError(400, "Raw material sudah berada pada status deleted");
 
-        return prisma.rawMaterial.update({
+        const result = await prisma.rawMaterial.update({
             where: { id, deleted_at: null },
             data: { deleted_at: new Date() },
         });
+
+        if (find.barcode) {
+            await enqueueRawMatSheetSync({
+                action: "delete",
+                rawMaterialId: id,
+                barcode: find.barcode,
+            });
+        }
+
+        return result;
     }
 
     static async restore(id: number) {
@@ -446,10 +515,19 @@ export class RawMaterialService {
         if (find.deleted_at === null)
             throw new ApiError(400, "Raw material tidak berada pada status deleted");
 
-        return prisma.rawMaterial.update({
+        const result = await prisma.rawMaterial.update({
             where: { id, deleted_at: { not: null } },
             data: { deleted_at: null },
         });
+
+        if (find.barcode) {
+            await enqueueRawMatSheetSync({
+                action: "upsert",
+                rawMaterialId: id,
+            });
+        }
+
+        return result;
     }
     
     static async bulkStatus(ids: number[], status: "ACTIVE" | "DELETE") {
@@ -619,5 +697,33 @@ export class RawMaterialService {
             select: { id: true },
         });
         return existing ? { connect: { id: existing.id } } : { create: { name: category, slug } };
+    }
+
+    static async resync(id: number) {
+        const rm = await prisma.rawMaterial.findUnique({
+            where: { id },
+            select: { id: true, barcode: true, deleted_at: true },
+        });
+        if (!rm) throw new ApiError(404, `Raw material dengan id ${id} tidak ditemukan`);
+        if (!rm.barcode) {
+            throw new ApiError(
+                400,
+                "Raw material tanpa barcode tidak dapat di-sync ke Spreadsheet",
+            );
+        }
+
+        if (rm.deleted_at !== null) {
+            await enqueueRawMatSheetSync({
+                action: "delete",
+                rawMaterialId: rm.id,
+                barcode: rm.barcode,
+            });
+        } else {
+            await enqueueRawMatSheetSync({
+                action: "upsert",
+                rawMaterialId: rm.id,
+            });
+        }
+        return { message: "Sync ulang dijadwalkan" };
     }
 }
