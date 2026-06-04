@@ -1,4 +1,0 @@
-interface:
-  display_name: "E2E Cucumber + Playwright"
-  short_description: "Write and review E2E scenarios."
-  default_prompt: "Use this skill to write or review E2E scenarios using Cucumber and Playwright."
