@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { RecomendationV2Service } from "../module/application/recomendation-v2/recomendation-v2.service.js";
 import prisma from "../config/prisma.js";
+import { Prisma } from "../generated/prisma/client.js";
 
 describe("RecomendationV2Service - Override Features", () => {
     beforeEach(() => {
@@ -106,6 +107,93 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(target).toBeDefined();
             expect(target?.override_needs).toBe(1500);
             expect(target?.quantity).toBe(1000);
+        });
+    });
+
+    describe("createOpenPoCell - po_number conflict handling", () => {
+        const body = { raw_mat_id: 1, month: 6, year: 2026, quantity: 100 };
+        const userId = "user-1";
+
+        const buildTx = (createImpl: ReturnType<typeof vi.fn>) => ({
+            $executeRaw: vi.fn().mockResolvedValue(1),
+            $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 5 }]),
+            rawMaterial: {
+                findUnique: vi.fn().mockResolvedValue({
+                    id: 1,
+                    name: "RM Test",
+                    barcode: "RM-TEST",
+                    unit_raw_material: { name: "KG" },
+                    raw_mat_category: { name: "Cat" },
+                    supplier_materials: [{ min_buy: 10 }],
+                }),
+            },
+            supplierMaterial: {
+                findFirst: vi
+                    .fn()
+                    .mockResolvedValueOnce({ supplier_id: 7, unit_price: 1000 })
+                    .mockResolvedValue({ unit_price: 1000 }),
+            },
+            supplier: {
+                findUnique: vi.fn().mockResolvedValue({ id: 7, name: "Supplier" }),
+            },
+            purchaseOrderItem: { findFirst: vi.fn().mockResolvedValue(null) },
+            purchaseOrder: { create: createImpl },
+        });
+
+        it("retries on P2002 (po_number) and succeeds on a fresh seq", async () => {
+            const p2002 = new Prisma.PrismaClientKnownRequestError(
+                "Unique constraint failed",
+                { code: "P2002", clientVersion: "test", meta: { target: ["po_number"] } },
+            );
+            const create = vi
+                .fn()
+                .mockRejectedValueOnce(p2002)
+                .mockResolvedValue({
+                    id: 99,
+                    po_number: "PO-x-007",
+                    status: "ORDERED",
+                    supplier_id: 7,
+                    supplier_name: "Supplier",
+                    po_date: new Date("2026-06-01"),
+                    items: [{
+                        id: 999, qty_ordered: 100, qty_received: 0, unit_price: 1000, uom: "KG",
+                    }],
+                });
+
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(buildTx(create)));
+
+            const result = await RecomendationV2Service.createOpenPoCell(body, userId);
+
+            expect(create).toHaveBeenCalledTimes(2);
+            expect(result.po_number).toBe("PO-x-007");
+        });
+
+        it("rethrows non-P2002 errors without retry", async () => {
+            const err = new Error("boom");
+            const create = vi.fn().mockRejectedValue(err);
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(buildTx(create)));
+
+            await expect(
+                RecomendationV2Service.createOpenPoCell(body, userId),
+            ).rejects.toThrow("boom");
+            expect(create).toHaveBeenCalledTimes(1);
+        });
+
+        it("gives up after MAX_RETRIES (5) and throws last P2002", async () => {
+            const p2002 = new Prisma.PrismaClientKnownRequestError(
+                "Unique constraint failed",
+                { code: "P2002", clientVersion: "test", meta: { target: ["po_number"] } },
+            );
+            const create = vi.fn().mockRejectedValue(p2002);
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(buildTx(create)));
+
+            await expect(
+                RecomendationV2Service.createOpenPoCell(body, userId),
+            ).rejects.toBe(p2002);
+            expect(create).toHaveBeenCalledTimes(5);
         });
     });
 });
