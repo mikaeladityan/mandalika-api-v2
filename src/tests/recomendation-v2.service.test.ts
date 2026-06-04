@@ -224,7 +224,7 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(create).toHaveBeenCalledTimes(1);
         });
 
-        it("gives up after MAX_RETRIES (5) and throws last P2002", async () => {
+        it("gives up after MAX_RETRIES (20) and throws last P2002", async () => {
             const p2002 = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
                 code: "P2002",
                 clientVersion: "test",
@@ -237,7 +237,7 @@ describe("RecomendationV2Service - Override Features", () => {
             await expect(
                 RecomendationV2Service.createOpenPoCell(body, userId),
             ).rejects.toBe(p2002);
-            expect(create).toHaveBeenCalledTimes(5);
+            expect(create).toHaveBeenCalledTimes(20);
         });
     });
 });

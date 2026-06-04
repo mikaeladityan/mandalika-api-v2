@@ -16,6 +16,7 @@ import { GetPagination } from "../../../lib/utils/pagination.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 import * as ExcelJS from "exceljs";
 import { ApiError } from "../../../lib/errors/api.error.js";
+import { logger } from "../../../lib/logger.js";
 
 const EDITABLE_PO_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "ORDERED"] as const;
 type EditablePOStatus = typeof EDITABLE_PO_STATUSES[number];
@@ -739,15 +740,15 @@ export class RecomendationV2Service {
 
     static async createOpenPoCell(body: RequestCreateOpenPoCellDTO, userId: string) {
         const { raw_mat_id, month, year, quantity, supplier_id } = body;
-        const MAX_RETRIES = 5;
+        const MAX_RETRIES = 20;
+        // Tagged per-request so we can correlate all retry attempts in logs.
+        const traceId = `open-po-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
         let lastError: unknown = null;
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 return await prisma.$transaction(async (tx) => {
                     // Serialize concurrent createOpenPoCell calls. Released on tx end.
-                    // Doesn't fully cover cross-flow races with generatePONumber (count+1
-                    // in purchase/po, purchase/rfq) — the retry below handles those.
                     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('po_number_seq'))`;
 
                     const rm = await tx.rawMaterial.findUnique({
@@ -768,16 +769,29 @@ export class RecomendationV2Service {
 
                     const today = new Date();
                     const datePrefix = `PO-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}-`;
-                    // MAX(seq)+1 — robust against deletions (count+1 is not).
+                    // Defensive MAX: only consider purely-numeric suffixes so a malformed
+                    // legacy row (e.g. "PO-20260604-X" from a manual entry) can't poison
+                    // the result via CAST exception or wrong order.
                     const maxRows = await tx.$queryRaw<{ max_seq: number | null }[]>`
                         SELECT MAX(CAST(SUBSTRING(po_number FROM ${datePrefix.length + 1}) AS INTEGER)) AS max_seq
                         FROM purchase_orders
                         WHERE po_number LIKE ${datePrefix + "%"}
+                          AND SUBSTRING(po_number FROM ${datePrefix.length + 1}) ~ '^[0-9]+$'
                     `;
-                    // Bump by attempt# so retries land on a fresh slot even if a
-                    // concurrent generator inserted between our SELECT and INSERT.
-                    const nextSeq = Number(maxRows[0]?.max_seq ?? 0) + 1 + attempt;
+                    // Bump by attempt with growing offset + jitter so concurrent
+                    // retriers don't lockstep into each other on the same value.
+                    const jump = attempt === 0 ? 1 : 1 + attempt * 10 + Math.floor(Math.random() * 50);
+                    const nextSeq = Number(maxRows[0]?.max_seq ?? 0) + jump;
                     const poNumber = `${datePrefix}${String(nextSeq).padStart(3, "0")}`;
+                    logger.info("createOpenPoCell attempt", {
+                        traceId,
+                        attempt,
+                        datePrefix,
+                        max_seq: Number(maxRows[0]?.max_seq ?? 0),
+                        jump,
+                        nextSeq,
+                        poNumber,
+                    });
                     const poDate = new Date(Date.UTC(year, month - 1, 1));
                     const unitPrice = resolved.unit_price;
                     const subtotal = quantity * unitPrice;
@@ -844,9 +858,23 @@ export class RecomendationV2Service {
                     e.code === "P2002" &&
                     attempt < MAX_RETRIES - 1
                 ) {
+                    logger.warn("createOpenPoCell P2002 collision, retrying", {
+                        traceId,
+                        attempt,
+                        code: e.code,
+                        meta: e.meta,
+                    });
                     lastError = e;
                     continue;
                 }
+                logger.error("createOpenPoCell giving up", {
+                    traceId,
+                    attempt,
+                    errorName: e instanceof Error ? e.name : typeof e,
+                    errorMessage: e instanceof Error ? e.message : String(e),
+                    code: e instanceof Prisma.PrismaClientKnownRequestError ? e.code : undefined,
+                    meta: e instanceof Prisma.PrismaClientKnownRequestError ? e.meta : undefined,
+                });
                 throw e;
             }
         }
