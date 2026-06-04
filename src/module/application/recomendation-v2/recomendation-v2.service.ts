@@ -740,90 +740,117 @@ export class RecomendationV2Service {
 
     static async createOpenPoCell(body: RequestCreateOpenPoCellDTO, userId: string) {
         const { raw_mat_id, month, year, quantity, supplier_id } = body;
+        const MAX_RETRIES = 5;
 
-        return await prisma.$transaction(async (tx) => {
-            const rm = await tx.rawMaterial.findUnique({
-                where: { id: raw_mat_id },
-                include: {
-                    unit_raw_material: { select: { name: true } },
-                    raw_mat_category: { select: { name: true } },
-                    supplier_materials: {
-                        select: { min_buy: true },
-                        take: 1,
-                        orderBy: { is_preferred: "desc" },
-                    },
-                },
-            });
-            if (!rm) throw new ApiError(404, "Raw material tidak ditemukan");
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                return await prisma.$transaction(async (tx) => {
+                    // Serialize concurrent po_number generation across all flows that
+                    // also acquire this advisory lock. Released on tx commit/rollback.
+                    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('po_number_seq'))`;
 
-            const resolved = await this.resolveSupplierAndPrice(tx, raw_mat_id, supplier_id);
-
-            const today = new Date();
-            const datePrefix = `PO-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}-`;
-            const maxRows = await tx.$queryRaw<{ max_seq: number | null }[]>`
-                SELECT MAX(CAST(SUBSTRING(po_number FROM ${datePrefix.length + 1}) AS INTEGER)) AS max_seq
-                FROM purchase_orders
-                WHERE po_number LIKE ${datePrefix + "%"}
-            `;
-            const nextSeq = Number(maxRows[0]?.max_seq ?? 0) + 1;
-            const poNumber = `${datePrefix}${String(nextSeq).padStart(3, "0")}`;
-            const poDate = new Date(Date.UTC(year, month - 1, 1));
-            const unitPrice = resolved.unit_price;
-            const subtotal = quantity * unitPrice;
-
-            const moq = rm.supplier_materials[0]?.min_buy ?? null;
-
-            const po = await tx.purchaseOrder.create({
-                data: {
-                    po_number: poNumber,
-                    po_date: poDate,
-                    po_type: "LOCAL",
-                    supplier_id: resolved.supplier_id,
-                    supplier_name: resolved.supplier_name,
-                    currency: "IDR",
-                    exchange_rate: 1,
-                    total_estimated: subtotal,
-                    status: "ORDERED",
-                    approved_by: userId,
-                    approved_at: new Date(),
-                    ordered_at: new Date(),
-                    created_by: userId,
-                    items: {
-                        create: {
-                            raw_material_id: rm.id,
-                            item_code: rm.barcode || `RM-${rm.id}`,
-                            item_name: rm.name,
-                            item_category: rm.raw_mat_category?.name ?? null,
-                            item_type: "MASTER",
-                            uom: rm.unit_raw_material?.name || "UNIT",
-                            moq,
-                            unit_price: unitPrice,
-                            qty_ordered: quantity,
-                            subtotal,
+                    const rm = await tx.rawMaterial.findUnique({
+                        where: { id: raw_mat_id },
+                        include: {
+                            unit_raw_material: { select: { name: true } },
+                            raw_mat_category: { select: { name: true } },
+                            supplier_materials: {
+                                select: { min_buy: true },
+                                take: 1,
+                                orderBy: { is_preferred: "desc" },
+                            },
                         },
-                    },
-                },
-                include: { items: true },
-            });
+                    });
+                    if (!rm) throw new ApiError(404, "Raw material tidak ditemukan");
 
-            const item = po.items[0];
-            if (!item) throw new ApiError(500, "Gagal membuat PO item");
-            return {
-                item_id: item.id,
-                po_id: po.id,
-                po_number: po.po_number,
-                po_status: po.status as "ORDERED",
-                supplier_id: po.supplier_id,
-                supplier_name: po.supplier_name,
-                qty_ordered: Number(item.qty_ordered),
-                qty_received: Number(item.qty_received),
-                open_qty: Number(item.qty_ordered) - Number(item.qty_received),
-                unit_price: Number(item.unit_price),
-                uom: item.uom,
-                po_date: po.po_date.toISOString(),
-                is_legacy: false,
-            };
-        });
+                    const resolved = await this.resolveSupplierAndPrice(tx, raw_mat_id, supplier_id);
+
+                    const today = new Date();
+                    const datePrefix = `PO-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}-`;
+                    const maxRows = await tx.$queryRaw<{ max_seq: number | null }[]>`
+                        SELECT MAX(CAST(SUBSTRING(po_number FROM ${datePrefix.length + 1}) AS INTEGER)) AS max_seq
+                        FROM purchase_orders
+                        WHERE po_number LIKE ${datePrefix + "%"}
+                    `;
+                    const nextSeq = Number(maxRows[0]?.max_seq ?? 0) + 1 + attempt;
+                    const poNumber = `${datePrefix}${String(nextSeq).padStart(3, "0")}`;
+                    const poDate = new Date(Date.UTC(year, month - 1, 1));
+                    const unitPrice = resolved.unit_price;
+                    const subtotal = quantity * unitPrice;
+
+                    const moq = rm.supplier_materials[0]?.min_buy ?? null;
+
+                    const po = await tx.purchaseOrder.create({
+                        data: {
+                            po_number: poNumber,
+                            po_date: poDate,
+                            po_type: "LOCAL",
+                            supplier_id: resolved.supplier_id,
+                            supplier_name: resolved.supplier_name,
+                            currency: "IDR",
+                            exchange_rate: 1,
+                            total_estimated: subtotal,
+                            status: "ORDERED",
+                            approved_by: userId,
+                            approved_at: new Date(),
+                            ordered_at: new Date(),
+                            created_by: userId,
+                            items: {
+                                create: {
+                                    raw_material_id: rm.id,
+                                    item_code: rm.barcode || `RM-${rm.id}`,
+                                    item_name: rm.name,
+                                    item_category: rm.raw_mat_category?.name ?? null,
+                                    item_type: "MASTER",
+                                    uom: rm.unit_raw_material?.name || "UNIT",
+                                    moq,
+                                    unit_price: unitPrice,
+                                    qty_ordered: quantity,
+                                    subtotal,
+                                },
+                            },
+                        },
+                        include: { items: true },
+                    });
+
+                    const item = po.items[0];
+                    if (!item) throw new ApiError(500, "Gagal membuat PO item");
+                    return {
+                        item_id: item.id,
+                        po_id: po.id,
+                        po_number: po.po_number,
+                        po_status: po.status as "ORDERED",
+                        supplier_id: po.supplier_id,
+                        supplier_name: po.supplier_name,
+                        qty_ordered: Number(item.qty_ordered),
+                        qty_received: Number(item.qty_received),
+                        open_qty: Number(item.qty_ordered) - Number(item.qty_received),
+                        unit_price: Number(item.unit_price),
+                        uom: item.uom,
+                        po_date: po.po_date.toISOString(),
+                        is_legacy: false,
+                    };
+                });
+            } catch (e) {
+                // Safety net: another flow (e.g. generatePONumber count-based) may have
+                // produced the same po_number outside this lock. Bump seq and retry.
+                if (
+                    e instanceof Prisma.PrismaClientKnownRequestError &&
+                    e.code === "P2002" &&
+                    Array.isArray((e.meta as { target?: string[] })?.target) &&
+                    (e.meta as { target: string[] }).target.includes("po_number") &&
+                    attempt < MAX_RETRIES - 1
+                ) {
+                    lastError = e;
+                    continue;
+                }
+                throw e;
+            }
+        }
+        throw lastError instanceof Error
+            ? lastError
+            : new ApiError(500, "Gagal generate PO number setelah beberapa percobaan");
     }
 
     static async updateOpenPoCellQty(itemId: number, body: RequestUpdateOpenPoCellQtyDTO) {
