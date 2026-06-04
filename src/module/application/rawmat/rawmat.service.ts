@@ -453,7 +453,38 @@ export class RawMaterialService {
             `),
         ]);
 
-        return { len: Number(count), data: rows.map(toDTO) };
+        const pageIds = rows.map((r) => r.id);
+        const failureRows =
+            pageIds.length === 0
+                ? []
+                : await prisma.rawMaterialSheetSyncFailure.findMany({
+                      where: { raw_material_id: { in: pageIds }, resolved_at: null },
+                      orderBy: { created_at: "desc" },
+                      select: { raw_material_id: true, error_message: true },
+                  });
+        const failureByRm = new Map<number, string>();
+        for (const f of failureRows) {
+            if (!failureByRm.has(f.raw_material_id)) {
+                failureByRm.set(f.raw_material_id, f.error_message);
+            }
+        }
+
+        return {
+            len: Number(count),
+            data: rows.map((r) => {
+                const dto = toDTO(r) as ResponseRawMaterialDTO & {
+                    sheet_sync_status?: "synced" | "failed";
+                    sheet_sync_error?: string;
+                };
+                if (failureByRm.has(r.id)) {
+                    dto.sheet_sync_status = "failed";
+                    dto.sheet_sync_error = failureByRm.get(r.id);
+                } else {
+                    dto.sheet_sync_status = "synced";
+                }
+                return dto;
+            }),
+        };
     }
 
     static async delete(id: number) {

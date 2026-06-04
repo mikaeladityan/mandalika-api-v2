@@ -33,9 +33,14 @@ vi.mock("../../config/prisma.js", () => {
             findMany: vi.fn().mockResolvedValue([{ id: 1, name: "Sup" }]), 
             count: vi.fn().mockResolvedValue(1) 
         },
-        stockMovement: { 
-            deleteMany: vi.fn().mockResolvedValue({ count: 1 }), 
-            create: vi.fn().mockResolvedValue({ id: 1 }) 
+        stockMovement: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            create: vi.fn().mockResolvedValue({ id: 1 })
+        },
+        rawMaterialSheetSyncFailure: {
+            findMany: vi.fn().mockResolvedValue([]),
+            create: vi.fn().mockResolvedValue({}),
+            updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
         $queryRaw: vi.fn().mockResolvedValue([{ id: 1, name: "Mock RM", price: 100, unit_id: 1, unit_name: "pcs", unit_slug: "pcs", count: 1 }]),
     };

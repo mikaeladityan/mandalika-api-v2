@@ -83,6 +83,8 @@ export const ResponseRawMaterialSchema = RequestRawMaterialSchema.omit({
     created_at: z.date(),
     updated_at: z.date().nullable(),
     deleted_at: z.date().nullable().optional(),
+    sheet_sync_status: z.enum(["synced", "failed"]).optional(),
+    sheet_sync_error: z.string().optional(),
 });
 
 export const QueryRawMaterialSchema = z.object({
