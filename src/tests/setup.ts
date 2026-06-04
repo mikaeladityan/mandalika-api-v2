@@ -33,6 +33,9 @@ vi.mock("../config/env.js", () => ({
         GOOGLE_FG_SHEET_ID: "fg-sheet-id",
         GOOGLE_FG_TAB_NAME: "PRODUCTS",
         PRODUCT_SHEET_SYNC_ENABLED: false,
+        GOOGLE_RM_SHEET_ID: "rm-sheet-id",
+        GOOGLE_RM_TAB_NAME: "MANDALIKA",
+        RAWMAT_SHEET_SYNC_ENABLED: false,
         isDevelopment: true,
         isProduction: false,
         isProd: false,
@@ -764,6 +767,11 @@ vi.mock("../config/prisma.js", () => ({
             groupBy: vi.fn().mockResolvedValue([]),
         },
         productSheetSyncFailure: {
+            findMany: vi.fn().mockResolvedValue([]),
+            create: vi.fn().mockResolvedValue({}),
+            updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+        rawMaterialSheetSyncFailure: {
             findMany: vi.fn().mockResolvedValue([]),
             create: vi.fn().mockResolvedValue({}),
             updateMany: vi.fn().mockResolvedValue({ count: 0 }),

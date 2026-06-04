@@ -19,3 +19,6 @@ export const PRODUCT_IMPORT_QUEUE_NAME =
 
 export const PRODUCT_SHEET_QUEUE_NAME =
     env.NODE_ENV === "test" ? "test-product-sheet-sync" : "product-sheet-sync";
+
+export const RAWMAT_SHEET_QUEUE_NAME =
+    env.NODE_ENV === "test" ? "test-rawmat-sheet-sync" : "rawmat-sheet-sync";
