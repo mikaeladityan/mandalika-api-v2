@@ -114,9 +114,12 @@ describe("RecomendationV2Service - Override Features", () => {
         const body = { raw_mat_id: 1, month: 6, year: 2026, quantity: 100 };
         const userId = "user-1";
 
-        const buildTx = (createImpl: ReturnType<typeof vi.fn>) => ({
+        const buildTx = (
+            createImpl: ReturnType<typeof vi.fn>,
+            maxSeq: number | string = 5,
+        ) => ({
             $executeRaw: vi.fn().mockResolvedValue(1),
-            $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 5 }]),
+            $queryRaw: vi.fn().mockResolvedValue([{ max_seq: maxSeq }]),
             rawMaterial: {
                 findUnique: vi.fn().mockResolvedValue({
                     id: 1,
@@ -140,26 +143,23 @@ describe("RecomendationV2Service - Override Features", () => {
             purchaseOrder: { create: createImpl },
         });
 
-        it("retries on P2002 (po_number) and succeeds on a fresh seq", async () => {
-            const p2002 = new Prisma.PrismaClientKnownRequestError(
-                "Unique constraint failed",
-                { code: "P2002", clientVersion: "test", meta: { target: ["po_number"] } },
-            );
-            const create = vi
-                .fn()
-                .mockRejectedValueOnce(p2002)
-                .mockResolvedValue({
-                    id: 99,
-                    po_number: "PO-x-007",
-                    status: "ORDERED",
-                    supplier_id: 7,
-                    supplier_name: "Supplier",
-                    po_date: new Date("2026-06-01"),
-                    items: [{
-                        id: 999, qty_ordered: 100, qty_received: 0, unit_price: 1000, uom: "KG",
-                    }],
-                });
+        const buildPoResult = (po_number: string) => ({
+            id: 99,
+            po_number,
+            status: "ORDERED",
+            supplier_id: 7,
+            supplier_name: "Supplier",
+            po_date: new Date("2026-06-01"),
+            items: [{ id: 999, qty_ordered: 100, qty_received: 0, unit_price: 1000, uom: "KG" }],
+        });
 
+        it("retries on P2002 regardless of meta.target shape (covers Prisma 6 array form)", async () => {
+            const p2002 = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+                code: "P2002",
+                clientVersion: "test",
+                meta: { target: ["po_number"] },
+            });
+            const create = vi.fn().mockRejectedValueOnce(p2002).mockResolvedValue(buildPoResult("PO-x-007"));
             // @ts-ignore
             prisma.$transaction = vi.fn(async (cb) => cb(buildTx(create)));
 
@@ -167,6 +167,49 @@ describe("RecomendationV2Service - Override Features", () => {
 
             expect(create).toHaveBeenCalledTimes(2);
             expect(result.po_number).toBe("PO-x-007");
+        });
+
+        it("retries on P2002 with constraint-name target shape (e.g. older Prisma / Postgres index name)", async () => {
+            const p2002 = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+                code: "P2002",
+                clientVersion: "test",
+                // Some Prisma versions return constraint name as string here
+                meta: { target: "purchase_orders_po_number_key" },
+            });
+            const create = vi.fn().mockRejectedValueOnce(p2002).mockResolvedValue(buildPoResult("PO-x-008"));
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(buildTx(create)));
+
+            const result = await RecomendationV2Service.createOpenPoCell(body, userId);
+
+            expect(create).toHaveBeenCalledTimes(2);
+            expect(result.po_number).toBe("PO-x-008");
+        });
+
+        it("sequential JAN then MAR for same SKU produces distinct po_numbers (user's repro)", async () => {
+            // Simulate JAN already exists (max_seq=1), MAR call should succeed with seq=2.
+            const createJan = vi.fn().mockResolvedValue(buildPoResult("PO-20260604-001"));
+            const createMar = vi.fn().mockResolvedValue(buildPoResult("PO-20260604-002"));
+
+            // @ts-ignore
+            prisma.$transaction = vi
+                .fn()
+                .mockImplementationOnce(async (cb: any) => cb(buildTx(createJan, 0)))
+                .mockImplementationOnce(async (cb: any) => cb(buildTx(createMar, 1)));
+
+            const jan = await RecomendationV2Service.createOpenPoCell(
+                { ...body, month: 1, year: 2026 },
+                userId,
+            );
+            const mar = await RecomendationV2Service.createOpenPoCell(
+                { ...body, month: 3, year: 2026 },
+                userId,
+            );
+
+            expect(jan.po_number).toBe("PO-20260604-001");
+            expect(mar.po_number).toBe("PO-20260604-002");
+            expect(createJan).toHaveBeenCalledTimes(1);
+            expect(createMar).toHaveBeenCalledTimes(1);
         });
 
         it("rethrows non-P2002 errors without retry", async () => {
@@ -182,10 +225,11 @@ describe("RecomendationV2Service - Override Features", () => {
         });
 
         it("gives up after MAX_RETRIES (5) and throws last P2002", async () => {
-            const p2002 = new Prisma.PrismaClientKnownRequestError(
-                "Unique constraint failed",
-                { code: "P2002", clientVersion: "test", meta: { target: ["po_number"] } },
-            );
+            const p2002 = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+                code: "P2002",
+                clientVersion: "test",
+                meta: { target: ["po_number"] },
+            });
             const create = vi.fn().mockRejectedValue(p2002);
             // @ts-ignore
             prisma.$transaction = vi.fn(async (cb) => cb(buildTx(create)));
