@@ -1431,7 +1431,15 @@ export class RecomendationV2Service {
                   SELECT 1 FROM "recipes" r2
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
               )
-            ON CONFLICT (raw_mat_id, month, year) DO NOTHING;
+            ON CONFLICT (raw_mat_id, month, year) DO UPDATE SET
+                horizon = EXCLUDED.horizon,
+                total_needed = EXCLUDED.total_needed,
+                current_stock = EXCLUDED.current_stock,
+                stock_fg_x_resep = EXCLUDED.stock_fg_x_resep,
+                safety_stock_x_resep = EXCLUDED.safety_stock_x_resep,
+                updated_at = EXCLUDED.updated_at
+            WHERE "material_purchase_drafts".status = 'DRAFT'::"RecommendationStatus"
+              AND "material_purchase_drafts".open_po_id IS NULL;
         `;
     }
 
