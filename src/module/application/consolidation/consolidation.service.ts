@@ -74,19 +74,18 @@ export class ConsolidationService {
             where: query_condition,
         });
 
+        const dir: "asc" | "desc" = query.order === "asc" ? "asc" : "desc";
+        const sortInMemoryBySupplier = query.sortBy === "supplier_name";
+
         let orderByClause: any = { updated_at: "desc" };
 
-        if (query.sortBy) {
-            const dir = query.order === "asc" ? "asc" : "desc";
+        if (query.sortBy && !sortInMemoryBySupplier) {
             switch (query.sortBy) {
                 case "material_name":
                     orderByClause = { raw_material: { name: dir } };
                     break;
                 case "barcode":
                     orderByClause = { raw_material: { barcode: dir } };
-                    break;
-                case "supplier_name":
-                    orderByClause = { raw_material: { name: dir } };
                     break;
                 case "quantity":
                     orderByClause = { quantity: dir };
@@ -99,26 +98,29 @@ export class ConsolidationService {
             }
         }
 
-        const data = await prisma.materialPurchaseDraft.findMany({
-            where: query_condition,
-            include: {
-                raw_material: {
-                    include: {
-                        supplier_materials: {
-                            where: { is_preferred: true },
-                            include: { supplier: true },
-                            take: 1,
-                        },
-                        unit_raw_material: true,
+        const includeRelations = {
+            raw_material: {
+                include: {
+                    supplier_materials: {
+                        where: { is_preferred: true },
+                        include: { supplier: true },
+                        take: 1,
                     },
+                    unit_raw_material: true,
                 },
             },
-            orderBy: orderByClause,
-            skip,
-            take: limit,
+        } as const;
+
+        const data = await prisma.materialPurchaseDraft.findMany({
+            where: query_condition,
+            include: includeRelations,
+            // Prisma tidak mendukung orderBy lewat to-many relation (supplier_materials -> supplier.name),
+            // jadi untuk sortBy=supplier_name kita ambil semua row dulu, sort di memory, baru paginate.
+            orderBy: sortInMemoryBySupplier ? { updated_at: "desc" } : orderByClause,
+            ...(sortInMemoryBySupplier ? {} : { skip, take: limit }),
         });
 
-        const parsedData = data.map((item) => {
+        const parsedAll = data.map((item) => {
             const preferredSM = item.raw_material?.supplier_materials?.[0];
             return {
                 recommendation_id: item.id,
@@ -136,7 +138,16 @@ export class ConsolidationService {
             };
         });
 
-        return { data: parsedData, len: total };
+        if (sortInMemoryBySupplier) {
+            const collator = new Intl.Collator("id", { sensitivity: "base", numeric: true });
+            parsedAll.sort((a, b) => {
+                const cmp = collator.compare(a.supplier_name || "", b.supplier_name || "");
+                return dir === "asc" ? cmp : -cmp;
+            });
+            return { data: parsedAll.slice(skip, skip + limit), len: total };
+        }
+
+        return { data: parsedAll, len: total };
     }
 
     static async summaryBySupplier(query: QueryConsolidationDTO) {
