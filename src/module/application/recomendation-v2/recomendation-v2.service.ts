@@ -1237,29 +1237,240 @@ export class RecomendationV2Service {
         return { need: Math.round(kaNeed), hasKtpOverride };
     }
 
-    static async approveWorkOrder(body: RequestApproveWorkOrderDTO, userId: string) {
-        return await prisma.$transaction(async (tx) => {
-            const rec = await tx.materialPurchaseDraft.findUniqueOrThrow({
-                where: { id: body.id },
-            });
+    static async createOpenPosFromDrafts(draftIds: number[], userId: string) {
+        if (draftIds.length === 0) {
+            return {
+                created_po_ids: [] as number[],
+                affected_draft_ids: [] as number[],
+                skipped_draft_ids: [] as number[],
+            };
+        }
 
-            if (rec.status !== "DRAFT") {
-                throw new Error("Only DRAFT work orders can be approved.");
+        const MAX_RETRIES = 20;
+        const traceId = `approve-po-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                return await prisma.$transaction(async (tx) => {
+                    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('po_number_seq'))`;
+
+                    const userExists = await tx.user.findUnique({
+                        where: { id: userId },
+                        select: { id: true },
+                    });
+                    const picId = userExists ? userId : null;
+
+                    const drafts = await tx.materialPurchaseDraft.findMany({
+                        where: { id: { in: draftIds }, status: { in: ["DRAFT", "ACC"] } },
+                        include: {
+                            raw_material: {
+                                include: {
+                                    unit_raw_material: { select: { name: true } },
+                                    raw_mat_category: { select: { name: true } },
+                                    supplier_materials: {
+                                        select: { min_buy: true, supplier_id: true, is_preferred: true },
+                                    },
+                                },
+                            },
+                        },
+                    });
+
+                    if (drafts.length === 0) {
+                        return {
+                            created_po_ids: [] as number[],
+                            affected_draft_ids: [] as number[],
+                            skipped_draft_ids: [] as number[],
+                        };
+                    }
+
+                    const existingPoLines = await tx.$queryRaw<
+                        { raw_material_id: number; month: number; year: number }[]
+                    >`
+                        SELECT DISTINCT
+                            poi.raw_material_id::int                   AS raw_material_id,
+                            EXTRACT(MONTH FROM po.po_date)::int        AS month,
+                            EXTRACT(YEAR  FROM po.po_date)::int        AS year
+                        FROM purchase_order_items poi
+                        JOIN purchase_orders po ON po.id = poi.po_id
+                        WHERE poi.raw_material_id IN (${Prisma.join(drafts.map((d) => d.raw_mat_id))})
+                          AND po.status::text IN ('SUBMITTED', 'APPROVED', 'ORDERED')
+                          AND poi.qty_received < poi.qty_ordered
+                    `;
+                    const coveredKeys = new Set(
+                        existingPoLines.map((r) => `${r.raw_material_id}|${r.year}|${r.month}`),
+                    );
+
+                    const draftsToProcess = drafts.filter(
+                        (d) => !coveredKeys.has(`${d.raw_mat_id}|${d.year}|${d.month}`),
+                    );
+                    const skippedDraftIds = drafts
+                        .filter((d) => coveredKeys.has(`${d.raw_mat_id}|${d.year}|${d.month}`))
+                        .map((d) => d.id);
+
+                    if (draftsToProcess.length === 0) {
+                        await tx.materialPurchaseDraft.updateMany({
+                            where: { id: { in: drafts.map((d) => d.id) }, status: "DRAFT" },
+                            data: { status: "ACC", pic_id: picId, updated_at: new Date() },
+                        });
+                        return {
+                            created_po_ids: [] as number[],
+                            affected_draft_ids: [] as number[],
+                            skipped_draft_ids: skippedDraftIds,
+                        };
+                    }
+
+                    type ResolvedDraft = {
+                        draft: (typeof drafts)[number];
+                        supplier_id: number;
+                        supplier_name: string;
+                        unit_price: number;
+                        moq: Prisma.Decimal | null;
+                    };
+                    const groups = new Map<string, ResolvedDraft[]>();
+                    for (const d of draftsToProcess) {
+                        const r = await this.resolveSupplierAndPrice(tx, d.raw_mat_id, undefined);
+                        const moqRow = d.raw_material.supplier_materials.find(
+                            (sm) => sm.supplier_id === r.supplier_id,
+                        );
+                        const key = `${r.supplier_id}|${d.year}|${d.month}`;
+                        const arr = groups.get(key) ?? [];
+                        arr.push({
+                            draft: d,
+                            supplier_id: r.supplier_id,
+                            supplier_name: r.supplier_name,
+                            unit_price: r.unit_price,
+                            moq: moqRow?.min_buy ?? null,
+                        });
+                        groups.set(key, arr);
+                    }
+
+                    const today = new Date();
+                    const datePrefix = `PO-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}-`;
+                    const maxRows = await tx.$queryRaw<{ max_seq: number | null }[]>`
+                        SELECT MAX(CAST(SUBSTRING(po_number FROM ${datePrefix.length + 1}) AS INTEGER)) AS max_seq
+                        FROM purchase_orders
+                        WHERE po_number LIKE ${datePrefix + "%"}
+                          AND SUBSTRING(po_number FROM ${datePrefix.length + 1}) ~ '^[0-9]+$'
+                    `;
+                    const jumpBase = attempt === 0 ? 0 : attempt * 100 + Math.floor(Math.random() * 50);
+                    let nextSeq = Number(maxRows[0]?.max_seq ?? 0) + jumpBase;
+
+                    const createdPoIds: number[] = [];
+                    const affectedDraftIds: number[] = [];
+
+                    for (const items of groups.values()) {
+                        nextSeq += 1;
+                        const poNumber = `${datePrefix}${String(nextSeq).padStart(3, "0")}`;
+                        const first = items[0]!;
+                        const year = first.draft.year;
+                        const month = first.draft.month;
+                        const poDate = new Date(Date.UTC(year, month - 1, 1));
+
+                        let totalEstimated = 0;
+                        const poItemsData = items.map((it) => {
+                            const qty = Number(it.draft.quantity);
+                            const subtotal = qty * it.unit_price;
+                            totalEstimated += subtotal;
+                            const rm = it.draft.raw_material;
+                            return {
+                                raw_material_id: rm.id,
+                                item_code: rm.barcode || `RM-${rm.id}`,
+                                item_name: rm.name,
+                                item_category: rm.raw_mat_category?.name ?? null,
+                                item_type: "MASTER" as const,
+                                uom: rm.unit_raw_material?.name || "UNIT",
+                                moq: it.moq,
+                                unit_price: it.unit_price,
+                                qty_ordered: qty,
+                                subtotal,
+                            };
+                        });
+
+                        const po = await tx.purchaseOrder.create({
+                            data: {
+                                po_number: poNumber,
+                                po_date: poDate,
+                                po_type: "LOCAL",
+                                supplier_id: first.supplier_id,
+                                supplier_name: first.supplier_name,
+                                currency: "IDR",
+                                exchange_rate: 1,
+                                total_estimated: totalEstimated,
+                                status: "ORDERED",
+                                approved_by: userId,
+                                approved_at: new Date(),
+                                ordered_at: new Date(),
+                                created_by: userId,
+                                items: { create: poItemsData },
+                            },
+                            select: { id: true },
+                        });
+                        createdPoIds.push(po.id);
+                        affectedDraftIds.push(...items.map((it) => it.draft.id));
+                    }
+
+                    const allDraftIdsToFlip = [...affectedDraftIds, ...skippedDraftIds];
+                    if (allDraftIdsToFlip.length > 0) {
+                        await tx.materialPurchaseDraft.updateMany({
+                            where: { id: { in: allDraftIdsToFlip }, status: "DRAFT" },
+                            data: { status: "ACC", pic_id: picId, updated_at: new Date() },
+                        });
+                    }
+
+                    logger.info("createOpenPosFromDrafts done", {
+                        traceId,
+                        attempt,
+                        drafts_in: draftIds.length,
+                        drafts_processed: affectedDraftIds.length,
+                        drafts_skipped_existing_po: skippedDraftIds.length,
+                        pos_created: createdPoIds.length,
+                    });
+
+                    return {
+                        created_po_ids: createdPoIds,
+                        affected_draft_ids: affectedDraftIds,
+                        skipped_draft_ids: skippedDraftIds,
+                    };
+                });
+            } catch (e) {
+                if (
+                    e instanceof Prisma.PrismaClientKnownRequestError &&
+                    e.code === "P2002" &&
+                    attempt < MAX_RETRIES - 1
+                ) {
+                    logger.warn("createOpenPosFromDrafts P2002, retrying", {
+                        traceId,
+                        attempt,
+                        code: e.code,
+                        meta: e.meta,
+                    });
+                    lastError = e;
+                    continue;
+                }
+                logger.error("createOpenPosFromDrafts giving up", {
+                    traceId,
+                    attempt,
+                    errorMessage: e instanceof Error ? e.message : String(e),
+                });
+                throw e;
             }
+        }
+        throw lastError instanceof Error
+            ? lastError
+            : new ApiError(500, "Gagal generate PO number setelah beberapa percobaan");
+    }
 
-            const userExists = await tx.user.findUnique({
-                where: { id: userId },
-                select: { id: true },
-            });
-
-            return await tx.materialPurchaseDraft.update({
-                where: { id: body.id },
-                data: {
-                    status: "ACC",
-                    pic_id: userExists ? userId : null,
-                },
-            });
+    static async approveWorkOrder(body: RequestApproveWorkOrderDTO, userId: string) {
+        const rec = await prisma.materialPurchaseDraft.findUnique({
+            where: { id: body.id },
+            select: { id: true, status: true },
         });
+        if (!rec) throw new ApiError(404, "Work order tidak ditemukan");
+        if (rec.status !== "DRAFT" && rec.status !== "ACC") {
+            throw new ApiError(400, `Work order dengan status ${rec.status} tidak dapat di-approve.`);
+        }
+        return await this.createOpenPosFromDrafts([body.id], userId);
     }
 
     static async destroyWorkOrder(id: number) {

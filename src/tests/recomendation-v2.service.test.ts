@@ -240,4 +240,203 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(create).toHaveBeenCalledTimes(20);
         });
     });
+
+    describe("createOpenPosFromDrafts", () => {
+        const userId = "user-1";
+
+        const buildDraft = (overrides: Partial<any> = {}) => ({
+            id: 1,
+            raw_mat_id: 10,
+            month: 6,
+            year: 2026,
+            quantity: 100,
+            status: "DRAFT",
+            raw_material: {
+                id: 10,
+                name: "RM A",
+                barcode: "RM-A",
+                unit_raw_material: { name: "KG" },
+                raw_mat_category: { name: "Cat" },
+                supplier_materials: [
+                    { supplier_id: 7, min_buy: 10, is_preferred: true },
+                ],
+            },
+            ...overrides,
+        });
+
+        const buildTx = (
+            drafts: any[],
+            createImpl: ReturnType<typeof vi.fn>,
+            maxSeq: number | string = 0,
+            existingPoLines: { raw_material_id: number; month: number; year: number }[] = [],
+        ) => ({
+            $executeRaw: vi.fn().mockResolvedValue(1),
+            // 1st $queryRaw call: existing PO lines lookup; 2nd: po_number max_seq
+            $queryRaw: vi
+                .fn()
+                .mockResolvedValueOnce(existingPoLines)
+                .mockResolvedValueOnce([{ max_seq: maxSeq }])
+                .mockResolvedValue([{ max_seq: maxSeq }]),
+            user: { findUnique: vi.fn().mockResolvedValue({ id: userId }) },
+            materialPurchaseDraft: {
+                findMany: vi.fn().mockResolvedValue(drafts),
+                updateMany: vi.fn().mockResolvedValue({ count: drafts.length }),
+            },
+            supplierMaterial: {
+                findFirst: vi
+                    .fn()
+                    .mockResolvedValueOnce({ supplier_id: 7, unit_price: 1000 })
+                    .mockResolvedValue({ unit_price: 1000 }),
+            },
+            supplier: { findUnique: vi.fn().mockResolvedValue({ id: 7, name: "Supplier A" }) },
+            purchaseOrderItem: { findFirst: vi.fn().mockResolvedValue(null) },
+            purchaseOrder: { create: createImpl },
+        });
+
+        it("creates 1 PO with 1 item for a single draft and marks it ACC", async () => {
+            const draft = buildDraft();
+            const create = vi.fn().mockResolvedValue({ id: 501 });
+            const tx = buildTx([draft], create);
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(tx));
+
+            const result = await RecomendationV2Service.createOpenPosFromDrafts([1], userId);
+
+            expect(create).toHaveBeenCalledTimes(1);
+            const arg = create.mock.calls[0]![0];
+            expect(arg.data.status).toBe("ORDERED");
+            expect(arg.data.supplier_id).toBe(7);
+            expect(arg.data.items.create).toHaveLength(1);
+            expect(arg.data.items.create[0].qty_ordered).toBe(100);
+            expect(result.created_po_ids).toEqual([501]);
+            expect(result.affected_draft_ids).toEqual([1]);
+            expect(tx.materialPurchaseDraft.updateMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: { in: [1] }, status: "DRAFT" },
+                    data: expect.objectContaining({ status: "ACC", pic_id: userId }),
+                }),
+            );
+        });
+
+        it("groups drafts with same supplier+month into one PO, different (supplier|month) into separate POs", async () => {
+            // Draft 1: supplier 7, jun 2026
+            // Draft 2: supplier 7, jun 2026 (same group as 1)
+            // Draft 3: supplier 7, jul 2026 (different month → new group)
+            const drafts = [
+                buildDraft({ id: 1, raw_mat_id: 10, month: 6, year: 2026, quantity: 100 }),
+                buildDraft({
+                    id: 2,
+                    raw_mat_id: 11,
+                    month: 6,
+                    year: 2026,
+                    quantity: 50,
+                    raw_material: {
+                        id: 11,
+                        name: "RM B",
+                        barcode: "RM-B",
+                        unit_raw_material: { name: "KG" },
+                        raw_mat_category: { name: "Cat" },
+                        supplier_materials: [{ supplier_id: 7, min_buy: 5, is_preferred: true }],
+                    },
+                }),
+                buildDraft({ id: 3, raw_mat_id: 10, month: 7, year: 2026, quantity: 200 }),
+            ];
+            const create = vi
+                .fn()
+                .mockResolvedValueOnce({ id: 601 })
+                .mockResolvedValueOnce({ id: 602 });
+            const tx = buildTx(drafts, create);
+            // resolveSupplierAndPrice is called once per draft (3 times) → it does
+            // findFirst (preferred) and findFirst (price). Configure repeatable mock:
+            tx.supplierMaterial.findFirst = vi.fn().mockResolvedValue({ supplier_id: 7, unit_price: 1000 });
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(tx));
+
+            const result = await RecomendationV2Service.createOpenPosFromDrafts([1, 2, 3], userId);
+
+            expect(create).toHaveBeenCalledTimes(2);
+            expect(result.created_po_ids).toEqual([601, 602]);
+            const itemsCounts = create.mock.calls.map((c: any) => c[0].data.items.create.length).sort();
+            expect(itemsCounts).toEqual([1, 2]);
+            expect(result.affected_draft_ids.sort()).toEqual([1, 2, 3]);
+        });
+
+        it("returns empty result when no eligible drafts (DRAFT/ACC) are found", async () => {
+            const create = vi.fn();
+            const tx = buildTx([], create);
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(tx));
+
+            const result = await RecomendationV2Service.createOpenPosFromDrafts([99], userId);
+
+            expect(create).not.toHaveBeenCalled();
+            expect(result.created_po_ids).toEqual([]);
+            expect(result.affected_draft_ids).toEqual([]);
+            expect(result.skipped_draft_ids).toEqual([]);
+        });
+
+        it("backfills PO for already-ACC draft that has no existing open PO", async () => {
+            const draft = buildDraft({ id: 42, status: "ACC" });
+            const create = vi.fn().mockResolvedValue({ id: 801 });
+            const tx = buildTx([draft], create);
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(tx));
+
+            const result = await RecomendationV2Service.createOpenPosFromDrafts([42], userId);
+
+            expect(create).toHaveBeenCalledTimes(1);
+            expect(result.created_po_ids).toEqual([801]);
+            expect(result.affected_draft_ids).toEqual([42]);
+            expect(result.skipped_draft_ids).toEqual([]);
+        });
+
+        it("skips drafts whose raw_mat+month already has an OPEN PO", async () => {
+            const draft = buildDraft({ id: 10, raw_mat_id: 10, month: 6, year: 2026, status: "ACC" });
+            const create = vi.fn();
+            // Existing PO line covers this draft's (raw_mat_id=10, year=2026, month=6)
+            const tx = buildTx([draft], create, 0, [
+                { raw_material_id: 10, month: 6, year: 2026 },
+            ]);
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(tx));
+
+            const result = await RecomendationV2Service.createOpenPosFromDrafts([10], userId);
+
+            expect(create).not.toHaveBeenCalled();
+            expect(result.created_po_ids).toEqual([]);
+            expect(result.affected_draft_ids).toEqual([]);
+            expect(result.skipped_draft_ids).toEqual([10]);
+        });
+
+        it("throws when a draft's raw material has no preferred supplier (rollback batch)", async () => {
+            const draft = buildDraft();
+            const create = vi.fn();
+            const tx = buildTx([draft], create);
+            tx.supplierMaterial.findFirst = vi.fn().mockResolvedValue(null);
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(tx));
+
+            await expect(
+                RecomendationV2Service.createOpenPosFromDrafts([1], userId),
+            ).rejects.toThrow(/preferred supplier/i);
+            expect(create).not.toHaveBeenCalled();
+        });
+
+        it("retries on P2002 po_number collision", async () => {
+            const draft = buildDraft();
+            const p2002 = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+                code: "P2002",
+                clientVersion: "test",
+                meta: { target: ["po_number"] },
+            });
+            const create = vi.fn().mockRejectedValueOnce(p2002).mockResolvedValue({ id: 701 });
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(buildTx([draft], create)));
+
+            const result = await RecomendationV2Service.createOpenPosFromDrafts([1], userId);
+
+            expect(create).toHaveBeenCalledTimes(2);
+            expect(result.created_po_ids).toEqual([701]);
+        });
+    });
 });
