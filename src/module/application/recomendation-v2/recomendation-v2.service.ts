@@ -1239,7 +1239,11 @@ export class RecomendationV2Service {
 
     static async createOpenPosFromDrafts(draftIds: number[], userId: string) {
         if (draftIds.length === 0) {
-            return { created_po_ids: [] as number[], affected_draft_ids: [] as number[] };
+            return {
+                created_po_ids: [] as number[],
+                affected_draft_ids: [] as number[],
+                skipped_draft_ids: [] as number[],
+            };
         }
 
         const MAX_RETRIES = 20;
@@ -1258,7 +1262,7 @@ export class RecomendationV2Service {
                     const picId = userExists ? userId : null;
 
                     const drafts = await tx.materialPurchaseDraft.findMany({
-                        where: { id: { in: draftIds }, status: "DRAFT" },
+                        where: { id: { in: draftIds }, status: { in: ["DRAFT", "ACC"] } },
                         include: {
                             raw_material: {
                                 include: {
@@ -1273,7 +1277,47 @@ export class RecomendationV2Service {
                     });
 
                     if (drafts.length === 0) {
-                        return { created_po_ids: [] as number[], affected_draft_ids: [] as number[] };
+                        return {
+                            created_po_ids: [] as number[],
+                            affected_draft_ids: [] as number[],
+                            skipped_draft_ids: [] as number[],
+                        };
+                    }
+
+                    const existingPoLines = await tx.$queryRaw<
+                        { raw_material_id: number; month: number; year: number }[]
+                    >`
+                        SELECT DISTINCT
+                            poi.raw_material_id::int                   AS raw_material_id,
+                            EXTRACT(MONTH FROM po.po_date)::int        AS month,
+                            EXTRACT(YEAR  FROM po.po_date)::int        AS year
+                        FROM purchase_order_items poi
+                        JOIN purchase_orders po ON po.id = poi.po_id
+                        WHERE poi.raw_material_id IN (${Prisma.join(drafts.map((d) => d.raw_mat_id))})
+                          AND po.status::text IN ('SUBMITTED', 'APPROVED', 'ORDERED')
+                          AND poi.qty_received < poi.qty_ordered
+                    `;
+                    const coveredKeys = new Set(
+                        existingPoLines.map((r) => `${r.raw_material_id}|${r.year}|${r.month}`),
+                    );
+
+                    const draftsToProcess = drafts.filter(
+                        (d) => !coveredKeys.has(`${d.raw_mat_id}|${d.year}|${d.month}`),
+                    );
+                    const skippedDraftIds = drafts
+                        .filter((d) => coveredKeys.has(`${d.raw_mat_id}|${d.year}|${d.month}`))
+                        .map((d) => d.id);
+
+                    if (draftsToProcess.length === 0) {
+                        await tx.materialPurchaseDraft.updateMany({
+                            where: { id: { in: drafts.map((d) => d.id) }, status: "DRAFT" },
+                            data: { status: "ACC", pic_id: picId, updated_at: new Date() },
+                        });
+                        return {
+                            created_po_ids: [] as number[],
+                            affected_draft_ids: [] as number[],
+                            skipped_draft_ids: skippedDraftIds,
+                        };
                     }
 
                     type ResolvedDraft = {
@@ -1284,7 +1328,7 @@ export class RecomendationV2Service {
                         moq: Prisma.Decimal | null;
                     };
                     const groups = new Map<string, ResolvedDraft[]>();
-                    for (const d of drafts) {
+                    for (const d of draftsToProcess) {
                         const r = await this.resolveSupplierAndPrice(tx, d.raw_mat_id, undefined);
                         const moqRow = d.raw_material.supplier_materials.find(
                             (sm) => sm.supplier_id === r.supplier_id,
@@ -1366,20 +1410,28 @@ export class RecomendationV2Service {
                         affectedDraftIds.push(...items.map((it) => it.draft.id));
                     }
 
-                    await tx.materialPurchaseDraft.updateMany({
-                        where: { id: { in: affectedDraftIds }, status: "DRAFT" },
-                        data: { status: "ACC", pic_id: picId, updated_at: new Date() },
-                    });
+                    const allDraftIdsToFlip = [...affectedDraftIds, ...skippedDraftIds];
+                    if (allDraftIdsToFlip.length > 0) {
+                        await tx.materialPurchaseDraft.updateMany({
+                            where: { id: { in: allDraftIdsToFlip }, status: "DRAFT" },
+                            data: { status: "ACC", pic_id: picId, updated_at: new Date() },
+                        });
+                    }
 
                     logger.info("createOpenPosFromDrafts done", {
                         traceId,
                         attempt,
                         drafts_in: draftIds.length,
                         drafts_processed: affectedDraftIds.length,
+                        drafts_skipped_existing_po: skippedDraftIds.length,
                         pos_created: createdPoIds.length,
                     });
 
-                    return { created_po_ids: createdPoIds, affected_draft_ids: affectedDraftIds };
+                    return {
+                        created_po_ids: createdPoIds,
+                        affected_draft_ids: affectedDraftIds,
+                        skipped_draft_ids: skippedDraftIds,
+                    };
                 });
             } catch (e) {
                 if (
@@ -1415,8 +1467,8 @@ export class RecomendationV2Service {
             select: { id: true, status: true },
         });
         if (!rec) throw new ApiError(404, "Work order tidak ditemukan");
-        if (rec.status !== "DRAFT") {
-            throw new ApiError(400, "Only DRAFT work orders can be approved.");
+        if (rec.status !== "DRAFT" && rec.status !== "ACC") {
+            throw new ApiError(400, `Work order dengan status ${rec.status} tidak dapat di-approve.`);
         }
         return await this.createOpenPosFromDrafts([body.id], userId);
     }

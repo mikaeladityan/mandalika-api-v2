@@ -268,9 +268,15 @@ describe("RecomendationV2Service - Override Features", () => {
             drafts: any[],
             createImpl: ReturnType<typeof vi.fn>,
             maxSeq: number | string = 0,
+            existingPoLines: { raw_material_id: number; month: number; year: number }[] = [],
         ) => ({
             $executeRaw: vi.fn().mockResolvedValue(1),
-            $queryRaw: vi.fn().mockResolvedValue([{ max_seq: maxSeq }]),
+            // 1st $queryRaw call: existing PO lines lookup; 2nd: po_number max_seq
+            $queryRaw: vi
+                .fn()
+                .mockResolvedValueOnce(existingPoLines)
+                .mockResolvedValueOnce([{ max_seq: maxSeq }])
+                .mockResolvedValue([{ max_seq: maxSeq }]),
             user: { findUnique: vi.fn().mockResolvedValue({ id: userId }) },
             materialPurchaseDraft: {
                 findMany: vi.fn().mockResolvedValue(drafts),
@@ -355,7 +361,7 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(result.affected_draft_ids.sort()).toEqual([1, 2, 3]);
         });
 
-        it("returns empty result when no drafts in DRAFT state are found", async () => {
+        it("returns empty result when no eligible drafts (DRAFT/ACC) are found", async () => {
             const create = vi.fn();
             const tx = buildTx([], create);
             // @ts-ignore
@@ -366,6 +372,40 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(create).not.toHaveBeenCalled();
             expect(result.created_po_ids).toEqual([]);
             expect(result.affected_draft_ids).toEqual([]);
+            expect(result.skipped_draft_ids).toEqual([]);
+        });
+
+        it("backfills PO for already-ACC draft that has no existing open PO", async () => {
+            const draft = buildDraft({ id: 42, status: "ACC" });
+            const create = vi.fn().mockResolvedValue({ id: 801 });
+            const tx = buildTx([draft], create);
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(tx));
+
+            const result = await RecomendationV2Service.createOpenPosFromDrafts([42], userId);
+
+            expect(create).toHaveBeenCalledTimes(1);
+            expect(result.created_po_ids).toEqual([801]);
+            expect(result.affected_draft_ids).toEqual([42]);
+            expect(result.skipped_draft_ids).toEqual([]);
+        });
+
+        it("skips drafts whose raw_mat+month already has an OPEN PO", async () => {
+            const draft = buildDraft({ id: 10, raw_mat_id: 10, month: 6, year: 2026, status: "ACC" });
+            const create = vi.fn();
+            // Existing PO line covers this draft's (raw_mat_id=10, year=2026, month=6)
+            const tx = buildTx([draft], create, 0, [
+                { raw_material_id: 10, month: 6, year: 2026 },
+            ]);
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(tx));
+
+            const result = await RecomendationV2Service.createOpenPosFromDrafts([10], userId);
+
+            expect(create).not.toHaveBeenCalled();
+            expect(result.created_po_ids).toEqual([]);
+            expect(result.affected_draft_ids).toEqual([]);
+            expect(result.skipped_draft_ids).toEqual([10]);
         });
 
         it("throws when a draft's raw material has no preferred supplier (rollback batch)", async () => {

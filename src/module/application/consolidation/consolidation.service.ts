@@ -1,3 +1,4 @@
+import { Prisma } from "../../../generated/prisma/client.js";
 import prisma from "../../../config/prisma.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { QueryConsolidationDTO } from "./consolidation.schema.js";
@@ -324,7 +325,6 @@ export class ConsolidationService {
 
     static async bulkUpdateStatus(ids: number[], status: any, userId?: string) {
         if (status === "DRAFT") {
-            // Check if any draft is linked to an RFQ in an advanced state
             const linkedItems = await prisma.purchaseRFQItem.findMany({
                 where: { purchase_draft_id: { in: ids } },
                 include: { rfq: { select: { id: true, rfq_number: true, status: true } } },
@@ -342,10 +342,69 @@ export class ConsolidationService {
                 );
             }
 
-            // For editable RFQs (DRAFT/SUBMITTED/REVIEWED): delete the linked RFQ items
             const editableLinkedIds = linkedItems
                 .filter((i) => ["DRAFT", "SUBMITTED", "REVIEWED"].includes(i.rfq.status))
                 .map((i) => i.id);
+
+            const drafts = await prisma.materialPurchaseDraft.findMany({
+                where: { id: { in: ids } },
+                select: { id: true, raw_mat_id: true, month: true, year: true },
+            });
+
+            type PoItemRow = {
+                item_id: number;
+                po_id: number;
+                raw_material_id: number;
+                qty_received: number;
+                po_number: string;
+                month: number;
+                year: number;
+            };
+            const matchingItems: PoItemRow[] = drafts.length === 0
+                ? []
+                : await prisma.$queryRaw<PoItemRow[]>`
+                    SELECT
+                        poi.id::int                          AS item_id,
+                        poi.po_id::int                       AS po_id,
+                        poi.raw_material_id::int             AS raw_material_id,
+                        poi.qty_received::float              AS qty_received,
+                        po.po_number                         AS po_number,
+                        EXTRACT(MONTH FROM po.po_date)::int  AS month,
+                        EXTRACT(YEAR  FROM po.po_date)::int  AS year
+                    FROM purchase_order_items poi
+                    JOIN purchase_orders po ON po.id = poi.po_id
+                    WHERE poi.raw_material_id IN (${Prisma.join(drafts.map((d) => d.raw_mat_id))})
+                      AND po.status::text IN ('SUBMITTED', 'APPROVED', 'ORDERED')
+                `;
+
+            const draftKeys = new Set(drafts.map((d) => `${d.raw_mat_id}|${d.year}|${d.month}`));
+            const toRemove = matchingItems.filter((it) =>
+                draftKeys.has(`${it.raw_material_id}|${it.year}|${it.month}`),
+            );
+
+            const received = toRemove.filter((it) => Number(it.qty_received) > 0);
+            if (received.length > 0) {
+                const nums = [...new Set(received.map((it) => it.po_number))].join(", ");
+                throw new ApiError(
+                    400,
+                    `Tidak dapat rollback: PO ${nums} sudah ada penerimaan barang. Batalkan receipt terlebih dahulu.`,
+                );
+            }
+
+            const affectedPoIds = [...new Set(toRemove.map((it) => it.po_id))];
+            if (affectedPoIds.length > 0) {
+                const apCount = await prisma.accountPayable.count({
+                    where: { po_id: { in: affectedPoIds } },
+                });
+                if (apCount > 0) {
+                    throw new ApiError(
+                        400,
+                        `Tidak dapat rollback: PO terkait sudah punya Account Payable. Batalkan AP terlebih dahulu.`,
+                    );
+                }
+            }
+
+            const itemIdsToDelete = toRemove.map((it) => it.item_id);
 
             return await prisma.$transaction(async (tx) => {
                 if (editableLinkedIds.length > 0) {
@@ -353,6 +412,26 @@ export class ConsolidationService {
                         where: { id: { in: editableLinkedIds } },
                     });
                 }
+
+                if (itemIdsToDelete.length > 0) {
+                    await tx.purchaseOrderItem.deleteMany({
+                        where: { id: { in: itemIdsToDelete } },
+                    });
+
+                    const remaining = await tx.purchaseOrderItem.groupBy({
+                        by: ["po_id"],
+                        where: { po_id: { in: affectedPoIds } },
+                        _count: { id: true },
+                    });
+                    const stillHasItems = new Set(remaining.map((r) => r.po_id));
+                    const emptyPoIds = affectedPoIds.filter((id) => !stillHasItems.has(id));
+                    if (emptyPoIds.length > 0) {
+                        await tx.purchaseOrder.deleteMany({
+                            where: { id: { in: emptyPoIds } },
+                        });
+                    }
+                }
+
                 return tx.materialPurchaseDraft.updateMany({
                     where: { id: { in: ids } },
                     data: { status: "DRAFT", updated_at: new Date() },
