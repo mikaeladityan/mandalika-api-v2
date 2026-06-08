@@ -47,7 +47,8 @@ export class ConsolidationController {
     static async bulkUpdateStatus(c: Context) {
         const payload = await c.req.json();
         const validPayload = (await import("./consolidation.schema.js")).BulkUpdateStatusSchema.parse(payload);
-        const result = await ConsolidationService.bulkUpdateStatus(validPayload.ids, validPayload.status);
+        const userId = c.get("userId") || "anonymous";
+        const result = await ConsolidationService.bulkUpdateStatus(validPayload.ids, validPayload.status, userId);
         return ApiResponse.sendSuccess(c, result);
     }
 }

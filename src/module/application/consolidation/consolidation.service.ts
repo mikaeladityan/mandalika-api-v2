@@ -2,6 +2,7 @@ import prisma from "../../../config/prisma.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { QueryConsolidationDTO } from "./consolidation.schema.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
+import { RecomendationV2Service } from "../recomendation-v2/recomendation-v2.service.js";
 
 const USD_RATE = 17000;
 
@@ -321,7 +322,7 @@ export class ConsolidationService {
         return Buffer.from(csv, "utf8");
     }
 
-    static async bulkUpdateStatus(ids: number[], status: any) {
+    static async bulkUpdateStatus(ids: number[], status: any, userId?: string) {
         if (status === "DRAFT") {
             // Check if any draft is linked to an RFQ in an advanced state
             const linkedItems = await prisma.purchaseRFQItem.findMany({
@@ -360,16 +361,10 @@ export class ConsolidationService {
         }
 
         if (status === "ACC") {
-            return await prisma.materialPurchaseDraft.updateMany({
-                where: {
-                    id: { in: ids },
-                    status: "DRAFT",
-                },
-                data: {
-                    status: "ACC",
-                    updated_at: new Date(),
-                },
-            });
+            if (!userId) {
+                throw new ApiError(401, "User tidak terotentikasi untuk approve work order");
+            }
+            return await RecomendationV2Service.createOpenPosFromDrafts(ids, userId);
         }
 
         return await prisma.materialPurchaseDraft.updateMany({
