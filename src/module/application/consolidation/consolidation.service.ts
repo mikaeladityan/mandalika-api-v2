@@ -4,6 +4,7 @@ import { GetPagination } from "../../../lib/utils/pagination.js";
 import { QueryConsolidationDTO } from "./consolidation.schema.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { RecomendationV2Service } from "../recomendation-v2/recomendation-v2.service.js";
+import { obscureSupplierName } from "../../../lib/utils/supplier-obscure.js";
 
 const USD_RATE = 17000;
 
@@ -129,7 +130,7 @@ export class ConsolidationService {
                 material_id: item.raw_mat_id,
                 barcode: item.raw_material?.barcode || null,
                 material_name: item.raw_material?.name || "Unknown",
-                supplier_name: preferredSM?.supplier?.name || "-",
+                supplier_name: obscureSupplierName(preferredSM?.supplier?.id ?? null),
                 quantity: Number(item.quantity) || 0,
                 uom: item.raw_material?.unit_raw_material?.name || "UNIT",
                 price: Number(preferredSM?.unit_price) || 0,
@@ -207,7 +208,7 @@ export class ConsolidationService {
         data.forEach((item) => {
             const preferredSM = item.raw_material?.supplier_materials?.[0];
             const supplierId = preferredSM?.supplier?.id || "N/A";
-            const supplierName = preferredSM?.supplier?.name || "No Supplier";
+            const supplierName = obscureSupplierName(preferredSM?.supplier?.id ?? null);
             const supplierAddress = preferredSM?.supplier?.addresses || "";
             const supplierPhone = preferredSM?.supplier?.phone || "";
             const supplierCountry = preferredSM?.supplier?.country || "";
