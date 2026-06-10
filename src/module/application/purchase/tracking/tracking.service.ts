@@ -2,6 +2,10 @@ import prisma from "../../../../config/prisma.js";
 import { QueryTrackingDTO, UpdateTrackingDTO } from "./tracking.schema.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
+import {
+    obscureSupplierName,
+    withObscuredSupplierRelation,
+} from "../../../../lib/utils/supplier-obscure.js";
 
 export class TrackingService {
     static async list(query: QueryTrackingDTO) {
@@ -47,11 +51,16 @@ export class TrackingService {
             prisma.purchaseOrder.count({ where }),
         ]);
 
-        const data = orders.map(order => {
+        const data = orders.map((order) => {
+            const obscuredPo = withObscuredSupplierRelation({
+                ...order,
+                supplier_name: obscureSupplierName(order.supplier_id),
+                supplier_code: null,
+            });
             if (order.tracking) {
                 return {
                     ...order.tracking,
-                    po: order
+                    po: obscuredPo,
                 };
             }
             return {
@@ -70,7 +79,7 @@ export class TrackingService {
                 updated_by: null,
                 created_at: order.created_at,
                 updated_at: order.updated_at,
-                po: order
+                po: obscuredPo,
             };
         });
 
@@ -103,7 +112,14 @@ export class TrackingService {
         });
 
         if (!tracking) throw new ApiError(404, `No tracking record found for PO ID ${poId}.`);
-        return tracking;
+        return {
+            ...tracking,
+            po: withObscuredSupplierRelation({
+                ...tracking.po,
+                supplier_name: obscureSupplierName(tracking.po.supplier_id),
+                supplier_code: null,
+            }),
+        };
     }
 
     static async update(poId: number, body: UpdateTrackingDTO, userId: string) {
