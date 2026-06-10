@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ReceiptService } from "../../../module/application/purchase/receipt/receipt.service.js";
 import prisma from "../../../config/prisma.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
+import { SUPPLIER_OBSCURE_REGEX } from "../../../lib/utils/supplier-obscure.js";
 
 const userId = "user-test";
 
@@ -78,6 +79,37 @@ describe("ReceiptService", () => {
             expect(result.data).toHaveLength(1);
             expect(result.total).toBe(1);
             expect(mockFindMany).toHaveBeenCalledOnce();
+        });
+
+        it("masks supplier identity in list response (po.supplier_name obscured)", async () => {
+            const mockFindMany = vi.fn().mockResolvedValue([
+                {
+                    ...mockReceipt,
+                    id: 1,
+                    po: { id: 10, po_number: "PO-1", supplier_id: 42, supplier_name: "PT Real Vendor" },
+                },
+                {
+                    ...mockReceipt,
+                    id: 2,
+                    po: { id: 11, po_number: "PO-2", supplier_id: 1000, supplier_name: "PT Other Vendor" },
+                },
+            ]);
+            const mockCount = vi.fn().mockResolvedValue(2);
+            // @ts-ignore
+            prisma.purchaseReceipt = { findMany: mockFindMany, count: mockCount };
+
+            const { data } = await ReceiptService.list({
+                page: 1, take: 10, sortBy: "receipt_date", order: "desc",
+            } as any);
+
+            for (const row of data) {
+                expect(row.po!.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+                expect(row.po!.supplier_name).toHaveLength(7);
+                expect(row.po!.supplier_name).not.toBe("PT Real Vendor");
+                expect(row.po!.supplier_name).not.toBe("PT Other Vendor");
+            }
+            expect(data[0]!.po!.supplier_name).toBe("SUP-042");
+            expect(data[1]!.po!.supplier_name).toBe("SUP1000");
         });
     });
 

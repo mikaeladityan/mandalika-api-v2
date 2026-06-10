@@ -3,9 +3,16 @@ import app from "../../app.js";
 import prisma from "../../config/prisma.js";
 
 vi.mock("../../config/redis.js", () => {
+    const mockSession = JSON.stringify({
+        email: "test@example.com",
+        role: "SUPER_ADMIN",
+        user: { id: "user-123", name: "Test User" },
+    });
     const mockRedis = {
-        get: vi.fn().mockResolvedValue(null),
+        get: vi.fn().mockResolvedValue(mockSession),
         set: vi.fn().mockResolvedValue("OK"),
+        del: vi.fn().mockResolvedValue(1),
+        expire: vi.fn().mockResolvedValue(true),
         hgetall: vi.fn().mockResolvedValue({
             email: "test@example.com",
             role: "SUPER_ADMIN",
@@ -35,10 +42,6 @@ vi.mock("../../middleware/csrf.js", () => ({
 }));
 
 describe("PORoutes", () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-    });
-
     it("GET /api/app/purchase/po should return 200", async () => {
         // @ts-ignore
         prisma.purchaseOrder = {
@@ -56,6 +59,7 @@ describe("PORoutes", () => {
     it("POST /api/app/purchase/po should create PO and return 201", async () => {
         const payload = {
             po_type: "LOCAL",
+            po_number: "PO-20260601-001",
             supplier_id: 1,
             supplier_name: "Vendor A",
             total_estimated: 1000000,

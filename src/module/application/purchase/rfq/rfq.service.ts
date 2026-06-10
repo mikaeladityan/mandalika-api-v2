@@ -4,6 +4,10 @@ import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { generateRFQNumber, generatePONumber } from "../../../../lib/utils/generate-number.js";
+import {
+    obscureSupplierName,
+    withObscuredSupplierRelation,
+} from "../../../../lib/utils/supplier-obscure.js";
 
 const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
     DRAFT: ["SUBMITTED", "CLOSED"],
@@ -67,14 +71,21 @@ export class RFQService {
             prisma.purchaseRFQ.count({ where }),
         ]);
 
-        return { data, total };
+        const obscured = data.map((r) =>
+            withObscuredSupplierRelation({
+                ...r,
+                supplier_name: obscureSupplierName(r.supplier_id),
+                supplier_code: null,
+            }),
+        );
+        return { data: obscured, total };
     }
 
     static async detail(id: number) {
-        return await prisma.purchaseRFQ.findUniqueOrThrow({
+        const row = await prisma.purchaseRFQ.findUniqueOrThrow({
             where: { id },
             include: {
-                supplier: true,
+                supplier: { select: { id: true, name: true, country: true, source: true, addresses: true, phone: true } },
                 items: {
                     include: {
                         raw_material: {
@@ -91,6 +102,11 @@ export class RFQService {
                     select: { id: true, po_number: true, status: true, po_date: true },
                 },
             },
+        });
+        return withObscuredSupplierRelation({
+            ...row,
+            supplier_name: obscureSupplierName(row.supplier_id),
+            supplier_code: null,
         });
     }
 
@@ -170,7 +186,7 @@ export class RFQService {
                 await RFQService.syncSupplierMaterials(tx, supplierId, body.items);
             }
 
-            return rfq;
+            return { ...rfq, supplier_name: obscureSupplierName(rfq.supplier_id), supplier_code: null };
         });
     }
 
@@ -228,7 +244,7 @@ export class RFQService {
                 }
             }
 
-            return updated;
+            return { ...updated, supplier_name: obscureSupplierName(updated.supplier_id), supplier_code: null };
         });
     }
 
@@ -249,10 +265,11 @@ export class RFQService {
             data.approved_at = new Date();
         }
 
-        return await prisma.purchaseRFQ.update({
+        const updated = await prisma.purchaseRFQ.update({
             where: { id },
             data,
         });
+        return { ...updated, supplier_name: obscureSupplierName(updated.supplier_id), supplier_code: null };
     }
 
     static async destroy(id: number) {
@@ -260,7 +277,8 @@ export class RFQService {
         if (rfq.status !== "DRAFT") {
             throw new ApiError(400, "Only DRAFT RFQs can be deleted.");
         }
-        return await prisma.purchaseRFQ.delete({ where: { id } });
+        const deleted = await prisma.purchaseRFQ.delete({ where: { id } });
+        return { ...deleted, supplier_name: obscureSupplierName(deleted.supplier_id), supplier_code: null };
     }
 
     private static async syncSupplierMaterials(
@@ -318,7 +336,7 @@ export class RFQService {
             };
         }
 
-        return prisma.materialPurchaseDraft.findMany({
+        const drafts = await prisma.materialPurchaseDraft.findMany({
             where,
             include: {
                 raw_material: {
@@ -337,6 +355,20 @@ export class RFQService {
             },
             orderBy: [{ year: "asc" }, { month: "asc" }, { raw_mat_id: "asc" }],
         });
+        return drafts.map((d) => ({
+            ...d,
+            raw_material: d.raw_material
+                ? {
+                    ...d.raw_material,
+                    supplier_materials: d.raw_material.supplier_materials?.map((sm: any) => ({
+                        ...sm,
+                        supplier: sm.supplier
+                            ? { ...sm.supplier, name: obscureSupplierName(sm.supplier.id) }
+                            : sm.supplier,
+                    })),
+                  }
+                : d.raw_material,
+        }));
     }
 
     static async convertToPO(id: number, body: ConvertToPODTO, userId: string) {
@@ -414,7 +446,7 @@ export class RFQService {
                 },
             });
 
-            return po;
+            return { ...po, supplier_name: obscureSupplierName(po.supplier_id), supplier_code: null };
         });
     }
 }

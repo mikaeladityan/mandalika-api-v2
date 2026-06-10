@@ -2,6 +2,7 @@ import prisma from "../../../../config/prisma.js";
 import { Prisma, Supplier } from "../../../../generated/prisma/client.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { normalizeSlug } from "../../../../lib/index.js";
+import { obscureSupplierName } from "../../../../lib/utils/supplier-obscure.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { QuerySupplierDTO, RequestSupplierDTO, ResponseSupplierDTO } from "./supplier.schema.js";
 
@@ -19,7 +20,7 @@ export class SupplierService {
             if (exists) throw new ApiError(400, "Nomor telepon supplier sudah digunakan");
         }
 
-        return prisma.supplier.create({
+        const created = await prisma.supplier.create({
             data: {
                 name: data.name,
                 slug: normalizeSlug(data.name),
@@ -29,6 +30,7 @@ export class SupplierService {
                 source: data.source as any,
             },
         });
+        return { ...created, name: obscureSupplierName(created.id), slug: null };
     }
 
     static async update(
@@ -45,7 +47,7 @@ export class SupplierService {
             if (phoneExists) throw new ApiError(400, "Nomor telepon supplier sudah digunakan");
         }
 
-        return prisma.supplier.update({
+        const updated = await prisma.supplier.update({
             where: { id },
             data: {
                 ...(payload.name !== undefined && {
@@ -58,6 +60,7 @@ export class SupplierService {
                 ...(payload.source !== undefined && { source: payload.source as any }),
             },
         });
+        return { ...updated, name: obscureSupplierName(updated.id), slug: null };
     }
 
     static async detail(id: number): Promise<ResponseSupplierDTO> {
@@ -70,7 +73,8 @@ export class SupplierService {
 
         if (!rows.length) throw new ApiError(404, "Supplier tidak ditemukan");
 
-        return rows[0] as ResponseSupplierDTO;
+        const row = rows[0] as ResponseSupplierDTO;
+        return { ...row, name: obscureSupplierName(row.id) };
     }
 
     static async delete(id: number) {
@@ -96,7 +100,7 @@ export class SupplierService {
 
         const usedSuppliers = suppliers.filter((s) => (s as any)._count.supplier_materials > 0);
         if (usedSuppliers.length > 0) {
-            const names = usedSuppliers.map((s) => s.name).join(", ");
+            const names = usedSuppliers.map((s) => obscureSupplierName(s.id)).join(", ");
             throw new ApiError(
                 400,
                 `Beberapa supplier (${names}) masih digunakan oleh Raw Material`,
@@ -146,7 +150,12 @@ export class SupplierService {
             prisma.supplier.count({ where }),
         ]);
 
-        return { len: total, data };
+        const obscured = data.map((row) => ({
+            ...row,
+            name: obscureSupplierName(row.id),
+            slug: null,
+        }));
+        return { len: total, data: obscured };
     }
 
     private static async findSupplier(id: number): Promise<Supplier | null> {

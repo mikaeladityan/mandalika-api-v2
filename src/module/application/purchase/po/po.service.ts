@@ -4,6 +4,7 @@ import { CreatePODTO, UpdatePODTO, UpdatePOStatusDTO, QueryPODTO, UpdatePOTracki
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { generatePONumber, generateAPNumber } from "../../../../lib/utils/generate-number.js";
+import { obscureSupplierName, withObscuredSupplierRelation } from "../../../../lib/utils/supplier-obscure.js";
 
 const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
     DRAFT: ["SUBMITTED", "CANCELLED"],
@@ -61,14 +62,21 @@ export class POService {
             prisma.purchaseOrder.count({ where }),
         ]);
 
-        return { data, total };
+        const obscured = data.map((r) =>
+            withObscuredSupplierRelation({
+                ...r,
+                supplier_name: obscureSupplierName(r.supplier_id),
+                supplier_code: null,
+            }),
+        );
+        return { data: obscured, total };
     }
 
     static async detail(id: number) {
-        return await prisma.purchaseOrder.findUniqueOrThrow({
+        const po = await prisma.purchaseOrder.findUniqueOrThrow({
             where: { id },
             include: {
-                supplier: true,
+                supplier: { select: { id: true, name: true, country: true, source: true, addresses: true, phone: true } },
                 warehouse: true,
                 source_rfq: {
                     select: { id: true, rfq_number: true },
@@ -86,6 +94,11 @@ export class POService {
                 tracking: true,
                 _count: { select: { receipt_items: true } },
             },
+        });
+        return withObscuredSupplierRelation({
+            ...po,
+            supplier_name: obscureSupplierName(po.supplier_id),
+            supplier_code: null,
         });
     }
 
@@ -150,7 +163,7 @@ export class POService {
                 },
             });
 
-            return po;
+            return { ...po, supplier_name: obscureSupplierName(po.supplier_id) };
         });
     }
 
@@ -218,7 +231,7 @@ export class POService {
                 });
             }
 
-            return updated;
+            return { ...updated, supplier_name: obscureSupplierName(updated.supplier_id) };
         });
     }
 
@@ -319,7 +332,7 @@ export class POService {
                 }
             }
 
-            return updated;
+            return { ...updated, supplier_name: obscureSupplierName(updated.supplier_id) };
         });
     }
 
@@ -328,7 +341,8 @@ export class POService {
         if (po.status !== "DRAFT") {
             throw new ApiError(400, "Only DRAFT POs can be deleted.");
         }
-        return await prisma.purchaseOrder.delete({ where: { id } });
+        const deleted = await prisma.purchaseOrder.delete({ where: { id } });
+        return { ...deleted, supplier_name: obscureSupplierName(deleted.supplier_id) };
     }
 
     static async updateTracking(id: number, body: UpdatePOTrackingDTO, userId: string) {
@@ -489,6 +503,10 @@ export class POService {
             ),
         ]);
 
-        return { data: rows, total: Number(countRows[0].count) };
+        const obscured = rows.map((r) => ({
+            ...r,
+            supplier_name: obscureSupplierName(r.supplier_id),
+        }));
+        return { data: obscured, total: Number(countRows[0].count) };
     }
 }

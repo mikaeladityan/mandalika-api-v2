@@ -4,6 +4,7 @@ import { ApiError } from "../../../lib/errors/api.error.js";
 import prisma from "../../../config/prisma.js";
 import { Prisma } from "../../../generated/prisma/client.js";
 import type { RequestRMDTO } from "../../../module/application/inventory/rm/rm.schema.js";
+import { SUPPLIER_OBSCURE_REGEX } from "../../../lib/utils/supplier-obscure.js";
 
 const makeRMBody = (overrides: Partial<RequestRMDTO> = {}): RequestRMDTO => ({
     barcode: "RM-001",
@@ -179,7 +180,8 @@ describe("RMService", () => {
             expect(result.suppliers).toHaveLength(1);
             const preferred = result.suppliers.find((s) => s.is_preferred);
             expect(preferred?.unit_price).toBe(50000);
-            expect(preferred?.supplier_name).toBe("PT Supplier ABC");
+            expect(preferred?.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(preferred?.supplier_name).toHaveLength(7);
             expect(preferred?.supplier_source).toBe("LOCAL");
         });
 
@@ -258,6 +260,53 @@ describe("RMService", () => {
 
             const call = vi.mocked(prisma.rawMaterial.findMany).mock.calls[0]?.[0];
             expect(call?.where).toHaveProperty("OR");
+        });
+
+        it("masks supplier identity in list response (suppliers[].supplier_name obscured)", async () => {
+            vi.mocked(prisma.rawMaterial.findMany).mockResolvedValueOnce([
+                {
+                    id: 1,
+                    barcode: "X1",
+                    name: "RM-1",
+                    type: "FO",
+                    min_stock: 1,
+                    created_at: new Date(),
+                    updated_at: new Date(),
+                    deleted_at: null,
+                    unit_raw_material: { id: 1, name: "kg" },
+                    raw_mat_category: null,
+                    supplier_materials: [
+                        {
+                            supplier_id: 42,
+                            supplier: { id: 42, name: "PT Real Vendor", country: "ID", source: "LOCAL" },
+                            unit_price: 100,
+                            min_buy: 1,
+                            lead_time: 1,
+                            is_preferred: true,
+                            status: "ACTIVE",
+                        },
+                        {
+                            supplier_id: 1000,
+                            supplier: { id: 1000, name: "PT Other Vendor", country: "ID", source: "IMPORT" },
+                            unit_price: 200,
+                            min_buy: 1,
+                            lead_time: 1,
+                            is_preferred: false,
+                            status: "ACTIVE",
+                        },
+                    ],
+                },
+            ] as never);
+            vi.mocked(prisma.rawMaterial.count).mockResolvedValueOnce(1);
+
+            const { data } = await RMService.list({ page: 1, take: 10 } as never);
+
+            expect(data[0]!.suppliers[0]!.supplier_name).toBe("SUP-042");
+            expect(data[0]!.suppliers[1]!.supplier_name).toBe("SUP1000");
+            for (const s of data[0]!.suppliers) {
+                expect(s.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+                expect(s.supplier_name).toHaveLength(7);
+            }
         });
     });
 

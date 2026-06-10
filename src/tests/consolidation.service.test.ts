@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConsolidationService } from "../module/application/consolidation/consolidation.service.js";
 import prisma from "../config/prisma.js";
+import { SUPPLIER_OBSCURE_REGEX } from "../lib/utils/supplier-obscure.js";
 
 describe("ConsolidationService.bulkUpdateStatus(DRAFT) — rollback with PO cleanup", () => {
     beforeEach(() => {
@@ -179,5 +180,57 @@ describe("ConsolidationService.bulkUpdateStatus(DRAFT) — rollback with PO clea
 
         expect(tx.purchaseOrderItem.deleteMany).not.toHaveBeenCalled();
         expect(tx.purchaseOrder.deleteMany).not.toHaveBeenCalled();
+    });
+});
+
+describe("ConsolidationService.list — supplier identity masking", () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("masks supplier identity in list response (preferred supplier name obscured)", async () => {
+        const mockFindMany = vi.fn().mockResolvedValue([
+            {
+                id: 1, raw_mat_id: 7, quantity: 10, pic_id: null, status: "DRAFT", created_at: new Date(),
+                raw_material: {
+                    barcode: "X1", name: "RM-1",
+                    unit_raw_material: { name: "kg" },
+                    supplier_materials: [
+                        { unit_price: 100, min_buy: 1, supplier: { id: 42, name: "PT Real Vendor" } },
+                    ],
+                },
+            },
+            {
+                id: 2, raw_mat_id: 8, quantity: 5, pic_id: null, status: "DRAFT", created_at: new Date(),
+                raw_material: {
+                    barcode: "X2", name: "RM-2",
+                    unit_raw_material: { name: "kg" },
+                    supplier_materials: [
+                        { unit_price: 200, min_buy: 1, supplier: { id: 1000, name: "PT Other Vendor" } },
+                    ],
+                },
+            },
+            {
+                id: 3, raw_mat_id: 9, quantity: 1, pic_id: null, status: "DRAFT", created_at: new Date(),
+                raw_material: {
+                    barcode: "X3", name: "RM-3",
+                    unit_raw_material: { name: "kg" },
+                    supplier_materials: [],  // no preferred supplier
+                },
+            },
+        ]);
+        const mockCount = vi.fn().mockResolvedValue(3);
+        // @ts-ignore
+        prisma.materialPurchaseDraft = { findMany: mockFindMany, count: mockCount };
+
+        const { data } = await ConsolidationService.list({ page: 1, take: 10 } as any);
+
+        expect(data[0]!.supplier_name).toBe("SUP-042");
+        expect(data[1]!.supplier_name).toBe("SUP1000");
+        expect(data[2]!.supplier_name).toBe("SUP-???");  // no preferred supplier → null id → fallback
+        for (const row of data) {
+            expect(row.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(row.supplier_name).toHaveLength(7);
+        }
     });
 });
