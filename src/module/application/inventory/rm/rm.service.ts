@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import prisma from "../../../../config/prisma.js";
+import { obscureSupplierName } from "../../../../lib/utils/supplier-obscure.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
@@ -366,7 +367,7 @@ export class RMService {
             }),
             suppliers: rm.supplier_materials.map((sm) => ({
                 supplier_id: sm.supplier_id,
-                supplier_name: sm.supplier.name,
+                supplier_name: obscureSupplierName(sm.supplier_id),
                 supplier_country: sm.supplier.country,
                 supplier_source: sm.supplier.source,
                 unit_price: Number(sm.unit_price),
