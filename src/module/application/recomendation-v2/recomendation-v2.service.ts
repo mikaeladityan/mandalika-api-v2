@@ -1,5 +1,6 @@
 import { Prisma } from "../../../generated/prisma/client.js";
 import prisma from "../../../config/prisma.js";
+import { obscureSupplierName } from "../../../lib/utils/supplier-obscure.js";
 import {
     QueryRecomendationV2DTO,
     RequestApproveWorkOrderDTO,
@@ -710,7 +711,7 @@ export class RecomendationV2Service {
                 po_number: r.po_number,
                 po_status: r.po_status as "DRAFT" | "SUBMITTED" | "APPROVED" | "ORDERED",
                 supplier_id: r.supplier_id ? Number(r.supplier_id) : null,
-                supplier_name: r.supplier_name,
+                supplier_name: obscureSupplierName(r.supplier_id ? Number(r.supplier_id) : null),
                 qty_ordered: Number(r.qty_ordered),
                 qty_received: Number(r.qty_received),
                 open_qty: Number(r.open_qty),
@@ -725,7 +726,7 @@ export class RecomendationV2Service {
                 po_number: `LEGACY-${r.item_id}`,
                 po_status: "ORDERED" as const,
                 supplier_id: null,
-                supplier_name: "Legacy entry",
+                supplier_name: obscureSupplierName(null),
                 qty_ordered: Number(r.quantity),
                 qty_received: 0,
                 open_qty: Number(r.quantity),
@@ -975,7 +976,7 @@ export class RecomendationV2Service {
         });
         return rows.map((r) => ({
             supplier_id: r.supplier_id,
-            supplier_name: r.supplier.name,
+            supplier_name: obscureSupplierName(r.supplier_id),
             country: r.supplier.country,
             unit_price: Number(r.unit_price),
             is_preferred: r.is_preferred,

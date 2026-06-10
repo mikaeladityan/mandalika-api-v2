@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { RecomendationV2Service } from "../module/application/recomendation-v2/recomendation-v2.service.js";
 import prisma from "../config/prisma.js";
 import { Prisma } from "../generated/prisma/client.js";
+import { SUPPLIER_OBSCURE_REGEX } from "../lib/utils/supplier-obscure.js";
 
 describe("RecomendationV2Service - Override Features", () => {
     beforeEach(() => {
@@ -437,6 +438,37 @@ describe("RecomendationV2Service - Override Features", () => {
 
             expect(create).toHaveBeenCalledTimes(2);
             expect(result.created_po_ids).toEqual([701]);
+        });
+    });
+
+    describe("listSuppliersForMaterial - supplier identity masking", () => {
+        it("masks supplier identity in listSuppliersForMaterial response", async () => {
+            const mockFindMany = vi.fn().mockResolvedValue([
+                {
+                    supplier_id: 42,
+                    unit_price: 1000,
+                    is_preferred: true,
+                    supplier: { id: 42, name: "PT Real Vendor", country: "ID" },
+                },
+                {
+                    supplier_id: 1000,
+                    unit_price: 2000,
+                    is_preferred: false,
+                    supplier: { id: 1000, name: "PT Other Vendor", country: "SG" },
+                },
+            ]);
+            // @ts-ignore
+            prisma.supplierMaterial = { findMany: mockFindMany };
+
+            const result = await RecomendationV2Service.listSuppliersForMaterial(7);
+
+            expect(result[0]!.supplier_name).toBe("SUP-042");
+            expect(result[1]!.supplier_name).toBe("SUP1000");
+            for (const r of result) {
+                expect(r.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+                expect(r.supplier_name).toHaveLength(7);
+                expect(r.supplier_name).not.toContain("Vendor");
+            }
         });
     });
 });
