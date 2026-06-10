@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RawMaterialService } from "../../module/application/rawmat/rawmat.service.js";
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
+import { SUPPLIER_OBSCURE_REGEX } from "../../lib/utils/supplier-obscure.js";
 
 vi.mock("../../config/prisma.js", () => {
     const mockPrisma = {
@@ -404,6 +405,41 @@ describe("RawMaterialService", () => {
             });
 
             expect(result.len).toBe(0);
+        });
+
+        it("masks supplier identity in list response (toDTO obscures nested supplier and suppliers[])", async () => {
+            const mockQueryRaw = vi.fn()
+                .mockResolvedValueOnce([
+                    {
+                        id: 1, barcode: "X1", name: "RM-1",
+                        price: 100, min_buy: 1, min_stock: 1, lead_time: 1, type: "FO", source: "LOCAL",
+                        created_at: new Date(), updated_at: new Date(), deleted_at: null,
+                        unit_id: 1, unit_name: "kg", unit_slug: "kg",
+                        cat_id: null, cat_name: null, cat_slug: null,
+                        sup_id: 42, sup_name: "PT Real Vendor", sup_country: "ID",
+                        suppliers_json: JSON.stringify([
+                            { supplier_id: 42, supplier_name: "PT Real Vendor", supplier_country: "ID", supplier_source: "LOCAL", unit_price: 100, min_buy: 1, lead_time: 1, is_preferred: true, status: "ACTIVE" },
+                            { supplier_id: 1000, supplier_name: "PT Other Vendor", supplier_country: "ID", supplier_source: "LOCAL", unit_price: 200, min_buy: 1, lead_time: 1, is_preferred: false, status: "ACTIVE" },
+                        ]),
+                    },
+                ])
+                .mockResolvedValueOnce([{ count: 1n }]);
+            // @ts-ignore
+            prisma.$queryRaw = mockQueryRaw;
+            // @ts-ignore
+            prisma.rawMaterialSheetSyncFailure = { findMany: vi.fn().mockResolvedValue([]) };
+
+            const { data } = await RawMaterialService.list({ page: 1, take: 10 } as any);
+
+            expect(data[0].supplier!.name).toBe("SUP-042");
+            expect(data[0].supplier!.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(data[0].supplier!.name).toHaveLength(7);
+            expect(data[0].suppliers[0].supplier_name).toBe("SUP-042");
+            expect(data[0].suppliers[1].supplier_name).toBe("SUP1000");
+            for (const s of data[0].suppliers) {
+                expect(s.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+                expect(s.supplier_name).toHaveLength(7);
+            }
         });
     });
 

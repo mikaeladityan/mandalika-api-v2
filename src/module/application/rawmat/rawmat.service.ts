@@ -17,6 +17,7 @@ import { normalizeSlug } from "../../../lib/index.js";
 import { MaterialType } from "../../../generated/prisma/client.js";
 import ExcelJS from "exceljs";
 import { enqueueRawMatSheetSync } from "./sheet/rawmat-sheet.queue.js";
+import { obscureSupplierName } from "../../../lib/utils/supplier-obscure.js";
 
 type RawRow = {
     id: number;
@@ -55,6 +56,23 @@ const SORT_MAP: Record<string, string> = {
 };
 
 function toDTO(r: RawRow): ResponseRawMaterialDTO {
+    const suppliers = r.suppliers_json
+        ? (JSON.parse(r.suppliers_json) as Array<{
+              supplier_id: number;
+              supplier_name: string;
+              supplier_country: string | null;
+              supplier_source: string | null;
+              unit_price: number;
+              min_buy: number | null;
+              lead_time: number | null;
+              is_preferred: boolean;
+              status: string;
+          }>).map((s) => ({
+              ...s,
+              supplier_name: obscureSupplierName(s.supplier_id),
+          }))
+        : [];
+
     return {
         id: r.id,
         barcode: r.barcode,
@@ -72,8 +90,14 @@ function toDTO(r: RawRow): ResponseRawMaterialDTO {
         ...(r.cat_id && {
             raw_mat_category: { id: r.cat_id, name: r.cat_name!, slug: r.cat_slug! },
         }),
-        ...(r.sup_id && { supplier: { id: r.sup_id, name: r.sup_name!, country: r.sup_country! } }),
-        suppliers: r.suppliers_json ? JSON.parse(r.suppliers_json) : [],
+        ...(r.sup_id && {
+            supplier: {
+                id: r.sup_id,
+                name: obscureSupplierName(r.sup_id),
+                country: r.sup_country!,
+            },
+        }),
+        suppliers,
     };
 }
 
@@ -652,7 +676,12 @@ export class RawMaterialService {
             }),
         ]);
 
-        return { units, suppliers, categories };
+        const obscuredSuppliers = suppliers.map((s) => ({
+            ...s,
+            name: obscureSupplierName(s.id),
+        }));
+
+        return { units, suppliers: obscuredSuppliers, categories };
     }
 
     static async countUtils(): Promise<{ units: number; suppliers: number; categories: number }> {
