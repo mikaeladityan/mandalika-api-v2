@@ -2,6 +2,7 @@ import prisma from "../../../../../config/prisma.js";
 import { Prisma } from "../../../../../generated/prisma/client.js";
 import { ApiError } from "../../../../../lib/errors/api.error.js";
 import { normalizeSlug } from "../../../../../lib/index.js";
+import { obscureSupplierName } from "../../../../../lib/utils/supplier-obscure.js";
 import { GetPagination } from "../../../../../lib/utils/pagination.js";
 import {
     BulkDeleteSupplierDTO,
@@ -48,7 +49,7 @@ type SupplierListItem = Prisma.SupplierGetPayload<{ include: typeof LIST_INCLUDE
 export class SupplierService {
     static async create(body: RequestSupplierDTO): Promise<ResponseSupplierDTO> {
         try {
-            return await prisma.supplier.create({
+            const created = await prisma.supplier.create({
                 data: {
                     name: body.name,
                     slug: normalizeSlug(body.name),
@@ -59,6 +60,7 @@ export class SupplierService {
                 },
                 select: SUPPLIER_SELECT,
             });
+            return { ...created, name: obscureSupplierName(created.id) };
         } catch (e) {
             this.rethrowPrismaError(e);
         }
@@ -69,7 +71,7 @@ export class SupplierService {
         body: Partial<RequestSupplierDTO>,
     ): Promise<ResponseSupplierDTO> {
         try {
-            return await prisma.supplier.update({
+            const updated = await prisma.supplier.update({
                 where: { id },
                 data: {
                     ...(body.name !== undefined && {
@@ -83,6 +85,7 @@ export class SupplierService {
                 },
                 select: SUPPLIER_SELECT,
             });
+            return { ...updated, name: obscureSupplierName(updated.id) };
         } catch (e) {
             this.rethrowPrismaError(e);
         }
@@ -94,7 +97,7 @@ export class SupplierService {
             select: SUPPLIER_SELECT,
         });
         if (!supplier) throw new ApiError(404, "Supplier tidak ditemukan");
-        return supplier;
+        return { ...supplier, name: obscureSupplierName(supplier.id) };
     }
 
     static async delete(id: number) {
@@ -116,7 +119,7 @@ export class SupplierService {
             select: { id: true, name: true },
         });
         if (inUse.length) {
-            const names = inUse.map((s) => s.name).join(", ");
+            const names = inUse.map((s) => obscureSupplierName(s.id)).join(", ");
             throw new ApiError(
                 400,
                 `Beberapa supplier (${names}) masih digunakan oleh Raw Material`,
@@ -158,7 +161,11 @@ export class SupplierService {
             }),
             prisma.supplier.count({ where }),
         ]);
-        return { data, len };
+        const obscured = data.map((row) => ({
+            ...row,
+            name: obscureSupplierName(row.id),
+        }));
+        return { data: obscured, len };
     }
 
     private static rethrowPrismaError(e: unknown): never {

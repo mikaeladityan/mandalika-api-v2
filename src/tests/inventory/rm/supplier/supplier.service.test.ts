@@ -3,6 +3,7 @@ import { SupplierService } from "../../../../module/application/inventory/rm/sup
 import prisma from "../../../../config/prisma.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
+import { SUPPLIER_OBSCURE_REGEX } from "../../../../lib/utils/supplier-obscure.js";
 
 const supplierMock = {
     id: 1,
@@ -31,6 +32,8 @@ describe("SupplierService", () => {
                 source: "LOCAL",
             });
             expect(result.id).toBe(1);
+            expect(result.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.name).toHaveLength(7);
             expect(prisma.supplier.create).toHaveBeenCalledOnce();
         });
 
@@ -75,6 +78,8 @@ describe("SupplierService", () => {
             vi.mocked(prisma.supplier.update).mockResolvedValueOnce(supplierMock as never);
             const result = await SupplierService.update(1, { name: "New Name" });
             expect(result.id).toBe(1);
+            expect(result.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.name).toHaveLength(7);
             expect(prisma.supplier.update).toHaveBeenCalledOnce();
         });
 
@@ -93,6 +98,8 @@ describe("SupplierService", () => {
             vi.mocked(prisma.supplier.findUnique).mockResolvedValueOnce(supplierMock as never);
             const result = await SupplierService.detail(1);
             expect(result.id).toBe(1);
+            expect(result.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.name).toHaveLength(7);
         });
 
         it("throws 404 saat tidak ditemukan", async () => {
@@ -131,7 +138,7 @@ describe("SupplierService", () => {
                 { id: 1, name: "PT ABC" },
             ] as never);
             await expect(SupplierService.bulkDelete([1, 2])).rejects.toThrow(
-                "Beberapa supplier (PT ABC) masih digunakan",
+                /Beberapa supplier \(SUP-001\) masih digunakan/,
             );
         });
 
@@ -170,6 +177,21 @@ describe("SupplierService", () => {
             });
             const call = vi.mocked(prisma.supplier.findMany).mock.calls[0]?.[0];
             expect(call?.where).toMatchObject({ OR: expect.any(Array) });
+        });
+
+        it("masks supplier identity in list response (anonymous code only)", async () => {
+            vi.mocked(prisma.supplier.findMany).mockResolvedValueOnce([supplierMock] as never);
+            vi.mocked(prisma.supplier.count).mockResolvedValueOnce(1);
+            const { data } = await SupplierService.list({
+                page: 1,
+                take: 10,
+                sortBy: "updated_at",
+                sortOrder: "desc",
+            });
+            for (const row of data) {
+                expect(row.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+                expect(row.name).toHaveLength(7);
+            }
         });
     });
 });
