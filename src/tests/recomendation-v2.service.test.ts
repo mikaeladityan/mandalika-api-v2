@@ -240,6 +240,20 @@ describe("RecomendationV2Service - Override Features", () => {
             ).rejects.toBe(p2002);
             expect(create).toHaveBeenCalledTimes(20);
         });
+
+        it("masks supplier identity in createOpenPoCell return", async () => {
+            const create = vi.fn().mockResolvedValue(buildPoResult("PO-x-009"));
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(buildTx(create)));
+
+            const result = await RecomendationV2Service.createOpenPoCell(body, userId);
+
+            expect(result.supplier_id).toBe(7);
+            expect(result.supplier_name).toBe("SUP-007");
+            expect(result.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.supplier_name).toHaveLength(7);
+            expect(result.supplier_name).not.toContain("Supplier");
+        });
     });
 
     describe("createOpenPosFromDrafts", () => {

@@ -840,7 +840,7 @@ export class RecomendationV2Service {
                         po_number: po.po_number,
                         po_status: po.status as "ORDERED",
                         supplier_id: po.supplier_id,
-                        supplier_name: po.supplier_name,
+                        supplier_name: obscureSupplierName(po.supplier_id),
                         qty_ordered: Number(item.qty_ordered),
                         qty_received: Number(item.qty_received),
                         open_qty: Number(item.qty_ordered) - Number(item.qty_received),
