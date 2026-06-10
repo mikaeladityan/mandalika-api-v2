@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SupplierService } from "../../module/application/rawmat/supplier/supplier.service.js";
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
+import { SUPPLIER_OBSCURE_REGEX } from "../../lib/utils/supplier-obscure.js";
 
 describe("SupplierService", () => {
     beforeEach(() => {
@@ -29,7 +30,8 @@ describe("SupplierService", () => {
             const result = await SupplierService.create(mockBody);
 
             expect(result.id).toBe(2);
-            expect(result.name).toBe("PT Supplier Baru");
+            expect(result.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.name).toHaveLength(7);
             // @ts-ignore
             expect(prisma.supplier.create).toHaveBeenCalledOnce();
         });
@@ -101,7 +103,8 @@ describe("SupplierService", () => {
 
             const result = await SupplierService.update(1, { name: "PT ABC Updated" });
 
-            expect(result.name).toBe("PT ABC Updated");
+            expect(result.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.name).toHaveLength(7);
             // @ts-ignore
             expect(prisma.supplier.update).toHaveBeenCalledOnce();
         });
@@ -249,5 +252,15 @@ describe("SupplierService", () => {
             // @ts-ignore
             expect(prisma.supplier.delete).toHaveBeenCalledWith({ where: { id: 1 } });
         });
+    });
+
+    // ─── OBSCURE GUARD ────────────────────────────────────────────────────────
+
+    it("masks supplier identity in list response (anonymous code only)", async () => {
+        const { data } = await SupplierService.list({ page: 1, take: 50, sortBy: "updated_at", sortOrder: "desc" });
+        for (const row of data) {
+            expect(row.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(row.name).toHaveLength(7);
+        }
     });
 });
