@@ -66,6 +66,7 @@ export class POService {
             withObscuredSupplierRelation({
                 ...r,
                 supplier_name: obscureSupplierName(r.supplier_id),
+                supplier_code: null,
             }),
         );
         return { data: obscured, total };
@@ -75,7 +76,7 @@ export class POService {
         const po = await prisma.purchaseOrder.findUniqueOrThrow({
             where: { id },
             include: {
-                supplier: true,
+                supplier: { select: { id: true, name: true, country: true, source: true, addresses: true, phone: true } },
                 warehouse: true,
                 source_rfq: {
                     select: { id: true, rfq_number: true },
@@ -97,6 +98,7 @@ export class POService {
         return withObscuredSupplierRelation({
             ...po,
             supplier_name: obscureSupplierName(po.supplier_id),
+            supplier_code: null,
         });
     }
 

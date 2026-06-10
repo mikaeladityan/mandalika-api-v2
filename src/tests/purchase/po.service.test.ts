@@ -54,8 +54,8 @@ describe("POService", () => {
 
         it("masks supplier identity in list response (anonymous code only)", async () => {
             const mockFindMany = vi.fn().mockResolvedValue([
-                { ...mockPODraft, supplier_id: 42, supplier_name: "PT Real Vendor", supplier: { id: 42, name: "PT Real Vendor", country: "ID" } },
-                { ...mockPODraft, id: 2, supplier_id: 1000, supplier_name: "PT Other Vendor", supplier: { id: 1000, name: "PT Other Vendor", country: "ID" } },
+                { ...mockPODraft, supplier_id: 42, supplier_name: "PT Real Vendor", supplier_code: "pt-real-vendor", supplier: { id: 42, name: "PT Real Vendor", country: "ID" } },
+                { ...mockPODraft, id: 2, supplier_id: 1000, supplier_name: "PT Other Vendor", supplier_code: "pt-other-vendor", supplier: { id: 1000, name: "PT Other Vendor", country: "ID" } },
             ]);
             const mockCount = vi.fn().mockResolvedValue(2);
             // @ts-ignore
@@ -77,6 +77,10 @@ describe("POService", () => {
             }
             expect(data[0].supplier_name).toBe("SUP-042");
             expect(data[1].supplier_name).toBe("SUP1000");
+
+            for (const row of data) {
+                expect(row.supplier_code).toBeNull();
+            }
         });
     });
 
