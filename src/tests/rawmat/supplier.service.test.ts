@@ -142,6 +142,8 @@ describe("SupplierService", () => {
 
             const result = await SupplierService.detail(1);
             expect(result.id).toBe(1);
+            expect(result.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.name).toHaveLength(7);
             expect(result.country).toBe("Indonesia");
         });
 
