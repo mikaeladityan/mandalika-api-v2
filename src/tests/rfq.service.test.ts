@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RFQService } from "../module/application/purchase/rfq/rfq.service.js";
 import prisma from "../config/prisma.js";
 import { ApiError } from "../lib/errors/api.error.js";
+import { SUPPLIER_OBSCURE_REGEX } from "../lib/utils/supplier-obscure.js";
 
 const mockUser = { id: "user-123", name: "Test User" };
 
@@ -42,8 +43,10 @@ describe("RFQService", () => {
                 order: "desc",
             });
 
-            expect(result.data).toEqual(mockData);
             expect(result.total).toBe(1);
+            expect(result.data).toHaveLength(1);
+            expect(result.data[0].supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.data[0].supplier_name).toHaveLength(7);
             expect(mockFindMany).toHaveBeenCalledOnce();
         });
 
@@ -61,6 +64,29 @@ describe("RFQService", () => {
 
             const calledWith = mockFindMany.mock.calls[0]?.[0];
             expect(calledWith?.where?.status).toBe("SUBMITTED");
+        });
+
+        it("masks supplier identity in list response (anonymous code only)", async () => {
+            const mockFindMany = vi.fn().mockResolvedValue([
+                { ...mockRFQDraft, supplier_id: 42, supplier_name: "PT Real Vendor" },
+                { ...mockRFQDraft, id: 2, supplier_id: 1000, supplier_name: "PT Other Vendor" },
+            ]);
+            const mockCount = vi.fn().mockResolvedValue(2);
+            // @ts-ignore
+            prisma.purchaseRFQ = { findMany: mockFindMany, count: mockCount };
+
+            const { data } = await RFQService.list({
+                page: 1, take: 10, sortBy: "rfq_date", order: "desc",
+            } as any);
+
+            for (const row of data) {
+                expect(row.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+                expect(row.supplier_name).toHaveLength(7);
+                expect(row.supplier_name).not.toBe("PT Real Vendor");
+                expect(row.supplier_name).not.toBe("PT Other Vendor");
+            }
+            expect(data[0].supplier_name).toBe("SUP-042");
+            expect(data[1].supplier_name).toBe("SUP1000");
         });
     });
 
@@ -101,7 +127,8 @@ describe("RFQService", () => {
                 items: [{ item_code: "RM001", item_name: "RM 1", uom: "kg", qty_requested: 50, unit_price: 1000 }],
             }, mockUser.id);
 
-            expect(result).toEqual(mockCreated);
+            expect(result.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.supplier_name).toHaveLength(7);
             expect(mockCreate).toHaveBeenCalledOnce();
         });
 
@@ -138,6 +165,8 @@ describe("RFQService", () => {
             const result = await RFQService.updateStatus(1, { status: "SUBMITTED" }, mockUser.id);
 
             expect(result.status).toBe("SUBMITTED");
+            expect(result.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.supplier_name).toHaveLength(7);
             expect(mockUpdate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: { id: 1 },
@@ -192,7 +221,8 @@ describe("RFQService", () => {
             const result = await RFQService.destroy(1);
 
             expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1 } });
-            expect(result).toEqual(mockRFQDraft);
+            expect(result.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.supplier_name).toHaveLength(7);
         });
 
         it("should throw when trying to delete a non-DRAFT RFQ", async () => {
