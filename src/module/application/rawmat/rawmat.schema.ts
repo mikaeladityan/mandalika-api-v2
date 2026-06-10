@@ -37,7 +37,7 @@ export const RequestRawMaterialSchema = z.object({
 
 export const ResponseSupplierMaterialSchema = RequestSupplierMaterialSchema.extend({
     supplier_name: z.string(),
-    supplier_country: z.string(),
+    supplier_country: z.string().nullable(),
     supplier_source: z.nativeEnum(RawMaterialSource).nullable().optional(),
     status: z.enum(STATUS).default("ACTIVE"),
 });

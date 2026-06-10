@@ -21,6 +21,7 @@ export const RequestSupplierSchema = z.object({
 
 export const ResponseSupplierSchema = RequestSupplierSchema.extend({
     id: z.number(),
+    slug: z.string().nullable().optional(),
     created_at: z.date(),
     updated_at: z.date(),
     supplier_materials: z.array(z.any()).optional(),

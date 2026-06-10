@@ -431,12 +431,12 @@ describe("RawMaterialService", () => {
 
             const { data } = await RawMaterialService.list({ page: 1, take: 10 } as any);
 
-            expect(data[0].supplier!.name).toBe("SUP-042");
-            expect(data[0].supplier!.name).toMatch(SUPPLIER_OBSCURE_REGEX);
-            expect(data[0].supplier!.name).toHaveLength(7);
-            expect(data[0].suppliers[0].supplier_name).toBe("SUP-042");
-            expect(data[0].suppliers[1].supplier_name).toBe("SUP1000");
-            for (const s of data[0].suppliers) {
+            expect(data[0]!.supplier!.name).toBe("SUP-042");
+            expect(data[0]!.supplier!.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(data[0]!.supplier!.name).toHaveLength(7);
+            expect(data[0]!.suppliers![0]!.supplier_name).toBe("SUP-042");
+            expect(data[0]!.suppliers![1]!.supplier_name).toBe("SUP1000");
+            for (const s of data[0]!.suppliers!) {
                 expect(s.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
                 expect(s.supplier_name).toHaveLength(7);
             }

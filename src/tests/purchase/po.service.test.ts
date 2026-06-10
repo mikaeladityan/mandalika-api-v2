@@ -48,8 +48,8 @@ describe("POService", () => {
             expect(result.data).toHaveLength(1);
             expect(result.total).toBe(1);
             expect(mockFindMany).toHaveBeenCalledOnce();
-            expect(result.data[0].supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
-            expect(result.data[0].supplier_name).toHaveLength(7);
+            expect(result.data[0]!.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.data[0]!.supplier_name).toHaveLength(7);
         });
 
         it("masks supplier identity in list response (anonymous code only)", async () => {
@@ -75,8 +75,8 @@ describe("POService", () => {
                     expect(row.supplier.name).toHaveLength(7);
                 }
             }
-            expect(data[0].supplier_name).toBe("SUP-042");
-            expect(data[1].supplier_name).toBe("SUP1000");
+            expect(data[0]!.supplier_name).toBe("SUP-042");
+            expect(data[1]!.supplier_name).toBe("SUP1000");
 
             for (const row of data) {
                 expect(row.supplier_code).toBeNull();

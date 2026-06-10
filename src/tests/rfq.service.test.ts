@@ -45,8 +45,8 @@ describe("RFQService", () => {
 
             expect(result.total).toBe(1);
             expect(result.data).toHaveLength(1);
-            expect(result.data[0].supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
-            expect(result.data[0].supplier_name).toHaveLength(7);
+            expect(result.data[0]!.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.data[0]!.supplier_name).toHaveLength(7);
             expect(mockFindMany).toHaveBeenCalledOnce();
         });
 
@@ -86,8 +86,8 @@ describe("RFQService", () => {
                 expect(row.supplier_name).not.toBe("PT Other Vendor");
                 expect(row.supplier_code).toBeNull();
             }
-            expect(data[0].supplier_name).toBe("SUP-042");
-            expect(data[1].supplier_name).toBe("SUP1000");
+            expect(data[0]!.supplier_name).toBe("SUP-042");
+            expect(data[1]!.supplier_name).toBe("SUP1000");
         });
     });
 

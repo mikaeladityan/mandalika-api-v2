@@ -14,7 +14,7 @@ import {
     UnitRawMaterial,
 } from "../../../generated/prisma/client.js";
 import { normalizeSlug } from "../../../lib/index.js";
-import { MaterialType } from "../../../generated/prisma/client.js";
+import { MaterialType, STATUS, RawMaterialSource } from "../../../generated/prisma/client.js";
 import ExcelJS from "exceljs";
 import { enqueueRawMatSheetSync } from "./sheet/rawmat-sheet.queue.js";
 import { obscureSupplierName } from "../../../lib/utils/supplier-obscure.js";
@@ -61,12 +61,12 @@ function toDTO(r: RawRow): ResponseRawMaterialDTO {
               supplier_id: number;
               supplier_name: string;
               supplier_country: string | null;
-              supplier_source: string | null;
+              supplier_source: RawMaterialSource | null;
               unit_price: number;
               min_buy: number | null;
               lead_time: number | null;
               is_preferred: boolean;
-              status: string;
+              status: STATUS;
           }>).map((s) => ({
               ...s,
               supplier_name: obscureSupplierName(s.supplier_id),

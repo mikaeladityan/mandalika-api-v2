@@ -103,13 +103,13 @@ describe("ReceiptService", () => {
             } as any);
 
             for (const row of data) {
-                expect(row.po.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
-                expect(row.po.supplier_name).toHaveLength(7);
-                expect(row.po.supplier_name).not.toBe("PT Real Vendor");
-                expect(row.po.supplier_name).not.toBe("PT Other Vendor");
+                expect(row.po!.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+                expect(row.po!.supplier_name).toHaveLength(7);
+                expect(row.po!.supplier_name).not.toBe("PT Real Vendor");
+                expect(row.po!.supplier_name).not.toBe("PT Other Vendor");
             }
-            expect(data[0].po.supplier_name).toBe("SUP-042");
-            expect(data[1].po.supplier_name).toBe("SUP1000");
+            expect(data[0]!.po!.supplier_name).toBe("SUP-042");
+            expect(data[1]!.po!.supplier_name).toBe("SUP1000");
         });
     });
 

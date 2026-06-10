@@ -225,9 +225,9 @@ describe("ConsolidationService.list — supplier identity masking", () => {
 
         const { data } = await ConsolidationService.list({ page: 1, take: 10 } as any);
 
-        expect(data[0].supplier_name).toBe("SUP-042");
-        expect(data[1].supplier_name).toBe("SUP1000");
-        expect(data[2].supplier_name).toBe("SUP-???");  // no preferred supplier → null id → fallback
+        expect(data[0]!.supplier_name).toBe("SUP-042");
+        expect(data[1]!.supplier_name).toBe("SUP1000");
+        expect(data[2]!.supplier_name).toBe("SUP-???");  // no preferred supplier → null id → fallback
         for (const row of data) {
             expect(row.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
             expect(row.supplier_name).toHaveLength(7);

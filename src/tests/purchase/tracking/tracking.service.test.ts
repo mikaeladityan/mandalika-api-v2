@@ -128,11 +128,11 @@ describe("TrackingService", () => {
                 expect(row.po.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
                 expect(row.po.supplier_name).toHaveLength(7);
                 expect(row.po.supplier_code).toBeNull();
-                expect(row.po.supplier.name).toMatch(SUPPLIER_OBSCURE_REGEX);
-                expect(row.po.supplier.name).toHaveLength(7);
+                expect(row.po.supplier!.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+                expect(row.po.supplier!.name).toHaveLength(7);
             }
-            expect(data[0].po.supplier_name).toBe("SUP-042");
-            expect(data[1].po.supplier_name).toBe("SUP1000");
+            expect(data[0]!.po.supplier_name).toBe("SUP-042");
+            expect(data[1]!.po.supplier_name).toBe("SUP1000");
         });
     });
 
@@ -156,8 +156,8 @@ describe("TrackingService", () => {
             expect(result.po.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
             expect(result.po.supplier_name).toHaveLength(7);
             expect(result.po.supplier_code).toBeNull();
-            expect(result.po.supplier.name).toMatch(SUPPLIER_OBSCURE_REGEX);
-            expect(result.po.supplier.name).toHaveLength(7);
+            expect(result.po.supplier!.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.po.supplier!.name).toHaveLength(7);
         });
     });
 
