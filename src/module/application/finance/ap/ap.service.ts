@@ -5,6 +5,10 @@ import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { POTrackingPaymentStatus } from "../../../../generated/prisma/enums.js";
 import { generateAPNumber, generateCashNumber, generateJournalNumber } from "../../../../lib/utils/generate-number.js";
+import {
+    obscureSupplierName,
+    withObscuredSupplierRelation,
+} from "../../../../lib/utils/supplier-obscure.js";
 
 export class FinanceAPService {
     static async list(query: QueryAPDTO) {
@@ -53,11 +57,17 @@ export class FinanceAPService {
             prisma.accountPayable.count({ where }),
         ]);
 
-        return { data, total };
+        const obscured = data.map((r) =>
+            withObscuredSupplierRelation({
+                ...r,
+                supplier_name: obscureSupplierName(r.supplier_id),
+            }),
+        );
+        return { data: obscured, total };
     }
 
     static async detail(id: number) {
-        return await prisma.accountPayable.findUniqueOrThrow({
+        const ap = await prisma.accountPayable.findUniqueOrThrow({
             where: { id },
             include: {
                 po: {
@@ -77,6 +87,13 @@ export class FinanceAPService {
                 payment_term: { select: { id: true, term_seq: true, percentage: true, due_days: true, notes: true } },
                 supplier: { select: { id: true, name: true, country: true } },
             },
+        });
+        return withObscuredSupplierRelation({
+            ...ap,
+            supplier_name: obscureSupplierName(ap.supplier_id),
+            po: ap.po
+                ? { ...ap.po, supplier_name: obscureSupplierName(ap.po.supplier_id), supplier_code: null }
+                : ap.po,
         });
     }
 
@@ -175,7 +192,7 @@ export class FinanceAPService {
                 });
             }
 
-            return updated;
+            return { ...updated, supplier_name: obscureSupplierName(updated.supplier_id) };
         });
     }
 

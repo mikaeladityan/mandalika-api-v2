@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { FinanceAPService } from "../../module/application/finance/ap/ap.service.js";
 import prisma from "../../config/prisma.js";
 import { ApiError } from "../../lib/errors/api.error.js";
+import { SUPPLIER_OBSCURE_REGEX } from "../../lib/utils/supplier-obscure.js";
 
 const mockAP = {
     id: 1,
@@ -43,8 +44,11 @@ describe("FinanceAPService", () => {
 
             const result = await FinanceAPService.list({ page: 1, take: 10, order: "asc" });
 
-            expect(result.data).toEqual(mockData);
             expect(result.total).toBe(1);
+            expect(result.data).toHaveLength(1);
+            expect(result.data[0].supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.data[0].supplier_name).toHaveLength(7);
+            expect(result.data[0].supplier_name).not.toBe("PT Supplier ABC");
         });
 
         it("should apply status filter", async () => {
@@ -74,6 +78,42 @@ describe("FinanceAPService", () => {
                 }),
             );
         });
+
+        it("masks supplier identity in list response", async () => {
+            const mockFindMany = vi.fn().mockResolvedValue([
+                {
+                    ...mockAP,
+                    id: 1, supplier_id: 42, supplier_name: "PT Real Vendor",
+                    supplier: { id: 42, name: "PT Real Vendor" },
+                    po: null, receipt: null, payment_term: null,
+                },
+                {
+                    ...mockAP,
+                    id: 2, supplier_id: 1000, supplier_name: "PT Other Vendor",
+                    supplier: { id: 1000, name: "PT Other Vendor" },
+                    po: null, receipt: null, payment_term: null,
+                },
+            ]);
+            const mockCount = vi.fn().mockResolvedValue(2);
+            // @ts-ignore
+            prisma.accountPayable = { findMany: mockFindMany, count: mockCount };
+
+            const { data } = await FinanceAPService.list({
+                page: 1, take: 10, sortBy: "due_date", order: "asc",
+            } as any);
+
+            for (const row of data) {
+                expect(row.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+                expect(row.supplier_name).toHaveLength(7);
+                expect(row.supplier_name).not.toBe("PT Real Vendor");
+                expect(row.supplier_name).not.toBe("PT Other Vendor");
+                if (row.supplier) {
+                    expect(row.supplier.name).toMatch(SUPPLIER_OBSCURE_REGEX);
+                }
+            }
+            expect(data[0].supplier_name).toBe("SUP-042");
+            expect(data[1].supplier_name).toBe("SUP1000");
+        });
     });
 
     describe("detail", () => {
@@ -82,7 +122,9 @@ describe("FinanceAPService", () => {
             prisma.accountPayable = { findUniqueOrThrow: vi.fn().mockResolvedValue(mockAP) };
 
             const result = await FinanceAPService.detail(1);
-            expect(result).toEqual(mockAP);
+            expect(result.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.supplier_name).toHaveLength(7);
+            expect(result.supplier_name).not.toBe("PT Supplier ABC");
         });
 
         it("should throw if AP not found", async () => {
@@ -161,7 +203,10 @@ describe("FinanceAPService", () => {
             expect(mockTx.cashEntry.create).toHaveBeenCalledOnce();
             expect(mockTx.journalEntry.create).toHaveBeenCalledOnce();
             expect(mockTx.purchaseTracking.updateMany).toHaveBeenCalledOnce();
-            expect(result).toEqual(mockUpdated);
+            expect(result.supplier_name).toMatch(SUPPLIER_OBSCURE_REGEX);
+            expect(result.supplier_name).toHaveLength(7);
+            expect(result.supplier_name).not.toBe("PT Supplier ABC");
+            expect(result.status).toBe("DP_PAID");
         });
 
         it("should set status PAID when balance reaches zero", async () => {
