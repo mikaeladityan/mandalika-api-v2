@@ -4,6 +4,7 @@ import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { generateReceiptNumber } from "../../../../lib/utils/generate-number.js";
 import { FinanceAPService } from "../../finance/ap/ap.service.js";
+import { obscureSupplierName, withObscuredSupplierRelation } from "../../../../lib/utils/supplier-obscure.js";
 
 export class ReceiptService {
     static async list(query: QueryReceiptDTO) {
@@ -57,7 +58,13 @@ export class ReceiptService {
             prisma.purchaseReceipt.count({ where }),
         ]);
 
-        return { data, total };
+        const obscured = data.map((r) => ({
+            ...r,
+            po: r.po
+                ? { ...r.po, supplier_name: obscureSupplierName(r.po.supplier_id) }
+                : r.po,
+        }));
+        return { data: obscured, total };
     }
 
     static async listOpenPOs(query: QueryOpenPOForReceiptDTO) {
@@ -130,17 +137,24 @@ export class ReceiptService {
                 })),
         }));
 
-        return { data: mapped, total };
+        const obscured = mapped.map((row) =>
+            withObscuredSupplierRelation({
+                ...row,
+                supplier_name: obscureSupplierName(row.supplier_id),
+                supplier_code: null,
+            }),
+        );
+        return { data: obscured, total };
     }
 
     static async detail(id: number) {
-        return await prisma.purchaseReceipt.findUniqueOrThrow({
+        const row = await prisma.purchaseReceipt.findUniqueOrThrow({
             where: { id },
             include: {
                 warehouse: { select: { id: true, name: true, code: true } },
                 items: {
                     include: {
-                        po: { select: { id: true, po_number: true, supplier_name: true } },
+                        po: { select: { id: true, po_number: true, supplier_id: true, supplier_name: true } },
                         po_item: { select: { id: true, item_code: true, item_name: true, qty_ordered: true, qty_received: true } },
                         raw_material: { select: { id: true, barcode: true, name: true } },
                     },
@@ -150,6 +164,15 @@ export class ReceiptService {
                 },
             },
         });
+        return {
+            ...row,
+            items: row.items.map((it) => ({
+                ...it,
+                po: it.po
+                    ? { ...it.po, supplier_name: obscureSupplierName(it.po.supplier_id) }
+                    : it.po,
+            })),
+        };
     }
 
     static async create(body: CreateReceiptDTO, userId: string) {
