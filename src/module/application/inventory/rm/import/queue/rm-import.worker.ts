@@ -143,12 +143,22 @@ export async function processRMImportJob(
         if (row.category) categorySet.add(row.category);
         if (row.supplier) {
             const slug = normalizeSlug(row.supplier);
-            if (!supplierMeta.has(slug)) {
+            const existing = supplierMeta.get(slug);
+            if (!existing) {
                 supplierMeta.set(slug, {
                     name: row.supplier,
                     country: row.country,
                     source: row.source,
                 });
+            } else {
+                // IMPORT menang atas LOCAL kalau supplier muncul campur source di file.
+                if (
+                    row.source === RawMaterialSource.IMPORT &&
+                    existing.source !== RawMaterialSource.IMPORT
+                ) {
+                    existing.source = RawMaterialSource.IMPORT;
+                }
+                if (!existing.country && row.country) existing.country = row.country;
             }
         }
     }
