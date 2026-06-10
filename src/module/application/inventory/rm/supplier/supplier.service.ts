@@ -60,7 +60,7 @@ export class SupplierService {
                 },
                 select: SUPPLIER_SELECT,
             });
-            return { ...created, name: obscureSupplierName(created.id) };
+            return { ...created, name: obscureSupplierName(created.id), slug: null };
         } catch (e) {
             this.rethrowPrismaError(e);
         }
@@ -85,7 +85,7 @@ export class SupplierService {
                 },
                 select: SUPPLIER_SELECT,
             });
-            return { ...updated, name: obscureSupplierName(updated.id) };
+            return { ...updated, name: obscureSupplierName(updated.id), slug: null };
         } catch (e) {
             this.rethrowPrismaError(e);
         }
@@ -97,7 +97,7 @@ export class SupplierService {
             select: SUPPLIER_SELECT,
         });
         if (!supplier) throw new ApiError(404, "Supplier tidak ditemukan");
-        return { ...supplier, name: obscureSupplierName(supplier.id) };
+        return { ...supplier, name: obscureSupplierName(supplier.id), slug: null };
     }
 
     static async delete(id: number) {
@@ -164,6 +164,7 @@ export class SupplierService {
         const obscured = data.map((row) => ({
             ...row,
             name: obscureSupplierName(row.id),
+            slug: null,
         }));
         return { data: obscured, len };
     }

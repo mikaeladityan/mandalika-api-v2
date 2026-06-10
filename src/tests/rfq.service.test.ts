@@ -84,6 +84,7 @@ describe("RFQService", () => {
                 expect(row.supplier_name).toHaveLength(7);
                 expect(row.supplier_name).not.toBe("PT Real Vendor");
                 expect(row.supplier_name).not.toBe("PT Other Vendor");
+                expect(row.supplier_code).toBeNull();
             }
             expect(data[0].supplier_name).toBe("SUP-042");
             expect(data[1].supplier_name).toBe("SUP1000");

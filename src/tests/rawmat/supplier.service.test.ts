@@ -263,6 +263,7 @@ describe("SupplierService", () => {
         for (const row of data) {
             expect(row.name).toMatch(SUPPLIER_OBSCURE_REGEX);
             expect(row.name).toHaveLength(7);
+            expect((row as any).slug).toBeNull();
         }
     });
 });

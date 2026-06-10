@@ -75,6 +75,7 @@ export class RFQService {
             withObscuredSupplierRelation({
                 ...r,
                 supplier_name: obscureSupplierName(r.supplier_id),
+                supplier_code: null,
             }),
         );
         return { data: obscured, total };
@@ -84,7 +85,7 @@ export class RFQService {
         const row = await prisma.purchaseRFQ.findUniqueOrThrow({
             where: { id },
             include: {
-                supplier: true,
+                supplier: { select: { id: true, name: true, country: true, source: true, addresses: true, phone: true } },
                 items: {
                     include: {
                         raw_material: {
@@ -105,6 +106,7 @@ export class RFQService {
         return withObscuredSupplierRelation({
             ...row,
             supplier_name: obscureSupplierName(row.supplier_id),
+            supplier_code: null,
         });
     }
 
@@ -184,7 +186,7 @@ export class RFQService {
                 await RFQService.syncSupplierMaterials(tx, supplierId, body.items);
             }
 
-            return { ...rfq, supplier_name: obscureSupplierName(rfq.supplier_id) };
+            return { ...rfq, supplier_name: obscureSupplierName(rfq.supplier_id), supplier_code: null };
         });
     }
 
@@ -242,7 +244,7 @@ export class RFQService {
                 }
             }
 
-            return { ...updated, supplier_name: obscureSupplierName(updated.supplier_id) };
+            return { ...updated, supplier_name: obscureSupplierName(updated.supplier_id), supplier_code: null };
         });
     }
 
@@ -267,7 +269,7 @@ export class RFQService {
             where: { id },
             data,
         });
-        return { ...updated, supplier_name: obscureSupplierName(updated.supplier_id) };
+        return { ...updated, supplier_name: obscureSupplierName(updated.supplier_id), supplier_code: null };
     }
 
     static async destroy(id: number) {
@@ -276,7 +278,7 @@ export class RFQService {
             throw new ApiError(400, "Only DRAFT RFQs can be deleted.");
         }
         const deleted = await prisma.purchaseRFQ.delete({ where: { id } });
-        return { ...deleted, supplier_name: obscureSupplierName(deleted.supplier_id) };
+        return { ...deleted, supplier_name: obscureSupplierName(deleted.supplier_id), supplier_code: null };
     }
 
     private static async syncSupplierMaterials(
@@ -444,7 +446,7 @@ export class RFQService {
                 },
             });
 
-            return { ...po, supplier_name: obscureSupplierName(po.supplier_id) };
+            return { ...po, supplier_name: obscureSupplierName(po.supplier_id), supplier_code: null };
         });
     }
 }

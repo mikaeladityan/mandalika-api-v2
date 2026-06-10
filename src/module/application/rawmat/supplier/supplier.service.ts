@@ -30,7 +30,7 @@ export class SupplierService {
                 source: data.source as any,
             },
         });
-        return { ...created, name: obscureSupplierName(created.id) };
+        return { ...created, name: obscureSupplierName(created.id), slug: null };
     }
 
     static async update(
@@ -60,7 +60,7 @@ export class SupplierService {
                 ...(payload.source !== undefined && { source: payload.source as any }),
             },
         });
-        return { ...updated, name: obscureSupplierName(updated.id) };
+        return { ...updated, name: obscureSupplierName(updated.id), slug: null };
     }
 
     static async detail(id: number): Promise<ResponseSupplierDTO> {
@@ -153,6 +153,7 @@ export class SupplierService {
         const obscured = data.map((row) => ({
             ...row,
             name: obscureSupplierName(row.id),
+            slug: null,
         }));
         return { len: total, data: obscured };
     }
