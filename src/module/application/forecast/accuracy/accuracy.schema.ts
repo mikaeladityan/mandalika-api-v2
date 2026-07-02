@@ -25,6 +25,7 @@ export const ResponseForecastAccuracyItemSchema = z.object({
     sales: z.number(),
     diff: z.number(),
     accuracy_percentage: z.string().regex(ACCURACY_PERCENTAGE_REGEX),
+    on_target: z.boolean().nullable(),
 });
 
 export const ResponseForecastAccuracySchema = z.object({
@@ -38,6 +39,8 @@ export const ResponseForecastAccuracySchema = z.object({
         accuracy_percentage: z.string().regex(ACCURACY_PERCENTAGE_REGEX),
         product_count: z.number().int(),
         excluded_count: z.number().int(),
+        accurate_count: z.number().int(),
+        inaccurate_count: z.number().int(),
     }),
     data: z.array(ResponseForecastAccuracyItemSchema),
     len: z.number().int(),
