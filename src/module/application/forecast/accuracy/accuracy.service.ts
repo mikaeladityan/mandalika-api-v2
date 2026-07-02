@@ -42,9 +42,7 @@ export class ForecastAccuracyService {
         return { month: now.getUTCMonth() + 1, year: now.getUTCFullYear() };
     }
 
-    static async list(
-        query: QueryForecastAccuracyDTO,
-    ): Promise<ResponseForecastAccuracyDTO> {
+    static async list(query: QueryForecastAccuracyDTO): Promise<ResponseForecastAccuracyDTO> {
         const period = await ForecastAccuracyService.resolvePeriod(query);
         const { month, year } = period;
 
@@ -121,6 +119,7 @@ export class ForecastAccuracyService {
             total_forecast: number | string | null;
             total_sales: number | string | null;
             excluded_count: number | string;
+            avg_accuracy: number | string | null;
         };
 
         const aggregateRows = await prisma.$queryRaw<Agg[]>(Prisma.sql`
@@ -141,10 +140,11 @@ export class ForecastAccuracyService {
                   ${sizeIdFilter}
             )
             SELECT
-                COUNT(*)::int                                              AS product_count,
-                SUM(forecast) FILTER (WHERE sales > 0)::float8             AS total_forecast,
-                SUM(sales)    FILTER (WHERE sales > 0)::float8             AS total_sales,
-                COUNT(*) FILTER (WHERE sales = 0 OR sales IS NULL)::int    AS excluded_count
+                COUNT(*)::int                                                                                           AS product_count,
+                SUM(forecast) FILTER (WHERE sales > 0)::float8                                                         AS total_forecast,
+                SUM(sales)    FILTER (WHERE sales > 0)::float8                                                         AS total_sales,
+                COUNT(*) FILTER (WHERE sales = 0 OR sales IS NULL)::int                                                AS excluded_count,
+                AVG(GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100)) FILTER (WHERE sales > 0)::float8 AS avg_accuracy
             FROM matched
         `);
 
@@ -153,6 +153,7 @@ export class ForecastAccuracyService {
             total_forecast: 0,
             total_sales: 0,
             excluded_count: 0,
+            avg_accuracy: null,
         };
 
         const data: ResponseForecastAccuracyItemDTO[] = rows.map((r) => {
@@ -175,13 +176,14 @@ export class ForecastAccuracyService {
         const total_sales = Number(agg.total_sales ?? 0);
         const product_count = Number(agg.product_count ?? 0);
         const excluded_count = Number(agg.excluded_count ?? 0);
+        const avg_accuracy = agg.avg_accuracy != null ? Number(agg.avg_accuracy) : null;
 
         return {
             period,
             summary: {
                 total_forecast,
                 total_sales,
-                accuracy_percentage: ForecastAccuracyService.formatAccuracy(total_forecast, total_sales),
+                accuracy_percentage: avg_accuracy != null ? `${avg_accuracy.toFixed(2)}%` : "N/A",
                 product_count,
                 excluded_count,
             },
