@@ -8,6 +8,8 @@ import type {
     ResponseForecastAccuracyItemDTO,
 } from "./accuracy.schema.js";
 
+const ACCURACY_THRESHOLD = 90;
+
 export class ForecastAccuracyService {
     static async resolvePeriod(
         query: QueryForecastAccuracyDTO,
@@ -120,6 +122,8 @@ export class ForecastAccuracyService {
             total_sales: number | string | null;
             excluded_count: number | string;
             avg_accuracy: number | string | null;
+            accurate_count: number | string;
+            inaccurate_count: number | string;
         };
 
         const aggregateRows = await prisma.$queryRaw<Agg[]>(Prisma.sql`
@@ -140,11 +144,13 @@ export class ForecastAccuracyService {
                   ${sizeIdFilter}
             )
             SELECT
-                COUNT(*)::int                                                                                           AS product_count,
-                SUM(forecast) FILTER (WHERE sales > 0)::float8                                                         AS total_forecast,
-                SUM(sales)    FILTER (WHERE sales > 0)::float8                                                         AS total_sales,
-                COUNT(*) FILTER (WHERE sales = 0 OR sales IS NULL)::int                                                AS excluded_count,
-                AVG(GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100)) FILTER (WHERE sales > 0)::float8 AS avg_accuracy
+                COUNT(*)::int                                                                                                  AS product_count,
+                SUM(forecast) FILTER (WHERE sales > 0)::float8                                                                AS total_forecast,
+                SUM(sales)    FILTER (WHERE sales > 0)::float8                                                                AS total_sales,
+                COUNT(*) FILTER (WHERE sales = 0 OR sales IS NULL)::int                                                       AS excluded_count,
+                AVG(GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100)) FILTER (WHERE sales > 0)::float8       AS avg_accuracy,
+                COUNT(*) FILTER (WHERE sales > 0 AND GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100) >= ${ACCURACY_THRESHOLD})::int AS accurate_count,
+                COUNT(*) FILTER (WHERE sales > 0 AND GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100) < ${ACCURACY_THRESHOLD})::int  AS inaccurate_count
             FROM matched
         `);
 
@@ -154,11 +160,18 @@ export class ForecastAccuracyService {
             total_sales: 0,
             excluded_count: 0,
             avg_accuracy: null,
+            accurate_count: 0,
+            inaccurate_count: 0,
         };
 
         const data: ResponseForecastAccuracyItemDTO[] = rows.map((r) => {
             const forecast = Number(r.forecast ?? 0);
             const sales = Number(r.sales ?? 0);
+            const accuracy_percentage = ForecastAccuracyService.formatAccuracy(forecast, sales);
+            const on_target: boolean | null =
+                sales <= 0
+                    ? null
+                    : Math.max(0, (1 - Math.abs(forecast - sales) / sales) * 100) >= ACCURACY_THRESHOLD;
             return {
                 product_id: Number(r.product_id),
                 product_code: r.product_code,
@@ -168,7 +181,8 @@ export class ForecastAccuracyService {
                 forecast,
                 sales,
                 diff: forecast - sales,
-                accuracy_percentage: ForecastAccuracyService.formatAccuracy(forecast, sales),
+                accuracy_percentage,
+                on_target,
             };
         });
 
@@ -177,6 +191,8 @@ export class ForecastAccuracyService {
         const product_count = Number(agg.product_count ?? 0);
         const excluded_count = Number(agg.excluded_count ?? 0);
         const avg_accuracy = agg.avg_accuracy != null ? Number(agg.avg_accuracy) : null;
+        const accurate_count = Number(agg.accurate_count ?? 0);
+        const inaccurate_count = Number(agg.inaccurate_count ?? 0);
 
         return {
             period,
@@ -186,6 +202,8 @@ export class ForecastAccuracyService {
                 accuracy_percentage: avg_accuracy != null ? `${avg_accuracy.toFixed(2)}%` : "N/A",
                 product_count,
                 excluded_count,
+                accurate_count,
+                inaccurate_count,
             },
             data,
             len: product_count,
