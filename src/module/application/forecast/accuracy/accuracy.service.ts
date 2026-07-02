@@ -150,9 +150,9 @@ export class ForecastAccuracyService {
                 SUM(forecast) FILTER (WHERE sales > 0)::float8                                                                AS total_forecast,
                 SUM(sales)    FILTER (WHERE sales > 0)::float8                                                                AS total_sales,
                 COUNT(*) FILTER (WHERE sales = 0 OR sales IS NULL)::int                                                       AS excluded_count,
-                AVG(GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100)) FILTER (WHERE sales > 0)::float8       AS avg_accuracy,
-                COUNT(*) FILTER (WHERE sales > 0 AND GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100) >= ${ACCURACY_THRESHOLD})::int AS accurate_count,
-                COUNT(*) FILTER (WHERE sales > 0 AND GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100) < ${ACCURACY_THRESHOLD})::int  AS inaccurate_count
+                AVG(GREATEST(0, (1 - ABS(ROUND(forecast) - ROUND(sales)) / NULLIF(ROUND(sales), 0)) * 100)) FILTER (WHERE ROUND(sales) > 0)::float8       AS avg_accuracy,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND GREATEST(0, (1 - ABS(ROUND(forecast) - ROUND(sales)) / NULLIF(ROUND(sales), 0)) * 100) >= ${ACCURACY_THRESHOLD})::int AS accurate_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND GREATEST(0, (1 - ABS(ROUND(forecast) - ROUND(sales)) / NULLIF(ROUND(sales), 0)) * 100) < ${ACCURACY_THRESHOLD})::int  AS inaccurate_count
             FROM matched
         `);
 
@@ -170,10 +170,12 @@ export class ForecastAccuracyService {
             const forecast = Number(r.forecast ?? 0);
             const sales = Number(r.sales ?? 0);
             const accuracy_percentage = ForecastAccuracyService.formatAccuracy(forecast, sales);
+            const rf = Math.round(forecast);
+            const rs = Math.round(sales);
             const on_target: boolean | null =
-                sales <= 0
+                rs <= 0
                     ? null
-                    : Math.max(0, (1 - Math.abs(forecast - sales) / sales) * 100) >= ACCURACY_THRESHOLD;
+                    : Math.max(0, (1 - Math.abs(rf - rs) / rs) * 100) >= ACCURACY_THRESHOLD;
             return {
                 product_id: Number(r.product_id),
                 product_code: r.product_code,
@@ -213,8 +215,10 @@ export class ForecastAccuracyService {
     }
 
     static formatAccuracy(forecast: number, sales: number): string {
-        if (sales <= 0) return "N/A";
-        const accuracy = (1 - Math.abs(forecast - sales) / sales) * 100;
+        const f = Math.round(forecast);
+        const s = Math.round(sales);
+        if (s <= 0) return "N/A";
+        const accuracy = (1 - Math.abs(f - s) / s) * 100;
         const clamped = Math.max(0, accuracy);
         return `${clamped.toFixed(2)}%`;
     }
@@ -282,9 +286,9 @@ export class ForecastAccuracyService {
             SELECT
                 year,
                 month,
-                COUNT(*) FILTER (WHERE sales > 0 AND GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100) >= ${ACCURACY_THRESHOLD})::int AS accurate_count,
-                COUNT(*) FILTER (WHERE sales > 0 AND GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100) < ${ACCURACY_THRESHOLD})::int  AS inaccurate_count,
-                COUNT(*) FILTER (WHERE sales = 0 OR sales IS NULL)::int                                                                               AS excluded_count
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND GREATEST(0, (1 - ABS(ROUND(forecast) - ROUND(sales)) / NULLIF(ROUND(sales), 0)) * 100) >= ${ACCURACY_THRESHOLD})::int AS accurate_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND GREATEST(0, (1 - ABS(ROUND(forecast) - ROUND(sales)) / NULLIF(ROUND(sales), 0)) * 100) < ${ACCURACY_THRESHOLD})::int  AS inaccurate_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) = 0 OR sales IS NULL)::int                                                                                                    AS excluded_count
             FROM matched
             GROUP BY year, month
             ORDER BY year ASC, month ASC
