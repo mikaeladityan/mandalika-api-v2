@@ -49,3 +49,30 @@ export const ResponseForecastAccuracySchema = z.object({
 export type QueryForecastAccuracyDTO = z.infer<typeof QueryForecastAccuracySchema>;
 export type ResponseForecastAccuracyItemDTO = z.infer<typeof ResponseForecastAccuracyItemSchema>;
 export type ResponseForecastAccuracyDTO = z.infer<typeof ResponseForecastAccuracySchema>;
+
+export const QueryForecastAccuracyTrendSchema = z.object({
+    from_month: z.coerce.number().int().min(1).max(12),
+    from_year: z.coerce.number().int().min(2000).max(2100),
+    to_month: z.coerce.number().int().min(1).max(12),
+    to_year: z.coerce.number().int().min(2000).max(2100),
+    is_others: z
+        .preprocess((v) => v === true || v === "true" || v === "1", z.boolean())
+        .default(false),
+});
+
+export const ResponseForecastAccuracyTrendItemSchema = z.object({
+    month: z.number().int(),
+    year: z.number().int(),
+    label: z.string(),
+    accurate_count: z.number().int(),
+    inaccurate_count: z.number().int(),
+    excluded_count: z.number().int(),
+    pct_accurate: z.number(),
+    pct_inaccurate: z.number(),
+});
+
+export const ResponseForecastAccuracyTrendSchema = z.array(ResponseForecastAccuracyTrendItemSchema);
+
+export type QueryForecastAccuracyTrendDTO = z.infer<typeof QueryForecastAccuracyTrendSchema>;
+export type ResponseForecastAccuracyTrendItemDTO = z.infer<typeof ResponseForecastAccuracyTrendItemSchema>;
+export type ResponseForecastAccuracyTrendDTO = z.infer<typeof ResponseForecastAccuracyTrendSchema>;

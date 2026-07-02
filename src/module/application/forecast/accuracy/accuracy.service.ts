@@ -4,8 +4,10 @@ import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../../shared/constants.js";
 import type {
     QueryForecastAccuracyDTO,
+    QueryForecastAccuracyTrendDTO,
     ResponseForecastAccuracyDTO,
     ResponseForecastAccuracyItemDTO,
+    ResponseForecastAccuracyTrendDTO,
 } from "./accuracy.schema.js";
 
 const ACCURACY_THRESHOLD = 75;
@@ -215,5 +217,96 @@ export class ForecastAccuracyService {
         const accuracy = (1 - Math.abs(forecast - sales) / sales) * 100;
         const clamped = Math.max(0, accuracy);
         return `${clamped.toFixed(2)}%`;
+    }
+
+    static async trend(query: QueryForecastAccuracyTrendDTO): Promise<ResponseForecastAccuracyTrendDTO> {
+        const { from_month, from_year, to_month, to_year } = query;
+
+        const MONTH_LABEL = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Ags","Sep","Okt","Nov","Des"];
+
+        const othersSlugs = Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%'`;
+        const typeFilter = query.is_others
+            ? Prisma.sql`(${othersSlugs})`
+            : Prisma.sql`(pt.slug IS NULL OR NOT (${othersSlugs}))`;
+
+        type TrendRow = {
+            year: number | string;
+            month: number | string;
+            accurate_count: number | string;
+            inaccurate_count: number | string;
+            excluded_count: number | string;
+        };
+
+        const rows = await prisma.$queryRaw<TrendRow[]>(Prisma.sql`
+            WITH month_series AS (
+                SELECT
+                    EXTRACT(YEAR FROM d)::int AS year,
+                    EXTRACT(MONTH FROM d)::int AS month
+                FROM generate_series(
+                    make_date(${from_year}, ${from_month}, 1),
+                    make_date(${to_year}, ${to_month}, 1),
+                    '1 month'::interval
+                ) AS d
+            ),
+            product_base AS (
+                SELECT p.id AS product_id
+                FROM products p
+                LEFT JOIN product_types pt ON pt.id = p.type_id
+                WHERE p.status = 'ACTIVE'
+                  AND p.deleted_at IS NULL
+                  AND ${typeFilter}
+            ),
+            sales_data AS (
+                SELECT
+                    pi.product_id, pi.year, pi.month,
+                    COALESCE(
+                        NULLIF(SUM(CASE WHEN (pi.year * 12 + pi.month) > ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type != 'ALL'::"IssuanceType" THEN pi.quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (pi.year * 12 + pi.month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type = 'ALL'::"IssuanceType" THEN pi.quantity ELSE 0 END)
+                    )::float8 AS sales
+                FROM product_issuances pi
+                WHERE (pi.year * 12 + pi.month) BETWEEN (${from_year} * 12 + ${from_month}) AND (${to_year} * 12 + ${to_month})
+                GROUP BY pi.product_id, pi.year, pi.month
+            ),
+            matched AS (
+                SELECT
+                    ms.year, ms.month,
+                    COALESCE(f.final_forecast, f.base_forecast, 0)::float8 AS forecast,
+                    COALESCE(sd.sales, 0)::float8 AS sales
+                FROM month_series ms
+                CROSS JOIN product_base pb
+                LEFT JOIN forecasts f
+                    ON f.product_id = pb.product_id AND f.month = ms.month AND f.year = ms.year
+                LEFT JOIN sales_data sd
+                    ON sd.product_id = pb.product_id AND sd.year = ms.year AND sd.month = ms.month
+            )
+            SELECT
+                year,
+                month,
+                COUNT(*) FILTER (WHERE sales > 0 AND GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100) >= ${ACCURACY_THRESHOLD})::int AS accurate_count,
+                COUNT(*) FILTER (WHERE sales > 0 AND GREATEST(0, (1 - ABS(forecast - sales) / NULLIF(sales, 0)) * 100) < ${ACCURACY_THRESHOLD})::int  AS inaccurate_count,
+                COUNT(*) FILTER (WHERE sales = 0 OR sales IS NULL)::int                                                                               AS excluded_count
+            FROM matched
+            GROUP BY year, month
+            ORDER BY year ASC, month ASC
+        `);
+
+        return rows.map((r) => {
+            const month = Number(r.month);
+            const year = Number(r.year);
+            const accurate_count = Number(r.accurate_count ?? 0);
+            const inaccurate_count = Number(r.inaccurate_count ?? 0);
+            const excluded_count = Number(r.excluded_count ?? 0);
+            const base = accurate_count + inaccurate_count;
+            return {
+                month,
+                year,
+                label: `${MONTH_LABEL[month - 1]} '${String(year).slice(2)}`,
+                accurate_count,
+                inaccurate_count,
+                excluded_count,
+                pct_accurate: base > 0 ? parseFloat(((accurate_count / base) * 100).toFixed(1)) : 0,
+                pct_inaccurate: base > 0 ? parseFloat(((inaccurate_count / base) * 100).toFixed(1)) : 0,
+            };
+        });
     }
 }
