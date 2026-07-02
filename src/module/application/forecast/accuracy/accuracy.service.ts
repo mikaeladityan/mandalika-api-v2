@@ -8,7 +8,7 @@ import type {
     ResponseForecastAccuracyItemDTO,
 } from "./accuracy.schema.js";
 
-const ACCURACY_THRESHOLD = 90;
+const ACCURACY_THRESHOLD = 75;
 
 export class ForecastAccuracyService {
     static async resolvePeriod(
