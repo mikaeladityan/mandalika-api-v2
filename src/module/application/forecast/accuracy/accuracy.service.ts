@@ -10,8 +10,12 @@ import type {
     ResponseForecastAccuracyTrendDTO,
 } from "./accuracy.schema.js";
 
-const ACCURACY_THRESHOLD = 75;
-const ACCURACY_UPPER = 200 - ACCURACY_THRESHOLD; // 125 — symmetric upper bound
+const DEFAULT_TOLERANCE = 25; // ±25% → band 75–125
+
+// Symmetric tolerance band around 100%: ±tolerance percentage points.
+function toleranceBand(tolerance: number): { threshold: number; upper: number } {
+    return { threshold: 100 - tolerance, upper: 100 + tolerance };
+}
 
 const OTHERS_SLUGS = Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%'`;
 
@@ -58,6 +62,8 @@ export class ForecastAccuracyService {
     static async list(query: QueryForecastAccuracyDTO): Promise<ResponseForecastAccuracyDTO> {
         const period = await ForecastAccuracyService.resolvePeriod(query);
         const { month, year } = period;
+        const tolerance = query.tolerance ?? DEFAULT_TOLERANCE;
+        const { threshold, upper } = toleranceBand(tolerance);
 
         const { skip, take: limit } = GetPagination(query.page, query.take);
 
@@ -162,9 +168,9 @@ export class ForecastAccuracyService {
                     / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0), 0)) * 100)::float8   AS wmape_accuracy,
                 (SUM(ROUND(forecast)) FILTER (WHERE ROUND(sales) > 0)
                     / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0), 0) * 100)::float8    AS bias_pct,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${ACCURACY_THRESHOLD} AND ${ACCURACY_UPPER})::int AS accurate_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${ACCURACY_THRESHOLD})::int                             AS under_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${ACCURACY_UPPER})::int                                 AS over_count
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${threshold} AND ${upper})::int AS accurate_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${threshold})::int                    AS under_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${upper})::int                        AS over_count
             FROM matched
         `);
 
@@ -190,9 +196,9 @@ export class ForecastAccuracyService {
             const accuracy_status =
                 accuracy_ratio === null
                     ? null
-                    : accuracy_ratio < ACCURACY_THRESHOLD
+                    : accuracy_ratio < threshold
                       ? ("under" as const)
-                      : accuracy_ratio > ACCURACY_UPPER
+                      : accuracy_ratio > upper
                         ? ("over" as const)
                         : ("tepat_sasaran" as const);
             return {
@@ -221,6 +227,7 @@ export class ForecastAccuracyService {
 
         return {
             period,
+            tolerance,
             summary: {
                 total_forecast,
                 total_sales,
@@ -247,6 +254,7 @@ export class ForecastAccuracyService {
 
     static async trend(query: QueryForecastAccuracyTrendDTO): Promise<ResponseForecastAccuracyTrendDTO> {
         const { from_month, from_year, to_month, to_year } = query;
+        const { threshold, upper } = toleranceBand(query.tolerance ?? DEFAULT_TOLERANCE);
 
         const MONTH_LABEL = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Ags","Sep","Okt","Nov","Des"];
 
@@ -306,9 +314,9 @@ export class ForecastAccuracyService {
             SELECT
                 year,
                 month,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${ACCURACY_THRESHOLD} AND ${ACCURACY_UPPER})::int AS accurate_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${ACCURACY_THRESHOLD})::int                             AS under_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${ACCURACY_UPPER})::int                                 AS over_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${threshold} AND ${upper})::int AS accurate_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${threshold})::int                    AS under_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${upper})::int                        AS over_count,
                 COUNT(*) FILTER (WHERE ROUND(sales) <= 0)::int                                                                                                                           AS excluded_count
             FROM matched
             GROUP BY year, month
