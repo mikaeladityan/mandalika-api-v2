@@ -13,6 +13,14 @@ import type {
 const ACCURACY_THRESHOLD = 75;
 const ACCURACY_UPPER = 200 - ACCURACY_THRESHOLD; // 125 — symmetric upper bound
 
+const OTHERS_SLUGS = Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%'`;
+
+function buildTypeFilter(isOthers: boolean): Prisma.Sql {
+    return isOthers
+        ? Prisma.sql`(${OTHERS_SLUGS})`
+        : Prisma.sql`(pt.slug IS NULL OR NOT (${OTHERS_SLUGS}))`;
+}
+
 export class ForecastAccuracyService {
     static async resolvePeriod(
         query: QueryForecastAccuracyDTO,
@@ -55,10 +63,7 @@ export class ForecastAccuracyService {
 
         const searchRaw = query.search ? `%${query.search}%` : null;
 
-        const othersSlugs = Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%'`;
-        const typeFilter = query.is_others
-            ? Prisma.sql`(${othersSlugs})`
-            : Prisma.sql`(pt.slug IS NULL OR NOT (${othersSlugs}))`;
+        const typeFilter = buildTypeFilter(query.is_others);
 
         const searchFilter = searchRaw
             ? Prisma.sql`AND (p.name ILIKE ${searchRaw} OR p.code ILIKE ${searchRaw} OR pt.name ILIKE ${searchRaw})`
@@ -124,7 +129,8 @@ export class ForecastAccuracyService {
             total_forecast: number | string | null;
             total_sales: number | string | null;
             excluded_count: number | string;
-            avg_accuracy: number | string | null;
+            wmape_accuracy: number | string | null;
+            bias_pct: number | string | null;
             accurate_count: number | string;
             under_count: number | string;
             over_count: number | string;
@@ -148,11 +154,14 @@ export class ForecastAccuracyService {
                   ${sizeIdFilter}
             )
             SELECT
-                COUNT(*)::int                                                                                                  AS product_count,
-                SUM(forecast) FILTER (WHERE sales > 0)::float8                                                                AS total_forecast,
-                SUM(sales)    FILTER (WHERE sales > 0)::float8                                                                AS total_sales,
-                COUNT(*) FILTER (WHERE sales = 0 OR sales IS NULL)::int                                                       AS excluded_count,
-                AVG((ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100) FILTER (WHERE ROUND(sales) > 0)::float8                                                                             AS avg_accuracy,
+                COUNT(*)::int                                                                        AS product_count,
+                SUM(forecast) FILTER (WHERE ROUND(sales) > 0)::float8                                AS total_forecast,
+                SUM(sales)    FILTER (WHERE ROUND(sales) > 0)::float8                                AS total_sales,
+                COUNT(*) FILTER (WHERE ROUND(sales) <= 0)::int                                       AS excluded_count,
+                GREATEST(0, (1 - SUM(ABS(ROUND(forecast) - ROUND(sales))) FILTER (WHERE ROUND(sales) > 0)
+                    / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0), 0)) * 100)::float8   AS wmape_accuracy,
+                (SUM(ROUND(forecast)) FILTER (WHERE ROUND(sales) > 0)
+                    / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0), 0) * 100)::float8    AS bias_pct,
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${ACCURACY_THRESHOLD} AND ${ACCURACY_UPPER})::int AS accurate_count,
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${ACCURACY_THRESHOLD})::int                             AS under_count,
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${ACCURACY_UPPER})::int                                 AS over_count
@@ -164,7 +173,8 @@ export class ForecastAccuracyService {
             total_forecast: 0,
             total_sales: 0,
             excluded_count: 0,
-            avg_accuracy: null,
+            wmape_accuracy: null,
+            bias_pct: null,
             accurate_count: 0,
             under_count: 0,
             over_count: 0,
@@ -203,7 +213,8 @@ export class ForecastAccuracyService {
         const total_sales = Number(agg.total_sales ?? 0);
         const product_count = Number(agg.product_count ?? 0);
         const excluded_count = Number(agg.excluded_count ?? 0);
-        const avg_accuracy = agg.avg_accuracy != null ? Number(agg.avg_accuracy) : null;
+        const wmape_accuracy = agg.wmape_accuracy != null ? Number(agg.wmape_accuracy) : null;
+        const bias_pct = agg.bias_pct != null ? Number(agg.bias_pct) : null;
         const accurate_count = Number(agg.accurate_count ?? 0);
         const under_count = Number(agg.under_count ?? 0);
         const over_count = Number(agg.over_count ?? 0);
@@ -213,7 +224,8 @@ export class ForecastAccuracyService {
             summary: {
                 total_forecast,
                 total_sales,
-                accuracy_percentage: avg_accuracy != null ? `${avg_accuracy.toFixed(2)}%` : "N/A",
+                accuracy_percentage: wmape_accuracy != null ? `${wmape_accuracy.toFixed(2)}%` : "N/A",
+                bias_percentage: bias_pct != null ? `${bias_pct.toFixed(2)}%` : "N/A",
                 product_count,
                 excluded_count,
                 accurate_count,
@@ -238,10 +250,7 @@ export class ForecastAccuracyService {
 
         const MONTH_LABEL = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Ags","Sep","Okt","Nov","Des"];
 
-        const othersSlugs = Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%'`;
-        const typeFilter = query.is_others
-            ? Prisma.sql`(${othersSlugs})`
-            : Prisma.sql`(pt.slug IS NULL OR NOT (${othersSlugs}))`;
+        const typeFilter = buildTypeFilter(query.is_others);
 
         type TrendRow = {
             year: number | string;
@@ -300,7 +309,7 @@ export class ForecastAccuracyService {
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${ACCURACY_THRESHOLD} AND ${ACCURACY_UPPER})::int AS accurate_count,
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${ACCURACY_THRESHOLD})::int                             AS under_count,
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${ACCURACY_UPPER})::int                                 AS over_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) = 0 OR sales IS NULL)::int                                                                                                           AS excluded_count
+                COUNT(*) FILTER (WHERE ROUND(sales) <= 0)::int                                                                                                                           AS excluded_count
             FROM matched
             GROUP BY year, month
             ORDER BY year ASC, month ASC
