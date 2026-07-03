@@ -1066,6 +1066,7 @@ export class ForecastService {
                 name: string;
                 z_value: number;
                 size: number | null;
+                size_id: number | null;
                 product_type_name: string | null;
                 unit_name: string | null;
                 distribution_percentage: number | null;
@@ -1083,6 +1084,7 @@ export class ForecastService {
                 p.name,
                 p.z_value,
                 ps.size            AS "size",
+                p.size_id          AS "size_id",
                 pt.name            AS "product_type_name",
                 u.name             AS "unit_name",
                 p.distribution_percentage,
@@ -1233,6 +1235,84 @@ export class ForecastService {
             LIMIT ${limit} OFFSET ${skip}
         `;
 
+        // EDAR vs ACT: pair sales share on the last ACT month. Members are fetched
+        // in a second query (ignoring type/size/search filters and pagination) so the
+        // pair total stays correct when a member falls outside the current page/filter.
+        const lastActMonth = prevMonths[prevMonths.length - 1]!;
+        const edarGroups = Array.from(
+            new Map(
+                productsRaw
+                    .filter((p) => Number(p.distribution_percentage ?? 0) > 0)
+                    .map((p) => [
+                        `${p.name}|${p.size_id ?? "null"}`,
+                        { name: p.name, size_id: p.size_id },
+                    ]),
+            ).values(),
+        );
+
+        const pairMap = new Map<
+            string,
+            {
+                id: number;
+                code: string | null;
+                name: string;
+                size_id: number | null;
+                product_type_name: string | null;
+                distribution_percentage: number;
+                sales: number;
+            }[]
+        >();
+        if (edarGroups.length > 0) {
+            const pairRows = await prisma.$queryRaw<
+                {
+                    id: number;
+                    code: string | null;
+                    name: string;
+                    size_id: number | null;
+                    product_type_name: string | null;
+                    distribution_percentage: number;
+                    sales: number;
+                }[]
+            >`
+                SELECT
+                    p.id,
+                    p.code,
+                    p.name,
+                    p.size_id,
+                    pt.name AS "product_type_name",
+                    p.distribution_percentage::float8 AS "distribution_percentage",
+                    COALESCE((
+                        SELECT COALESCE(
+                            NULLIF(SUM(CASE WHEN (iss.year * 12 + iss.month) > ${ISSUANCE_THRESHOLD_PERIOD} AND iss.type != 'ALL'::"IssuanceType" THEN iss.quantity ELSE 0 END), 0),
+                            SUM(CASE WHEN (iss.year * 12 + iss.month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND iss.type = 'ALL'::"IssuanceType" THEN iss.quantity ELSE 0 END)
+                        )
+                        FROM product_issuances iss
+                        WHERE iss.product_id = p.id
+                          AND iss.year = ${lastActMonth.year}
+                          AND iss.month = ${lastActMonth.month}
+                    ), 0)::float8 AS "sales"
+                FROM "products" p
+                LEFT JOIN "product_types" pt ON pt.id = p.type_id
+                WHERE p.status = 'ACTIVE'
+                  AND p.deleted_at IS NULL
+                  AND p.distribution_percentage > 0
+                  AND (${Prisma.join(
+                      edarGroups.map((g) =>
+                          g.size_id == null
+                              ? Prisma.sql`(p.name = ${g.name} AND p.size_id IS NULL)`
+                              : Prisma.sql`(p.name = ${g.name} AND p.size_id = ${g.size_id})`,
+                      ),
+                      " OR ",
+                  )})
+            `;
+            for (const r of pairRows) {
+                const key = `${r.name}|${r.size_id ?? "null"}`;
+                const list = pairMap.get(key) ?? [];
+                list.push(r);
+                pairMap.set(key, list);
+            }
+        }
+
         const data: ResponseForecastDTO[] = productsRaw.map((p) => {
             const rawForecasts: {
                 month: number;
@@ -1349,6 +1429,30 @@ export class ForecastService {
             const currentStock = Number(p.current_stock ?? 0);
             const needProduce = Math.max(0, m1Forecast - currentStock);
 
+            const edar_sales_share: ResponseForecastDTO["edar_sales_share"] = (() => {
+                if (Number(p.distribution_percentage ?? 0) <= 0) return null;
+                const members = pairMap.get(`${p.name}|${p.size_id ?? "null"}`) ?? [];
+                const pairTotal = members.reduce((s, m) => s + m.sales, 0);
+                const pct = (v: number) =>
+                    pairTotal > 0 ? Math.round((v / pairTotal) * 1000) / 10 : null;
+                const own = members.find((m) => m.id === p.id);
+                return {
+                    month: lastActMonth.month,
+                    year: lastActMonth.year,
+                    own_sales: own?.sales ?? 0,
+                    pair_total_sales: pairTotal,
+                    actual_pct: pct(own?.sales ?? 0),
+                    members: members.map((m) => ({
+                        product_id: m.id,
+                        product_code: m.code,
+                        product_type: m.product_type_name ?? "",
+                        edar_pct: Number((Number(m.distribution_percentage) * 100).toFixed(2)),
+                        sales: m.sales,
+                        actual_pct: pct(m.sales),
+                    })),
+                };
+            })();
+
             return {
                 product_id: p.id,
                 product_code: p.code,
@@ -1368,6 +1472,7 @@ export class ForecastService {
                 current_stock: currentStock,
                 stock_by_warehouse,
                 need_produce: needProduce,
+                edar_sales_share,
                 historical_sales,
                 monthly_data,
                 safety_stock_summary,
