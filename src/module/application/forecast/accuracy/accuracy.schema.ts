@@ -10,6 +10,7 @@ export const QueryForecastAccuracySchema = z.object({
         .default(false),
     type_id: z.coerce.number().int().positive().optional(),
     size_id: z.coerce.number().int().positive().optional(),
+    tolerance: z.coerce.number().min(0.5).max(50).default(25),
     search: z.string().trim().min(1).optional(),
     page: z.coerce.number().int().positive().default(1),
     take: z.coerce.number().int().positive().max(500).default(25),
@@ -33,6 +34,7 @@ export const ResponseForecastAccuracySchema = z.object({
         month: z.number().int().min(1).max(12),
         year: z.number().int(),
     }),
+    tolerance: z.number(),
     summary: z.object({
         total_forecast: z.number(),
         total_sales: z.number(),
@@ -60,6 +62,7 @@ export const QueryForecastAccuracyTrendSchema = z.object({
     is_others: z
         .preprocess((v) => v === true || v === "true" || v === "1", z.boolean())
         .default(false),
+    tolerance: z.coerce.number().min(0.5).max(50).default(25),
 });
 
 export const ResponseForecastAccuracyTrendItemSchema = z.object({
