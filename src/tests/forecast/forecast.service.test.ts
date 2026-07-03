@@ -95,6 +95,151 @@ describe("ForecastService", () => {
 
             const result = await ForecastService.get({ page: 1, take: 25 });
             expect(result.data[0]!.stock_by_warehouse).toEqual([]);
+            expect(result.data[0]!.edar_sales_share).toBeNull();
+            // No EDAR rows on the page -> pair query must be skipped
+            expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe("get - edar_sales_share", () => {
+        const baseRaw = {
+            z_value: 1.65,
+            size: 110,
+            size_id: 5,
+            product_type_name: "EDP",
+            unit_name: "pcs",
+            safety_percentage: null,
+            forecasts_data: "[]",
+            safety_stock_data: null,
+            historical_sales_data: "[]",
+            stock_by_warehouse_data: null,
+            current_stock: 0,
+        };
+
+        const pairMember = (
+            id: number,
+            code: string,
+            type: string,
+            sales: number,
+        ) => ({
+            id,
+            code,
+            name: "GORGEOUS TUBEROSE",
+            size_id: 5,
+            product_type_name: type,
+            distribution_percentage: 0.5,
+            sales,
+        });
+
+        beforeEach(() => {
+            // @ts-ignore
+            prisma.forecastPercentage.findMany.mockResolvedValue([]);
+        });
+
+        it("splits pair sales share 70/30 across members", async () => {
+            (prisma.product.count as any).mockResolvedValue(2);
+            (prisma.$queryRaw as any)
+                .mockResolvedValueOnce([
+                    {
+                        ...baseRaw,
+                        id: 1,
+                        code: "PW110E-GOR",
+                        name: "GORGEOUS TUBEROSE",
+                        distribution_percentage: 0.5,
+                    },
+                    {
+                        ...baseRaw,
+                        id: 2,
+                        code: "PW110P-GOR",
+                        name: "GORGEOUS TUBEROSE",
+                        product_type_name: "Parfum",
+                        distribution_percentage: 0.5,
+                    },
+                ])
+                .mockResolvedValueOnce([
+                    pairMember(1, "PW110E-GOR", "EDP", 7),
+                    pairMember(2, "PW110P-GOR", "Parfum", 3),
+                ]);
+
+            const result = await ForecastService.get({ page: 1, take: 25 });
+
+            const edp = result.data.find((d) => d.product_id === 1)!.edar_sales_share!;
+            expect(edp.own_sales).toBe(7);
+            expect(edp.pair_total_sales).toBe(10);
+            expect(edp.actual_pct).toBe(70);
+            expect(edp.members).toHaveLength(2);
+            expect(edp.members[0]!.edar_pct).toBe(50);
+
+            const parfum = result.data.find((d) => d.product_id === 2)!.edar_sales_share!;
+            expect(parfum.actual_pct).toBe(30);
+        });
+
+        it("includes pair member outside the current page in the total", async () => {
+            (prisma.product.count as any).mockResolvedValue(1);
+            (prisma.$queryRaw as any)
+                .mockResolvedValueOnce([
+                    {
+                        ...baseRaw,
+                        id: 1,
+                        code: "PW110E-GOR",
+                        name: "GORGEOUS TUBEROSE",
+                        distribution_percentage: 0.5,
+                    },
+                ])
+                .mockResolvedValueOnce([
+                    pairMember(1, "PW110E-GOR", "EDP", 7),
+                    pairMember(2, "PW110P-GOR", "Parfum", 3),
+                ]);
+
+            const result = await ForecastService.get({ page: 1, take: 25 });
+
+            const share = result.data[0]!.edar_sales_share!;
+            expect(share.actual_pct).toBe(70);
+            expect(share.pair_total_sales).toBe(10);
+            expect(share.members).toHaveLength(2);
+        });
+
+        it("returns null actual_pct when pair total sales is zero", async () => {
+            (prisma.product.count as any).mockResolvedValue(1);
+            (prisma.$queryRaw as any)
+                .mockResolvedValueOnce([
+                    {
+                        ...baseRaw,
+                        id: 1,
+                        code: "PW110E-GOR",
+                        name: "GORGEOUS TUBEROSE",
+                        distribution_percentage: 0.5,
+                    },
+                ])
+                .mockResolvedValueOnce([
+                    pairMember(1, "PW110E-GOR", "EDP", 0),
+                    pairMember(2, "PW110P-GOR", "Parfum", 0),
+                ]);
+
+            const result = await ForecastService.get({ page: 1, take: 25 });
+
+            const share = result.data[0]!.edar_sales_share!;
+            expect(share.actual_pct).toBeNull();
+            expect(share.pair_total_sales).toBe(0);
+        });
+
+        it("returns 100% when the pair has a single member", async () => {
+            (prisma.product.count as any).mockResolvedValue(1);
+            (prisma.$queryRaw as any)
+                .mockResolvedValueOnce([
+                    {
+                        ...baseRaw,
+                        id: 1,
+                        code: "PW110E-GOR",
+                        name: "GORGEOUS TUBEROSE",
+                        distribution_percentage: 0.5,
+                    },
+                ])
+                .mockResolvedValueOnce([pairMember(1, "PW110E-GOR", "EDP", 5)]);
+
+            const result = await ForecastService.get({ page: 1, take: 25 });
+
+            expect(result.data[0]!.edar_sales_share!.actual_pct).toBe(100);
         });
     });
 

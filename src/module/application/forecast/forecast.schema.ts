@@ -92,6 +92,21 @@ export type ResponseForecastDTO = {
         stock: number;
     }>;
     need_produce: number;
+    edar_sales_share: {
+        month: number;
+        year: number;
+        own_sales: number;
+        pair_total_sales: number;
+        actual_pct: number | null;
+        members: Array<{
+            product_id: number;
+            product_code: string | null;
+            product_type: string;
+            edar_pct: number;
+            sales: number;
+            actual_pct: number | null;
+        }>;
+    } | null;
     monthly_data: Array<{
         month: number;
         year: number;
