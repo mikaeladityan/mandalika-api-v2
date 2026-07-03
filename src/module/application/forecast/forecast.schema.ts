@@ -23,6 +23,8 @@ export const QueryForecastSchema = z.object({
     size_id: z.coerce.number().optional(),
     start_month: z.coerce.number().int().min(1).max(12).optional(),
     start_year: z.coerce.number().int().min(2000).max(2100).optional(),
+    visibleColumns: z.string().optional(),
+    columnOrder: z.string().optional(),
 });
 
 // ─── Finalize ──────────────────────────────────────────────────────────────────

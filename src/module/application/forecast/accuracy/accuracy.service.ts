@@ -11,6 +11,7 @@ import type {
 } from "./accuracy.schema.js";
 
 const ACCURACY_THRESHOLD = 75;
+const ACCURACY_UPPER = 200 - ACCURACY_THRESHOLD; // 125 — symmetric upper bound
 
 export class ForecastAccuracyService {
     static async resolvePeriod(
@@ -125,7 +126,8 @@ export class ForecastAccuracyService {
             excluded_count: number | string;
             avg_accuracy: number | string | null;
             accurate_count: number | string;
-            inaccurate_count: number | string;
+            under_count: number | string;
+            over_count: number | string;
         };
 
         const aggregateRows = await prisma.$queryRaw<Agg[]>(Prisma.sql`
@@ -150,9 +152,10 @@ export class ForecastAccuracyService {
                 SUM(forecast) FILTER (WHERE sales > 0)::float8                                                                AS total_forecast,
                 SUM(sales)    FILTER (WHERE sales > 0)::float8                                                                AS total_sales,
                 COUNT(*) FILTER (WHERE sales = 0 OR sales IS NULL)::int                                                       AS excluded_count,
-                AVG(GREATEST(0, (1 - ABS(ROUND(forecast) - ROUND(sales)) / NULLIF(ROUND(sales), 0)) * 100)) FILTER (WHERE ROUND(sales) > 0)::float8       AS avg_accuracy,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND GREATEST(0, (1 - ABS(ROUND(forecast) - ROUND(sales)) / NULLIF(ROUND(sales), 0)) * 100) >= ${ACCURACY_THRESHOLD})::int AS accurate_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND GREATEST(0, (1 - ABS(ROUND(forecast) - ROUND(sales)) / NULLIF(ROUND(sales), 0)) * 100) < ${ACCURACY_THRESHOLD})::int  AS inaccurate_count
+                AVG((ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100) FILTER (WHERE ROUND(sales) > 0)::float8                                                                             AS avg_accuracy,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${ACCURACY_THRESHOLD} AND ${ACCURACY_UPPER})::int AS accurate_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${ACCURACY_THRESHOLD})::int                             AS under_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${ACCURACY_UPPER})::int                                 AS over_count
             FROM matched
         `);
 
@@ -163,7 +166,8 @@ export class ForecastAccuracyService {
             excluded_count: 0,
             avg_accuracy: null,
             accurate_count: 0,
-            inaccurate_count: 0,
+            under_count: 0,
+            over_count: 0,
         };
 
         const data: ResponseForecastAccuracyItemDTO[] = rows.map((r) => {
@@ -172,10 +176,15 @@ export class ForecastAccuracyService {
             const accuracy_percentage = ForecastAccuracyService.formatAccuracy(forecast, sales);
             const rf = Math.round(forecast);
             const rs = Math.round(sales);
-            const on_target: boolean | null =
-                rs <= 0
+            const accuracy_ratio = rs <= 0 ? null : (rf / rs) * 100;
+            const accuracy_status =
+                accuracy_ratio === null
                     ? null
-                    : Math.max(0, (1 - Math.abs(rf - rs) / rs) * 100) >= ACCURACY_THRESHOLD;
+                    : accuracy_ratio < ACCURACY_THRESHOLD
+                      ? ("under" as const)
+                      : accuracy_ratio > ACCURACY_UPPER
+                        ? ("over" as const)
+                        : ("tepat_sasaran" as const);
             return {
                 product_id: Number(r.product_id),
                 product_code: r.product_code,
@@ -186,7 +195,7 @@ export class ForecastAccuracyService {
                 sales,
                 diff: forecast - sales,
                 accuracy_percentage,
-                on_target,
+                accuracy_status,
             };
         });
 
@@ -196,7 +205,8 @@ export class ForecastAccuracyService {
         const excluded_count = Number(agg.excluded_count ?? 0);
         const avg_accuracy = agg.avg_accuracy != null ? Number(agg.avg_accuracy) : null;
         const accurate_count = Number(agg.accurate_count ?? 0);
-        const inaccurate_count = Number(agg.inaccurate_count ?? 0);
+        const under_count = Number(agg.under_count ?? 0);
+        const over_count = Number(agg.over_count ?? 0);
 
         return {
             period,
@@ -207,7 +217,8 @@ export class ForecastAccuracyService {
                 product_count,
                 excluded_count,
                 accurate_count,
-                inaccurate_count,
+                under_count,
+                over_count,
             },
             data,
             len: product_count,
@@ -218,9 +229,8 @@ export class ForecastAccuracyService {
         const f = Math.round(forecast);
         const s = Math.round(sales);
         if (s <= 0) return "N/A";
-        const accuracy = (1 - Math.abs(f - s) / s) * 100;
-        const clamped = Math.max(0, accuracy);
-        return `${clamped.toFixed(2)}%`;
+        const accuracy = (f / s) * 100;
+        return `${accuracy.toFixed(2)}%`;
     }
 
     static async trend(query: QueryForecastAccuracyTrendDTO): Promise<ResponseForecastAccuracyTrendDTO> {
@@ -237,7 +247,8 @@ export class ForecastAccuracyService {
             year: number | string;
             month: number | string;
             accurate_count: number | string;
-            inaccurate_count: number | string;
+            under_count: number | string;
+            over_count: number | string;
             excluded_count: number | string;
         };
 
@@ -286,9 +297,10 @@ export class ForecastAccuracyService {
             SELECT
                 year,
                 month,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND GREATEST(0, (1 - ABS(ROUND(forecast) - ROUND(sales)) / NULLIF(ROUND(sales), 0)) * 100) >= ${ACCURACY_THRESHOLD})::int AS accurate_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND GREATEST(0, (1 - ABS(ROUND(forecast) - ROUND(sales)) / NULLIF(ROUND(sales), 0)) * 100) < ${ACCURACY_THRESHOLD})::int  AS inaccurate_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) = 0 OR sales IS NULL)::int                                                                                                    AS excluded_count
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${ACCURACY_THRESHOLD} AND ${ACCURACY_UPPER})::int AS accurate_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${ACCURACY_THRESHOLD})::int                             AS under_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${ACCURACY_UPPER})::int                                 AS over_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) = 0 OR sales IS NULL)::int                                                                                                           AS excluded_count
             FROM matched
             GROUP BY year, month
             ORDER BY year ASC, month ASC
@@ -298,18 +310,21 @@ export class ForecastAccuracyService {
             const month = Number(r.month);
             const year = Number(r.year);
             const accurate_count = Number(r.accurate_count ?? 0);
-            const inaccurate_count = Number(r.inaccurate_count ?? 0);
+            const under_count = Number(r.under_count ?? 0);
+            const over_count = Number(r.over_count ?? 0);
             const excluded_count = Number(r.excluded_count ?? 0);
-            const base = accurate_count + inaccurate_count;
+            const base = accurate_count + under_count + over_count;
             return {
                 month,
                 year,
                 label: `${MONTH_LABEL[month - 1]} '${String(year).slice(2)}`,
                 accurate_count,
-                inaccurate_count,
+                under_count,
+                over_count,
                 excluded_count,
                 pct_accurate: base > 0 ? parseFloat(((accurate_count / base) * 100).toFixed(1)) : 0,
-                pct_inaccurate: base > 0 ? parseFloat(((inaccurate_count / base) * 100).toFixed(1)) : 0,
+                pct_under: base > 0 ? parseFloat(((under_count / base) * 100).toFixed(1)) : 0,
+                pct_over: base > 0 ? parseFloat(((over_count / base) * 100).toFixed(1)) : 0,
             };
         });
     }

@@ -27,20 +27,7 @@ export class ForecastService {
     static async export(query: QueryForecastDTO) {
         const { data } = await ForecastService.get({ ...query, take: 10000, page: 1 });
 
-        const monthsShort = [
-            "Jan",
-            "Feb",
-            "Mar",
-            "Apr",
-            "Mei",
-            "Jun",
-            "Jul",
-            "Agu",
-            "Sep",
-            "Okt",
-            "Nov",
-            "Des",
-        ];
+        const monthsShort = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
         const esc = (v: string | number | null | undefined): string => {
             const s = String(v ?? "");
@@ -51,51 +38,53 @@ export class ForecastService {
 
         const periods =
             data.length > 0
-                ? data[0]?.monthly_data.map((m) => ({ month: m.month, year: m.year }))
+                ? (data[0]?.monthly_data.map((m) => ({ month: m.month, year: m.year })) ?? [])
                 : [];
 
-        // Column order mirrors the frontend table
-        const headers = [
-            "CODE",
-            "PRODUCT NAME",
-            "TYPE",
-            "EDAR (%)",
-            "SIZE",
-            ...(periods?.map((p) => `FC ${monthsShort[p.month - 1]}'${String(p.year).slice(-2)}`) ||
-                []),
-            "TOTAL FORECAST",
-            "JUMLAH FORECAST",
-            "% SAFETY",
-            "SAFETY STOCK",
-            "STOCK",
-            "NEED PRODUCE",
+        const visibleCols = query.visibleColumns ? query.visibleColumns.split(",") : null;
+        const isVisible = (uiId: string) => !visibleCols || visibleCols.includes(uiId);
+
+        type ColDef = { uiId: string; header: string; value: (item: ResponseForecastDTO) => string | number };
+
+        const allColDefs: ColDef[] = [
+            { uiId: "code", header: "CODE", value: (item) => item.product_code ?? "" },
+            { uiId: "product", header: "PRODUCT NAME", value: (item) => item.product_name.toUpperCase() },
+            { uiId: "product_type", header: "TYPE", value: (item) => item.product_type.toUpperCase() },
+            { uiId: "edar", header: "EDAR (%)", value: (item) => item.distribution_percentage ?? "" },
+            { uiId: "size", header: "SIZE", value: (item) => item.product_size.toUpperCase().replace(/PCS|ML/g, "").trim() },
+            ...periods.map((p) => ({
+                uiId: "forecast-values",
+                header: `FC ${monthsShort[p.month - 1]}'${String(p.year).slice(-2)}`,
+                value: (item: ResponseForecastDTO) => {
+                    const m = item.monthly_data.find((md) => md.month === p.month && md.year === p.year);
+                    return m ? Math.round(Number(m.final_forecast ?? m.base_forecast)) : 0;
+                },
+            })),
+            { uiId: "total-forecast", header: "TOTAL FORECAST", value: (item) => Math.round(Number(item.safety_stock_summary?.total_forecast ?? 0)) },
+            { uiId: "total-demand", header: "JUMLAH FORECAST", value: (item) => Math.round(Number(item.safety_stock_summary?.total_demand ?? 0)) },
+            { uiId: "safety_percentage", header: "% SAFETY", value: (item) => item.safety_percentage ?? 0 },
+            { uiId: "safety-stock", header: "SAFETY STOCK", value: (item) => Math.round(Number(item.safety_stock_summary?.safety_stock_quantity ?? 0)) },
+            { uiId: "current_stock", header: "STOCK", value: (item) => Math.round(item.current_stock) },
+            { uiId: "need_produce", header: "NEED PRODUCE", value: (item) => Math.round(item.need_produce) },
         ];
 
-        const rows = data.map((item) => {
-            const values: (string | number)[] = [
-                item.product_code ?? "",
-                item.product_name.toUpperCase(),
-                item.product_type.toUpperCase(),
-                item.distribution_percentage ?? "",
-                item.product_size
-                    .toUpperCase()
-                    .replace(/PCS|ML/g, "")
-                    .trim(),
-                ...(periods?.map((p) => {
-                    const m = item.monthly_data.find(
-                        (md) => md.month === p.month && md.year === p.year,
-                    );
-                    return m ? Math.round(Number(m.final_forecast ?? m.base_forecast)) : 0;
-                }) || []),
-                Math.round(Number(item.safety_stock_summary?.total_forecast ?? 0)),
-                Math.round(Number(item.safety_stock_summary?.total_demand ?? 0)),
-                item.safety_percentage ?? 0,
-                Math.round(Number(item.safety_stock_summary?.safety_stock_quantity ?? 0)),
-                Math.round(item.current_stock),
-                Math.round(item.need_produce),
-            ];
-            return values.map(esc).join(",");
-        });
+        let orderedColDefs = [...allColDefs];
+        if (query.columnOrder) {
+            const orderArr = query.columnOrder.split(",");
+            orderedColDefs.sort((a, b) => {
+                const ia = orderArr.indexOf(a.uiId);
+                const ib = orderArr.indexOf(b.uiId);
+                if (ia !== -1 && ib !== -1) return ia - ib;
+                if (ia !== -1) return -1;
+                if (ib !== -1) return 1;
+                return 0;
+            });
+        }
+
+        const visibleColDefs = orderedColDefs.filter((col) => isVisible(col.uiId));
+
+        const headers = visibleColDefs.map((col) => col.header);
+        const rows = data.map((item) => visibleColDefs.map((col) => esc(col.value(item))).join(","));
 
         const csv = [headers.map(esc).join(","), ...rows].join("\n");
         return Buffer.from("\uFEFF" + csv, "utf-8"); // BOM for Excel UTF-8 compatibility
