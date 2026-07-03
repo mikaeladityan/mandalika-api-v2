@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const ACCURACY_PERCENTAGE_REGEX = /^(\d+\.\d{2}%|N\/A)$/;
+const ACCURACY_PERCENTAGE_REGEX = /^(-?\d+\.\d{2}%|N\/A)$/;
 
 export const QueryForecastAccuracySchema = z.object({
     month: z.coerce.number().int().min(1).max(12).optional(),
@@ -37,6 +37,7 @@ export const ResponseForecastAccuracySchema = z.object({
         total_forecast: z.number(),
         total_sales: z.number(),
         accuracy_percentage: z.string().regex(ACCURACY_PERCENTAGE_REGEX),
+        bias_percentage: z.string().regex(ACCURACY_PERCENTAGE_REGEX),
         product_count: z.number().int(),
         excluded_count: z.number().int(),
         accurate_count: z.number().int(),
