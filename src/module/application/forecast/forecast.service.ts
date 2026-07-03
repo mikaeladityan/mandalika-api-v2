@@ -794,10 +794,13 @@ export class ForecastService {
 
             // Recalculate Safety Stock for this month
             const windowSize = 4;
-            const safetyPct = (product.safety_percentage && Number(product.safety_percentage) > 0)
-                ? Number(product.safety_percentage)
-                : (isOthersProduct ? 0.25 : 0);
-            
+            const safetyPct =
+                product.safety_percentage && Number(product.safety_percentage) > 0
+                    ? Number(product.safety_percentage)
+                    : isOthersProduct
+                      ? 0.25
+                      : 0;
+
             const avg = resolvedFinal; // Simplified for single update; usually requires window lookup but Display is manual-first
 
             await prisma.safetyStock.upsert({
@@ -904,9 +907,12 @@ export class ForecastService {
 
                     const windowSize = 4;
                     const safetyStockBatch: any[] = [];
-                    const safetyPct = (product.safety_percentage && Number(product.safety_percentage) > 0)
-                        ? Number(product.safety_percentage)
-                        : (isOthersProduct ? 0.25 : 0);
+                    const safetyPct =
+                        product.safety_percentage && Number(product.safety_percentage) > 0
+                            ? Number(product.safety_percentage)
+                            : isOthersProduct
+                              ? 0.25
+                              : 0;
 
                     for (const f of forecastBatch) {
                         const mFinal = f.final_forecast;
@@ -1122,8 +1128,10 @@ export class ForecastService {
                         FROM product_issuances
                         WHERE product_id = p.id
                           AND (${Prisma.join(
-                              prevMonths.map((pm) => Prisma.sql`(year = ${pm.year} AND month = ${pm.month})`),
-                              " OR "
+                              prevMonths.map(
+                                  (pm) => Prisma.sql`(year = ${pm.year} AND month = ${pm.month})`,
+                              ),
+                              " OR ",
                           )})
                         GROUP BY year, month
                     ) sub
@@ -1257,9 +1265,10 @@ export class ForecastService {
                 }));
             })();
 
-            const historicalByKey = new Map<string, { month: number; year: number; quantity: number }>(
-                rawHistorical.map((h) => [`${h.year}-${h.month}`, h])
-            );
+            const historicalByKey = new Map<
+                string,
+                { month: number; year: number; quantity: number }
+            >(rawHistorical.map((h) => [`${h.year}-${h.month}`, h]));
             const historical_sales = prevMonths.map((pm) => {
                 const found = historicalByKey.get(`${pm.year}-${pm.month}`);
                 return {
@@ -1312,12 +1321,15 @@ export class ForecastService {
             const ssMonths = monthly_data.slice(0, FIXED_SS_MONTHS);
             const total = ssMonths.reduce((acc, m) => acc + (m.final_forecast ?? 0), 0);
             const avg = total / FIXED_SS_MONTHS;
-            
+
             // If safety_percentage is missing and it's an "others" product, use 25% (0.25)
-            const ratio = (p.safety_percentage && Number(p.safety_percentage) > 0)
-                ? Number(p.safety_percentage)
-                : (query.is_others ? 0.25 : 0);
-                
+            const ratio =
+                p.safety_percentage && Number(p.safety_percentage) > 0
+                    ? Number(p.safety_percentage)
+                    : query.is_others
+                      ? 0.25
+                      : 0;
+
             const safetyQ = avg * ratio;
 
             safety_stock_summary = {
@@ -1347,9 +1359,12 @@ export class ForecastService {
                 distribution_percentage: p.distribution_percentage
                     ? Number((Number(p.distribution_percentage) * 100).toFixed(2))
                     : 0,
-                safety_percentage: (p.safety_percentage && Number(p.safety_percentage) > 0)
-                    ? Number((Number(p.safety_percentage) * 100).toFixed(2))
-                    : (query.is_others ? 25 : 0),
+                safety_percentage:
+                    p.safety_percentage && Number(p.safety_percentage) > 0
+                        ? Number((Number(p.safety_percentage) * 100).toFixed(2))
+                        : query.is_others
+                          ? 25
+                          : 0,
                 current_stock: currentStock,
                 stock_by_warehouse,
                 need_produce: needProduce,
