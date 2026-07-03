@@ -25,7 +25,7 @@ export const ResponseForecastAccuracyItemSchema = z.object({
     sales: z.number(),
     diff: z.number(),
     accuracy_percentage: z.string().regex(ACCURACY_PERCENTAGE_REGEX),
-    on_target: z.boolean().nullable(),
+    accuracy_status: z.enum(["tepat_sasaran", "under", "over"]).nullable(),
 });
 
 export const ResponseForecastAccuracySchema = z.object({
@@ -40,7 +40,8 @@ export const ResponseForecastAccuracySchema = z.object({
         product_count: z.number().int(),
         excluded_count: z.number().int(),
         accurate_count: z.number().int(),
-        inaccurate_count: z.number().int(),
+        under_count: z.number().int(),
+        over_count: z.number().int(),
     }),
     data: z.array(ResponseForecastAccuracyItemSchema),
     len: z.number().int(),
@@ -65,10 +66,12 @@ export const ResponseForecastAccuracyTrendItemSchema = z.object({
     year: z.number().int(),
     label: z.string(),
     accurate_count: z.number().int(),
-    inaccurate_count: z.number().int(),
+    under_count: z.number().int(),
+    over_count: z.number().int(),
     excluded_count: z.number().int(),
     pct_accurate: z.number(),
-    pct_inaccurate: z.number(),
+    pct_under: z.number(),
+    pct_over: z.number(),
 });
 
 export const ResponseForecastAccuracyTrendSchema = z.array(ResponseForecastAccuracyTrendItemSchema);
