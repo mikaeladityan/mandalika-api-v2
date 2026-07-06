@@ -51,7 +51,7 @@ export class ForecastService {
             { uiId: "product", header: "PRODUCT NAME", value: (item) => item.product_name.toUpperCase() },
             { uiId: "product_type", header: "TYPE", value: (item) => item.product_type.toUpperCase() },
             { uiId: "edar", header: "EDAR (%)", value: (item) => item.distribution_percentage ?? "" },
-            { uiId: "size", header: "SIZE", value: (item) => item.product_size.toUpperCase().replace(/PCS|ML/g, "").trim() },
+            { uiId: "size", header: "SIZE", value: (item) => item.product_size.toUpperCase() },
             ...periods.map((p) => ({
                 uiId: "forecast-values",
                 header: `FC ${monthsShort[p.month - 1]}'${String(p.year).slice(-2)}`,
@@ -1447,7 +1447,7 @@ export class ForecastService {
                 product_code: p.code,
                 product_name: p.name,
                 product_type: p.product_type_name ?? "",
-                product_size: `${p.size ?? ""} ${p.unit_name ?? ""}`.trim(),
+                product_size: `${p.size ?? ""} ML`.trim(),
                 z_value: Number(p.z_value ?? 0),
                 distribution_percentage: p.distribution_percentage
                     ? Number((Number(p.distribution_percentage) * 100).toFixed(2))
