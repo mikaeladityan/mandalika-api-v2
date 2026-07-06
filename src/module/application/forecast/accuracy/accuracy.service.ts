@@ -148,7 +148,7 @@ export class ForecastAccuracyService {
         const aggregateRows = await prisma.$queryRaw<Agg[]>(Prisma.sql`
             WITH matched AS (
                 SELECT
-                    COALESCE(f.final_forecast, f.base_forecast, 0)::float8 AS forecast,
+                    COALESCE(f.final_forecast, f.base_forecast)::float8 AS forecast,
                     COALESCE(s.sales, 0)::float8 AS sales
                 FROM products p
                 LEFT JOIN product_types     pt ON pt.id = p.type_id
@@ -163,17 +163,17 @@ export class ForecastAccuracyService {
                   ${sizeIdFilter}
             )
             SELECT
-                COUNT(*)::int                                                                        AS product_count,
-                SUM(forecast) FILTER (WHERE ROUND(sales) > 0)::float8                                AS total_forecast,
-                SUM(sales)    FILTER (WHERE ROUND(sales) > 0)::float8                                AS total_sales,
-                COUNT(*) FILTER (WHERE ROUND(sales) <= 0)::int                                       AS excluded_count,
-                GREATEST(0, (1 - SUM(ABS(ROUND(forecast) - ROUND(sales))) FILTER (WHERE ROUND(sales) > 0)
-                    / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0), 0)) * 100)::float8   AS wmape_accuracy,
-                (SUM(ROUND(forecast)) FILTER (WHERE ROUND(sales) > 0)
-                    / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0), 0) * 100)::float8    AS bias_pct,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${threshold} AND ${upper})::int AS accurate_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${threshold})::int                    AS under_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${upper})::int                        AS over_count
+                COUNT(*)::int                                                                                                AS product_count,
+                SUM(forecast) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL)::float8                              AS total_forecast,
+                SUM(sales)    FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL)::float8                              AS total_sales,
+                COUNT(*) FILTER (WHERE ROUND(sales) <= 0 OR forecast IS NULL)::int                                          AS excluded_count,
+                GREATEST(0, (1 - SUM(ABS(ROUND(forecast) - ROUND(sales))) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL)
+                    / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL), 0)) * 100)::float8 AS wmape_accuracy,
+                (SUM(ROUND(forecast)) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL)
+                    / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL), 0) * 100)::float8  AS bias_pct,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${threshold} AND ${upper})::int AS accurate_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${threshold})::int                    AS under_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${upper})::int                        AS over_count
             FROM matched
         `);
 
@@ -601,7 +601,7 @@ export class ForecastAccuracyService {
             matched AS (
                 SELECT
                     ms.year, ms.month,
-                    COALESCE(f.final_forecast, f.base_forecast, 0)::float8 AS forecast,
+                    COALESCE(f.final_forecast, f.base_forecast)::float8 AS forecast,
                     COALESCE(sd.sales, 0)::float8 AS sales
                 FROM month_series ms
                 CROSS JOIN product_base pb
@@ -613,10 +613,10 @@ export class ForecastAccuracyService {
             SELECT
                 year,
                 month,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${threshold} AND ${upper})::int AS accurate_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${threshold})::int                    AS under_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${upper})::int                        AS over_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) <= 0)::int                                                                                                                           AS excluded_count
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${threshold} AND ${upper})::int AS accurate_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${threshold})::int                    AS under_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${upper})::int                        AS over_count,
+                COUNT(*) FILTER (WHERE ROUND(sales) <= 0 OR forecast IS NULL)::int                                                                                                              AS excluded_count
             FROM matched
             GROUP BY year, month
             ORDER BY year ASC, month ASC
