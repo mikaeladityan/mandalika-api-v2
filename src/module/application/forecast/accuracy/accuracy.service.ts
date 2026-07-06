@@ -115,7 +115,8 @@ export class ForecastAccuracyService {
                 ps.size        AS size,
                 u.name         AS unit_name,
                 COALESCE(f.final_forecast, f.base_forecast, 0)::float8 AS forecast,
-                COALESCE(s.sales, 0)::float8                          AS sales
+                COALESCE(s.sales, 0)::float8                           AS sales,
+                MAX(COALESCE(s.sales, 0)) OVER(PARTITION BY p.name)    AS group_sort_priority
             FROM products p
             LEFT JOIN product_types     pt ON pt.id = p.type_id
             LEFT JOIN unit_of_materials u  ON u.id  = p.unit_id
@@ -129,7 +130,35 @@ export class ForecastAccuracyService {
               ${searchFilter}
               ${typeIdFilter}
               ${sizeIdFilter}
-            ORDER BY p.name ASC, p.id ASC
+            ORDER BY
+                ${
+                    query.is_others
+                        ? Prisma.sql`
+                            CASE
+                                WHEN pt.slug ILIKE '%display%' AND pt.slug NOT ILIKE '%tester%' THEN 1
+                                WHEN pt.slug ILIKE '%tester%' THEN 2
+                                ELSE 3
+                            END ASC,
+                            p.name ASC,
+                            p.id ASC
+                        `
+                        : Prisma.sql`
+                            group_sort_priority DESC,
+                            p.name ASC,
+                            CASE
+                                WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+                                WHEN pt.name ILIKE '%Atomizer%' THEN 2
+                                ELSE 3
+                            END ASC,
+                            ps.size DESC NULLS LAST,
+                            CASE
+                                WHEN pt.name ILIKE '%EDP%' THEN 1
+                                WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
+                                ELSE 3
+                            END ASC,
+                            p.id ASC
+                        `
+                }
             LIMIT ${limit} OFFSET ${skip}
         `);
 
@@ -303,27 +332,6 @@ export class ForecastAccuracyService {
                   AND p.deleted_at IS NULL
                   AND p.distribution_percentage > 0
             ),
-            page_prods AS (
-                SELECT
-                    p.id,
-                    p.code,
-                    p.name,
-                    pt.name   AS type_name,
-                    ps.size,
-                    u.name    AS unit_name,
-                    (p.distribution_percentage::float8 * 100) AS edar_pct,
-                    p.name || '|' || COALESCE(p.size_id::text, 'null') AS group_key
-                FROM products p
-                LEFT JOIN product_types      pt ON pt.id = p.type_id
-                LEFT JOIN product_size       ps ON ps.id = p.size_id
-                LEFT JOIN unit_of_materials  u  ON u.id  = p.unit_id
-                WHERE p.status = 'ACTIVE'
-                  AND p.deleted_at IS NULL
-                  AND p.distribution_percentage > 0
-                  ${searchFilter}
-                ORDER BY (p.name || '|' || COALESCE(p.size_id::text, 'null')) ASC, p.id ASC
-                LIMIT ${limit} OFFSET ${skip}
-            ),
             sales_range AS (
                 SELECT
                     pi.product_id,
@@ -339,6 +347,52 @@ export class ForecastAccuracyService {
                       BETWEEN (${from_year} * 12 + ${from_month})
                       AND     (${to_year}   * 12 + ${to_month})
                 GROUP BY pi.product_id, pi.year, pi.month
+            ),
+            product_total_sales AS (
+                SELECT
+                    product_id,
+                    SUM(sales)::float8 AS total_sales
+                FROM sales_range
+                GROUP BY product_id
+            ),
+            page_prods AS (
+                SELECT
+                    p.id,
+                    p.code,
+                    p.name,
+                    pt.name   AS type_name,
+                    ps.size,
+                    u.name    AS unit_name,
+                    (p.distribution_percentage::float8 * 100) AS edar_pct,
+                    p.name || '|' || COALESCE(p.size_id::text, 'null') AS group_key,
+                    MAX(COALESCE(pts.total_sales, 0)) OVER(PARTITION BY p.name) AS group_sort_priority,
+                    CASE
+                        WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+                        WHEN pt.name ILIKE '%Atomizer%' THEN 2
+                        ELSE 3
+                    END AS type_sort_1,
+                    CASE
+                        WHEN pt.name ILIKE '%EDP%' THEN 1
+                        WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
+                        ELSE 3
+                    END AS type_sort_2
+                FROM products p
+                LEFT JOIN product_types       pt  ON pt.id  = p.type_id
+                LEFT JOIN product_size        ps  ON ps.id  = p.size_id
+                LEFT JOIN unit_of_materials   u   ON u.id   = p.unit_id
+                LEFT JOIN product_total_sales pts ON pts.product_id = p.id
+                WHERE p.status = 'ACTIVE'
+                  AND p.deleted_at IS NULL
+                  AND p.distribution_percentage > 0
+                  ${searchFilter}
+                ORDER BY
+                    group_sort_priority DESC,
+                    p.name ASC,
+                    type_sort_1 ASC,
+                    ps.size DESC NULLS LAST,
+                    type_sort_2 ASC,
+                    p.id ASC
+                LIMIT ${limit} OFFSET ${skip}
             ),
             pair_totals AS (
                 SELECT
@@ -378,7 +432,15 @@ export class ForecastAccuracyService {
                 ON sr.product_id = pp.id AND sr.year = ms.year AND sr.month = ms.month
             LEFT JOIN pair_totals pt
                 ON pt.group_key = pp.group_key AND pt.year = ms.year AND pt.month = ms.month
-            ORDER BY pp.group_key ASC, pp.id ASC, ms.year ASC, ms.month ASC
+            ORDER BY
+                pp.group_sort_priority DESC,
+                pp.name ASC,
+                pp.type_sort_1 ASC,
+                pp.size DESC NULLS LAST,
+                pp.type_sort_2 ASC,
+                pp.id ASC,
+                ms.year ASC,
+                ms.month ASC
         `);
 
         // ── Summary (global — ignores search/pagination) ─────────────────────────
