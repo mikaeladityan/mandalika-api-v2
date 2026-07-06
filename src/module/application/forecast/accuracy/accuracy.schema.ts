@@ -125,6 +125,8 @@ export const ResponseEdarVsActSummaryMonthSchema = z.object({
     off_target:     z.number().int(),
     no_data:        z.number().int(),
     avg_actual_pct: z.number().nullable(),
+    upper:          z.number().int(),
+    under:          z.number().int(),
 });
 
 export const ResponseEdarVsActSchema = z.object({

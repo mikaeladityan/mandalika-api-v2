@@ -390,6 +390,8 @@ export class ForecastAccuracyService {
             off_target:     number;
             no_data:        number;
             avg_actual_pct: number | null;
+            upper:          number;
+            under:          number;
         };
 
         const summaryRows = await prisma.$queryRaw<SummaryMonthRow[]>(Prisma.sql`
@@ -458,7 +460,9 @@ export class ForecastAccuracyService {
                 COUNT(*) FILTER (WHERE actual_pct IS NOT NULL AND ABS(actual_pct - edar_pct) > 5 AND ABS(actual_pct - edar_pct) <= 15)::int AS warning,
                 COUNT(*) FILTER (WHERE actual_pct IS NOT NULL AND ABS(actual_pct - edar_pct) > 15)::int               AS off_target,
                 COUNT(*) FILTER (WHERE actual_pct IS NULL)::int                                                        AS no_data,
-                ROUND(AVG(actual_pct)::numeric, 2)::float8                                                             AS avg_actual_pct
+                ROUND(AVG(actual_pct)::numeric, 2)::float8                                                             AS avg_actual_pct,
+                COUNT(*) FILTER (WHERE actual_pct IS NOT NULL AND actual_pct > edar_pct)::int                          AS upper,
+                COUNT(*) FILTER (WHERE actual_pct IS NOT NULL AND actual_pct < edar_pct)::int                          AS under
             FROM per_product_month
             GROUP BY year, month
             ORDER BY year ASC, month ASC
@@ -538,6 +542,8 @@ export class ForecastAccuracyService {
                     off_target:     Number(r.off_target ?? 0),
                     no_data:        Number(r.no_data    ?? 0),
                     avg_actual_pct: r.avg_actual_pct != null ? Number(r.avg_actual_pct) : null,
+                    upper:          Number(r.upper ?? 0),
+                    under:          Number(r.under ?? 0),
                 })),
             },
             data,
