@@ -83,3 +83,67 @@ export const ResponseForecastAccuracyTrendSchema = z.array(ResponseForecastAccur
 export type QueryForecastAccuracyTrendDTO = z.infer<typeof QueryForecastAccuracyTrendSchema>;
 export type ResponseForecastAccuracyTrendItemDTO = z.infer<typeof ResponseForecastAccuracyTrendItemSchema>;
 export type ResponseForecastAccuracyTrendDTO = z.infer<typeof ResponseForecastAccuracyTrendSchema>;
+
+// ─── EDAR vs ACT ──────────────────────────────────────────────────────────────
+
+export const QueryEdarVsActSchema = z.object({
+    from_month: z.coerce.number().int().min(1).max(12),
+    from_year:  z.coerce.number().int().min(2000).max(2100),
+    to_month:   z.coerce.number().int().min(1).max(12),
+    to_year:    z.coerce.number().int().min(2000).max(2100),
+    search:     z.string().trim().min(1).optional(),
+    page:       z.coerce.number().int().positive().default(1),
+    take:       z.coerce.number().int().positive().max(500).default(25),
+});
+
+export const ResponseEdarVsActMonthItemSchema = z.object({
+    month:            z.number().int(),
+    year:             z.number().int(),
+    own_sales:        z.number(),
+    pair_total_sales: z.number(),
+    actual_pct:       z.number().nullable(),
+    diff:             z.number().nullable(),
+});
+
+export const ResponseEdarVsActItemSchema = z.object({
+    product_id:   z.number().int(),
+    product_code: z.string().nullable(),
+    product_name: z.string(),
+    product_type: z.string(),
+    product_size: z.string(),
+    edar_pct:     z.number(),
+    group_key:    z.string(),
+    months:       z.array(ResponseEdarVsActMonthItemSchema),
+});
+
+export const ResponseEdarVsActSummaryMonthSchema = z.object({
+    month:      z.number().int(),
+    year:       z.number().int(),
+    label:      z.string(),
+    on_target:  z.number().int(),
+    warning:    z.number().int(),
+    off_target: z.number().int(),
+    no_data:    z.number().int(),
+});
+
+export const ResponseEdarVsActSchema = z.object({
+    period: z.object({
+        from_month: z.number().int(),
+        from_year:  z.number().int(),
+        to_month:   z.number().int(),
+        to_year:    z.number().int(),
+    }),
+    months: z.array(z.object({ month: z.number().int(), year: z.number().int(), label: z.string() })),
+    summary: z.object({
+        total_products: z.number().int(),
+        total_groups:   z.number().int(),
+        by_month:       z.array(ResponseEdarVsActSummaryMonthSchema),
+    }),
+    data: z.array(ResponseEdarVsActItemSchema),
+    len:  z.number().int(),
+});
+
+export type QueryEdarVsActDTO             = z.infer<typeof QueryEdarVsActSchema>;
+export type ResponseEdarVsActItemDTO      = z.infer<typeof ResponseEdarVsActItemSchema>;
+export type ResponseEdarVsActMonthItemDTO = z.infer<typeof ResponseEdarVsActMonthItemSchema>;
+export type ResponseEdarVsActDTO          = z.infer<typeof ResponseEdarVsActSchema>;
