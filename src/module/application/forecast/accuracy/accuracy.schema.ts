@@ -117,13 +117,14 @@ export const ResponseEdarVsActItemSchema = z.object({
 });
 
 export const ResponseEdarVsActSummaryMonthSchema = z.object({
-    month:      z.number().int(),
-    year:       z.number().int(),
-    label:      z.string(),
-    on_target:  z.number().int(),
-    warning:    z.number().int(),
-    off_target: z.number().int(),
-    no_data:    z.number().int(),
+    month:          z.number().int(),
+    year:           z.number().int(),
+    label:          z.string(),
+    on_target:      z.number().int(),
+    warning:        z.number().int(),
+    off_target:     z.number().int(),
+    no_data:        z.number().int(),
+    avg_actual_pct: z.number().nullable(),
 });
 
 export const ResponseEdarVsActSchema = z.object({
@@ -137,6 +138,7 @@ export const ResponseEdarVsActSchema = z.object({
     summary: z.object({
         total_products: z.number().int(),
         total_groups:   z.number().int(),
+        avg_edar_pct:   z.number(),
         by_month:       z.array(ResponseEdarVsActSummaryMonthSchema),
     }),
     data: z.array(ResponseEdarVsActItemSchema),

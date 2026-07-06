@@ -383,12 +383,13 @@ export class ForecastAccuracyService {
 
         // ── Summary (global — ignores search/pagination) ─────────────────────────
         type SummaryMonthRow = {
-            year:       number;
-            month:      number;
-            on_target:  number;
-            warning:    number;
-            off_target: number;
-            no_data:    number;
+            year:           number;
+            month:          number;
+            on_target:      number;
+            warning:        number;
+            off_target:     number;
+            no_data:        number;
+            avg_actual_pct: number | null;
         };
 
         const summaryRows = await prisma.$queryRaw<SummaryMonthRow[]>(Prisma.sql`
@@ -456,18 +457,20 @@ export class ForecastAccuracyService {
                 COUNT(*) FILTER (WHERE actual_pct IS NOT NULL AND ABS(actual_pct - edar_pct) <= 5)::int               AS on_target,
                 COUNT(*) FILTER (WHERE actual_pct IS NOT NULL AND ABS(actual_pct - edar_pct) > 5 AND ABS(actual_pct - edar_pct) <= 15)::int AS warning,
                 COUNT(*) FILTER (WHERE actual_pct IS NOT NULL AND ABS(actual_pct - edar_pct) > 15)::int               AS off_target,
-                COUNT(*) FILTER (WHERE actual_pct IS NULL)::int                                                        AS no_data
+                COUNT(*) FILTER (WHERE actual_pct IS NULL)::int                                                        AS no_data,
+                ROUND(AVG(actual_pct)::numeric, 2)::float8                                                             AS avg_actual_pct
             FROM per_product_month
             GROUP BY year, month
             ORDER BY year ASC, month ASC
         `);
 
         // ── Total count + groups (for pagination + KPI cards) ───────────────────
-        type CountRow = { product_count: number; group_count: number };
+        type CountRow = { product_count: number; group_count: number; avg_edar_pct: number };
         const [countRow] = await prisma.$queryRaw<CountRow[]>(Prisma.sql`
             SELECT
                 COUNT(p.id)::int                                                                       AS product_count,
-                COUNT(DISTINCT p.name || '|' || COALESCE(p.size_id::text, 'null'))::int               AS group_count
+                COUNT(DISTINCT p.name || '|' || COALESCE(p.size_id::text, 'null'))::int               AS group_count,
+                ROUND(AVG(p.distribution_percentage::float8 * 100)::numeric, 2)::float8               AS avg_edar_pct
             FROM products p
             WHERE p.status = 'ACTIVE'
               AND p.deleted_at IS NULL
@@ -517,6 +520,7 @@ export class ForecastAccuracyService {
         const data = Array.from(productMap.values());
         const total_products = Number(countRow?.product_count ?? 0);
         const total_groups   = Number(countRow?.group_count   ?? 0);
+        const avg_edar_pct   = Number(countRow?.avg_edar_pct  ?? 0);
 
         return {
             period: { from_month, from_year, to_month, to_year },
@@ -524,14 +528,16 @@ export class ForecastAccuracyService {
             summary: {
                 total_products,
                 total_groups,
+                avg_edar_pct,
                 by_month: summaryRows.map((r) => ({
-                    month:      Number(r.month),
-                    year:       Number(r.year),
-                    label:      `${MONTH_LABEL[Number(r.month) - 1]} '${String(Number(r.year)).slice(2)}`,
-                    on_target:  Number(r.on_target  ?? 0),
-                    warning:    Number(r.warning    ?? 0),
-                    off_target: Number(r.off_target ?? 0),
-                    no_data:    Number(r.no_data    ?? 0),
+                    month:          Number(r.month),
+                    year:           Number(r.year),
+                    label:          `${MONTH_LABEL[Number(r.month) - 1]} '${String(Number(r.year)).slice(2)}`,
+                    on_target:      Number(r.on_target  ?? 0),
+                    warning:        Number(r.warning    ?? 0),
+                    off_target:     Number(r.off_target ?? 0),
+                    no_data:        Number(r.no_data    ?? 0),
+                    avg_actual_pct: r.avg_actual_pct != null ? Number(r.avg_actual_pct) : null,
                 })),
             },
             data,
