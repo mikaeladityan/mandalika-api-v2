@@ -1,5 +1,5 @@
 import { GENDER, Prisma, STATUS } from "../../../generated/prisma/client.js";
-import { QueryProductDTO, RequestProductDTO, ResponseProductDTO } from "./product.schema.js";
+import { QueryProductDTO, RequestProductDTO, ResponseProductDTO, UpdateReferenceEdarDTO } from "./product.schema.js";
 import { PRODUCT_IMPORT_HEADERS } from "./import/import.schema.js";
 import prisma from "../../../config/prisma.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
@@ -529,6 +529,29 @@ export class ProductService {
                     current_stock: 0,
                 },
             })),
+        };
+    }
+
+    static async updateReferenceEdar(body: UpdateReferenceEdarDTO) {
+        const product = await prisma.product.findUnique({
+            where: { id: body.product_id },
+            select: { id: true, code: true, name: true, reference_distribution_percentage: true },
+        });
+        if (!product) throw new ApiError(404, "Produk tidak ditemukan");
+
+        const updated = await prisma.product.update({
+            where: { id: body.product_id },
+            data: { reference_distribution_percentage: body.reference_distribution_percentage },
+            select: { id: true, code: true, reference_distribution_percentage: true },
+        });
+
+        return {
+            product_id: product.id,
+            code: product.code,
+            name: product.name,
+            // Respons dalam persen (DB menyimpan fraction)
+            old_value: Number((Number(product.reference_distribution_percentage ?? 0) * 100).toFixed(2)),
+            new_value: Number((Number(updated.reference_distribution_percentage ?? 0) * 100).toFixed(2)),
         };
     }
 }

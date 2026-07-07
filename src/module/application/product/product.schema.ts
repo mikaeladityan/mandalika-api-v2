@@ -114,3 +114,15 @@ export type ResponseProductDTO = z.infer<typeof ResponseProductSchema>;
 export type QueryProductDTO = z.infer<typeof QueryProductSchema>;
 export type UpdateProductDTO = z.infer<typeof UpdateProductSchema>;
 export type StatusQueryDTO = z.infer<typeof StatusQuerySchema>;
+
+export const UpdateReferenceEdarSchema = z.object({
+    product_id: z.coerce.number().int().positive(),
+    // Input UI dalam persen (0-100); kolom DB menyimpan fraction (0-1),
+    // mengikuti konvensi distribution_percentage
+    reference_distribution_percentage: z.coerce
+        .number()
+        .min(0)
+        .max(100)
+        .transform((v) => v / 100),
+});
+export type UpdateReferenceEdarDTO = z.infer<typeof UpdateReferenceEdarSchema>;

@@ -7,6 +7,7 @@ import {
     DeleteForecastByPeriodSchema,
     FinalizeForecastSchema,
     QueryForecastSchema,
+    CompareForecastSchema,
 } from "./forecast.schema.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 
@@ -31,6 +32,12 @@ export class ForecastController {
     static async list(c: Context) {
         const query = QueryForecastSchema.parse(c.req.query());
         const result = await ForecastService.get(query);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async compare(c: Context) {
+        const query = CompareForecastSchema.parse(c.req.query());
+        const result = await ForecastService.compare(query);
         return ApiResponse.sendSuccess(c, result, 200);
     }
     

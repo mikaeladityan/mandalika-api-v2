@@ -139,4 +139,19 @@ export class ProductController {
         const result = await ProductService.resync(id);
         return ApiResponse.sendSuccess(c, result, 200);
     }
+
+    static async updateReferenceEdar(c: Context) {
+        const body = c.get("body");
+        const session = c.get("session");
+
+        const result = await ProductService.updateReferenceEdar(body);
+
+        await CreateLogger({
+            activity: "UPDATE",
+            description: `Product EDAR Acuan: ${result.code ?? result.product_id} ${result.old_value} -> ${result.new_value}`,
+            email: session.email,
+        } satisfies CreateLoggingActivityDTO);
+
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
 }

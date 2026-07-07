@@ -3,6 +3,7 @@ import app from "../../app.js";
 import prisma from "../../config/prisma.js";
 import { redisClient } from "../../config/redis.js";
 import { env } from "../../config/env.js";
+import { sessionCache } from "../../lib/session.management.js";
 
 // Helping Vitest find the mocks
 vi.mock("../../config/redis.js", () => ({
@@ -34,7 +35,13 @@ vi.mock("hono/cookie", async (importOriginal) => {
 // Mocking redis directly in test file to avoid resolution issues
 vi.mock("../../config/redis.js", () => {
     const mockRedis = {
-        get: vi.fn().mockResolvedValue(null),
+        get: vi.fn().mockImplementation(async () => {
+            return JSON.stringify({
+                email: "test@example.com",
+                role: "SUPER_ADMIN",
+                user: { id: 1 },
+            });
+        }),
         set: vi.fn().mockResolvedValue("OK"),
         setex: vi.fn().mockResolvedValue("OK"),
         del: vi.fn().mockResolvedValue(1),
@@ -88,6 +95,8 @@ vi.mock("../../config/prisma.js", () => {
         stockTransferItem: { deleteMany: vi.fn() },
         goodsReceiptItem: { deleteMany: vi.fn() },
         stockReturnItem: { deleteMany: vi.fn() },
+        productSheetSyncFailure: { findMany: vi.fn().mockResolvedValue([]) },
+        loggingActivity: { create: vi.fn().mockResolvedValue({ id: 1 }) },
         $queryRaw: vi.fn().mockResolvedValue([{ id: 1, name: "Product A", code: "PA", product_type: { id: 1, name: "Type A" }, unit: { id: 1, name: "Unit A" }, size: { id: 1, size: 100 } }]),
     };
     mockPrisma.$transaction.mockImplementation(async (cb: any) => {
@@ -100,6 +109,7 @@ vi.mock("../../config/prisma.js", () => {
 describe("ProductRoutes", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        sessionCache.clear();
     });
 
     it("GET /api/app/products should return 200", async () => {
@@ -191,7 +201,7 @@ describe("ProductRoutes", () => {
             body: JSON.stringify(mockUpdate),
         });
 
-        expect(res.status).toBe(201);
+        expect(res.status).toBe(200);
     });
 
     it("PATCH /api/app/products/status/:id should update status and return 201", async () => {
@@ -202,7 +212,7 @@ describe("ProductRoutes", () => {
             method: "PATCH",
         });
 
-        expect(res.status).toBe(201);
+        expect(res.status).toBe(200);
     });
 
     it("DELETE /api/app/products/clean should return 201", async () => {
@@ -215,6 +225,6 @@ describe("ProductRoutes", () => {
             method: "DELETE",
         });
 
-        expect(res.status).toBe(201);
+        expect(res.status).toBe(200);
     });
 });

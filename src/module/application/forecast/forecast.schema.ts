@@ -86,6 +86,7 @@ export type ResponseForecastDTO = {
     product_size: string;
     z_value: number;
     distribution_percentage: number | null;
+    reference_distribution_percentage: number | null;
     safety_percentage: number | null;
     current_stock: number;
     stock_by_warehouse: Array<{
@@ -137,3 +138,11 @@ export type ResponseForecastDTO = {
         last_updated: Date | null;
     } | null;
 };
+
+export const CompareForecastSchema = z.object({
+    start_month: z.coerce.number().int().min(1).max(12),
+    start_year: z.coerce.number().int().min(2000).max(2100),
+    horizon: z.coerce.number().int().min(1).max(12).default(12),
+});
+export type CompareForecastDTO = z.infer<typeof CompareForecastSchema>;
+

@@ -125,6 +125,7 @@ model Product {
   updated_at               DateTime                @updatedAt
   deleted_at               DateTime?
   distribution_percentage  Decimal?                @default(0) @db.Decimal(5, 2)
+  reference_distribution_percentage Decimal?       @default(0) @db.Decimal(5, 2)
   safety_percentage        Decimal?                @default(0) @db.Decimal(5, 2)
   size_id                  Int?
   forecasts                Forecast[]
