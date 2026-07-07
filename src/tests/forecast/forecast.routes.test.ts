@@ -1,16 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import app from "../../app.js";
 import prisma from "../../config/prisma.js";
+import { sessionCache } from "../../lib/session.management.js";
 
 vi.mock("../../config/redis.js", () => {
+    const sessionPayload = JSON.stringify({
+        email: "test@example.com",
+        role: "SUPER_ADMIN",
+        user: { id: 1 },
+    });
     const mockRedis = {
-        get: vi.fn().mockResolvedValue(null),
+        get: vi.fn().mockImplementation((key: string) => {
+            if (key === "session:mock-session-id") return Promise.resolve(sessionPayload);
+            return Promise.resolve(null);
+        }),
         set: vi.fn().mockResolvedValue("OK"),
         setex: vi.fn().mockResolvedValue("OK"),
         del: vi.fn().mockResolvedValue(1),
         keys: vi.fn().mockResolvedValue([]),
         ping: vi.fn().mockResolvedValue("PONG"),
-        type: vi.fn().mockResolvedValue("hash"),
+        type: vi.fn().mockResolvedValue("string"),
         hgetall: vi.fn().mockResolvedValue({ email: "test@example.com", role: "SUPER_ADMIN" }),
         expire: vi.fn().mockResolvedValue(true),
         connect: vi.fn().mockResolvedValue(undefined),
@@ -48,13 +57,14 @@ const mockRawRow = {
 };
 
 const mockProducts = [
-    { id: 1, distribution_percentage: "50.00", product_type: { id: 1, name: "EDP",     slug: "edp"     }, size: { id: 1, size: 110 } },
-    { id: 2, distribution_percentage: "50.00", product_type: { id: 2, name: "PERFUME", slug: "perfume" }, size: { id: 1, size: 110 } },
+    { id: 1, name: "EDP 110ML", distribution_percentage: "50.00", product_type: { id: 1, name: "EDP",     slug: "edp"     }, size: { id: 1, size: 110 } },
+    { id: 2, name: "PERFUME 110ML", distribution_percentage: "50.00", product_type: { id: 2, name: "PERFUME", slug: "perfume" }, size: { id: 1, size: 110 } },
 ];
 
 describe("ForecastRoutes", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        sessionCache.clear();
     });
 
     // ─── POST /run ────────────────────────────────────────────────────────────
@@ -341,4 +351,40 @@ describe("ForecastRoutes", () => {
             expect(res.status).toBe(404);
         });
     });
+
+    // ─── GET /compare ─────────────────────────────────────────────────────────
+
+    describe("GET /compare", () => {
+        it("should return 200 with compare data", async () => {
+            // @ts-ignore
+            prisma.forecastPercentage.findMany.mockResolvedValue([
+                { id: 1, month: 1, year: 2026, value: "0.10" },
+            ]);
+            // @ts-ignore
+            prisma.product.findMany.mockResolvedValue([
+                {
+                    id: 1,
+                    code: "P001",
+                    name: "AROMA X EDP 110ML",
+                    product_type: { slug: "edp" },
+                    size: { size: 110 },
+                    distribution_percentage: "0",
+                    reference_distribution_percentage: "0.6",
+                    safety_percentage: "0",
+                },
+            ]);
+            // @ts-ignore
+            prisma.$queryRaw.mockResolvedValue([{ product_id: 1, total_quantity: 300 }]);
+
+            const res = await app.request(`${BASE}/compare?start_month=1&start_year=2026&horizon=1`, {
+                method: "GET",
+            });
+            const body = await res.json();
+
+            expect(res.status).toBe(200);
+            expect(body.status).toBe("success");
+            expect(body.data.data).toHaveLength(1);
+        });
+    });
 });
+

@@ -39,6 +39,7 @@ describe("ForecastService", () => {
                     product_type_name: "EDP",
                     unit_name: "pcs",
                     distribution_percentage: null,
+                    reference_distribution_percentage: 0.35,
                     safety_percentage: null,
                     forecasts_data: "[]",
                     safety_stock_data: null,
@@ -59,6 +60,8 @@ describe("ForecastService", () => {
             expect(result.len).toBe(1);
             expect(result.data).toHaveLength(1);
             expect(result.data[0]!.product_code).toBe("P001");
+            // DB fraction 0.35 → respons persen 35 (konsisten dengan distribution_percentage)
+            expect(result.data[0]!.reference_distribution_percentage).toBe(35);
 
             const wh = result.data[0]!.stock_by_warehouse;
             expect(wh).toHaveLength(2);

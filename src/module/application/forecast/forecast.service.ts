@@ -9,6 +9,7 @@ import {
     ResponseForecastDTO,
     RunForecastDTO,
     UpdateManualForecastDTO,
+    CompareForecastDTO,
 } from "./forecast.schema.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 
@@ -18,12 +19,357 @@ const PRODUCT_SELECT = {
     product_type: { select: { slug: true } },
     size: { select: { size: true } },
     distribution_percentage: true,
+    reference_distribution_percentage: true,
     safety_percentage: true,
 } as const;
 
-type SelectedProduct = Prisma.ProductGetPayload<{ select: typeof PRODUCT_SELECT }>;
+const OTHERS_TYPE_NOT = ["display", "kertas", "botol", "paper-bag", "kartu-garansi", "canvas-bag"].map(
+    (s) => ({ product_type: { slug: { contains: s, mode: "insensitive" as const } } }),
+);
+
+const COMPARE_PRODUCT_SELECT = { ...PRODUCT_SELECT, code: true } as const;
+
+export type SelectedProduct = Prisma.ProductGetPayload<{ select: typeof PRODUCT_SELECT }>;
+
+export type ForecastBatchRow = {
+    product_id: number;
+    month: number;
+    year: number;
+    base_forecast: number;
+    final_forecast: number;
+    trend: "UP" | "DOWN" | "STABLE";
+    forecast_percentage_id: number;
+    status: "ADJUSTED" | "DRAFT";
+};
+export type DistField = "distribution_percentage" | "reference_distribution_percentage";
 
 export class ForecastService {
+    static async loadBaseSalesInput(
+        productIds: number[],
+        start_month: number,
+        start_year: number,
+    ): Promise<Map<number, number>> {
+        if (productIds.length === 0) {
+            return new Map<number, number>();
+        }
+        const AVG_MONTHS = 3;
+        const prevMonths = Array.from({ length: AVG_MONTHS }, (_, i) => {
+            const d = new Date(start_year, start_month - 1 - (i + 1), 1);
+            return { month: d.getMonth() + 1, year: d.getFullYear() };
+        });
+
+        const salesData = await prisma.$queryRaw<any[]>(Prisma.sql`
+            SELECT product_id, SUM(month_qty) as total_quantity
+            FROM (
+                SELECT
+                    product_id,
+                    year,
+                    month,
+                    COALESCE(
+                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL'::"IssuanceType" THEN quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL'::"IssuanceType" THEN quantity ELSE 0 END)
+                    ) as month_qty
+                FROM product_issuances
+                WHERE product_id IN (${Prisma.join(productIds)})
+                  AND (${Prisma.join(
+                      prevMonths.map(
+                          (pm) => Prisma.sql`(year = ${pm.year} AND month = ${pm.month})`,
+                      ),
+                      " OR ",
+                  )})
+                GROUP BY product_id, year, month
+            ) sub
+            GROUP BY product_id
+        `);
+
+        return new Map<number, number>(
+            salesData.map((s) => [s.product_id, Number(s.total_quantity ?? 0) / AVG_MONTHS]),
+        );
+    }
+
+    static computeForecastBatch(params: {
+        products: SelectedProduct[];
+        monthsRange: { month: number; year: number }[];
+        pctMap: Map<string, { id: number; value: unknown }>;
+        inputMap: Map<number, number>;
+        is_others: boolean | undefined;
+        distField: DistField;
+    }): ForecastBatchRow[] {
+        const { products, monthsRange, pctMap, inputMap, is_others, distField } = params;
+        const batch: ForecastBatchRow[] = [];
+
+        // Group products by base name (for special rule Aroma groups, normalize HAMPERS prefix)
+        const groups = new Map<string, SelectedProduct[]>();
+        for (const p of products) {
+            const baseName = ForecastService.getAromaBaseName(p.name);
+            if (!groups.has(baseName)) groups.set(baseName, []);
+            groups.get(baseName)!.push(p);
+        }
+        const groupValues = Array.from(groups.values());
+
+        // track the input for the current month calculation (starts with actual sales)
+        let currentInputMap = new Map<number, number>(inputMap);
+        let previousTheoreticalAtomFinal = new Map<string, number>();
+
+        // Track aromas where regular variants should mirror hampers variants
+        const edpMirrorAromas = new Set<string>();
+        const parfumMirrorAromas = new Set<string>();
+
+        for (const group of groupValues) {
+            if (!group.length) continue;
+            const aromaName = ForecastService.getAromaBaseName(group[0]!.name);
+
+            const hasHampersEdp = group.some(
+                (p) =>
+                    p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
+                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+            );
+            if (hasHampersEdp) edpMirrorAromas.add(aromaName);
+
+            const hasHampersParf = group.some(
+                (p) =>
+                    (p.product_type?.slug?.toLowerCase() === "hampers-parfum" ||
+                        p.product_type?.slug?.toLowerCase() === "hampers-perfume") &&
+                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+            );
+            if (hasHampersParf) parfumMirrorAromas.add(aromaName);
+        }
+
+        for (let i = 0; i < monthsRange.length; i++) {
+            const m = monthsRange[i]!;
+            const pct = pctMap.get(`${m.year}-${m.month}`);
+
+            // Special Rule for Display: Ignore existing percentage settings and force 0 growth
+            const pctValue = is_others ? 0 : Number(pct?.value ?? 0);
+
+            // If not is_others, stop calculation if percentage is not found or zero
+            if (!is_others && (!pct || Number(pct.value) === 0)) {
+                break;
+            }
+            const nextInputMap = new Map<number, number>();
+            const status = i === 0 ? "ADJUSTED" : "DRAFT";
+
+            for (const group of groupValues) {
+                if (!group.length) continue;
+                const aromaName = ForecastService.getAromaBaseName(group[0]!.name);
+
+                // --- Skip "others" type products that shouldn't be in non-others forecast ---
+                const isOthersSlug = (s: string | undefined | null) => {
+                    if (!s) return false;
+                    const sl = s.toLowerCase();
+                    return (
+                        sl.includes("display") ||
+                        sl.includes("kertas") ||
+                        sl.includes("botol") ||
+                        sl.includes("paper-bag") ||
+                        sl.includes("kartu-garansi") ||
+                        sl.includes("canvas-bag")
+                    );
+                };
+
+                const edpAnchors = group.filter((p) => {
+                    const slug = p.product_type?.slug?.toLowerCase();
+                    const size = p.size?.size;
+                    return (
+                        (slug === "edp" || slug === "hampers-edp") &&
+                        (size === 100 || size === 110 || size === 120)
+                    );
+                });
+
+                const parfumAnchors = group.filter((p) => {
+                    const slug = p.product_type?.slug?.toLowerCase();
+                    const size = p.size?.size;
+                    return (
+                        (slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") &&
+                        (size === 100 || size === 110 || size === 120)
+                    );
+                });
+
+                let atomBase = 0;
+                if (i === 0) {
+                    atomBase =
+                        edpAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0) +
+                        parfumAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0);
+                } else {
+                    atomBase = previousTheoreticalAtomFinal.get(aromaName) ?? 0;
+                }
+
+                const atomFinal = atomBase * (1 + pctValue);
+                previousTheoreticalAtomFinal.set(aromaName, atomFinal);
+
+                // ═══ TWO-PASS APPROACH for Hampers Mirroring ═══
+                // Map to store computed final_forecast per product id within this group+month
+                const computedFinalMap = new Map<number, number>();
+
+                // --- PASS 1: Process hampers variants + atomizer + others first ---
+                for (const product of group) {
+                    const slug = product.product_type?.slug?.toLowerCase();
+                    const size = product.size?.size;
+                    const distPct = Number(product[distField] ?? 0);
+                    const input = currentInputMap.get(product.id) ?? 0;
+
+                    const isRegularEdpParfum =
+                        (slug === "edp" || slug === "parfum" || slug === "perfume") &&
+                        (size === 100 || size === 110 || size === 120 || size === 2);
+
+                    // In Pass 1, skip regular EDP/Parfum that need mirroring (defer to Pass 2)
+                    const needsMirrorInPass1 =
+                        isRegularEdpParfum &&
+                        ((slug === "edp" && edpMirrorAromas.has(aromaName)) ||
+                            ((slug === "parfum" || slug === "perfume") &&
+                                parfumMirrorAromas.has(aromaName)));
+
+                    if (needsMirrorInPass1) {
+                        continue;
+                    }
+
+                    let base_forecast = input * (1 + pctValue);
+                    let final_forecast = base_forecast;
+
+                    // If this is a non-others run, force others-type products to 0 or null (here 0)
+                    if (!is_others && isOthersSlug(slug)) {
+                        base_forecast = 0;
+                        final_forecast = 0;
+                    }
+                    // If this is an others-run, it only processes others (already filtered by query)
+                    // but we ensure non-regular items that skipped mirroring still happen here.
+
+                    const isEdpParfumAnchor =
+                        (slug === "edp" ||
+                            slug === "hampers-edp" ||
+                            slug === "parfum" ||
+                            slug === "perfume" ||
+                            slug === "hampers-parfum") &&
+                        (size === 100 || size === 110 || size === 120);
+                    const isVial2ml =
+                        size === 2 &&
+                        (slug === "edp" ||
+                            slug === "hampers-edp" ||
+                            slug === "parfum" ||
+                            slug === "perfume" ||
+                            slug === "hampers-parfum");
+
+                    if (slug === "atomizer") {
+                        base_forecast = atomBase;
+                        final_forecast = atomFinal;
+                    } else if (isEdpParfumAnchor) {
+                        base_forecast = input * (1 + pctValue);
+                        final_forecast = atomFinal * distPct;
+                    } else if (isVial2ml) {
+                        // Pass 1: Handle only Hampers 2ML or Regular 2ML that doesn't need mirroring
+                        // (Mirroring check is already done at the start of loop)
+                        base_forecast = input * (1 + pctValue);
+                        // Copy from its corresponding 100-120ml variant in this group
+                        const parent = group.find(
+                            (p) =>
+                                p.product_type?.slug?.toLowerCase() === slug &&
+                                (p.size?.size === 100 ||
+                                    p.size?.size === 110 ||
+                                    p.size?.size === 120),
+                        );
+                        if (parent) {
+                            final_forecast =
+                                computedFinalMap.get(parent.id) ??
+                                atomFinal * Number(parent[distField] ?? 0);
+                        } else {
+                            final_forecast = atomFinal * distPct;
+                        }
+                    }
+
+                    computedFinalMap.set(product.id, final_forecast);
+                    batch.push({
+                        product_id: product.id,
+                        month: m.month,
+                        year: m.year,
+                        base_forecast,
+                        final_forecast,
+                        trend: ForecastService.trend(final_forecast, input),
+                        forecast_percentage_id: pct?.id ?? 1,
+                        status: status,
+                    });
+                    nextInputMap.set(product.id, final_forecast);
+                }
+
+                // --- PASS 2: Process regular EDP/Parfum that need mirroring from Hampers ---
+                for (const product of group) {
+                    const slug = product.product_type?.slug?.toLowerCase();
+                    const size = product.size?.size;
+                    const input = currentInputMap.get(product.id) ?? 0;
+
+                    if (!is_others && isOthersSlug(slug)) continue;
+
+                    const isRegularEdp =
+                        slug === "edp" && (size === 100 || size === 110 || size === 120);
+                    const isRegularEdp2ml = slug === "edp" && size === 2;
+                    const isRegularParfum =
+                        (slug === "parfum" || slug === "perfume") &&
+                        (size === 100 || size === 110 || size === 120);
+                    const isRegularParfum2ml =
+                        (slug === "parfum" || slug === "perfume") && size === 2;
+
+                    const needsEdpMirror =
+                        (isRegularEdp || isRegularEdp2ml) && edpMirrorAromas.has(aromaName);
+                    const needsParfumMirror =
+                        (isRegularParfum || isRegularParfum2ml) &&
+                        parfumMirrorAromas.has(aromaName);
+
+                    if (!needsEdpMirror && !needsParfumMirror) continue;
+
+                    // Find the corresponding hampers product and COPY its final_forecast directly
+                    let final_forecast = 0;
+                    const base_forecast = input * (1 + pctValue);
+
+                    if (needsEdpMirror) {
+                        const hEdp = group.find(
+                            (p) =>
+                                p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
+                                (p.size?.size === 100 ||
+                                    p.size?.size === 110 ||
+                                    p.size?.size === 120),
+                        );
+                        if (hEdp) {
+                            // Direct copy of hampers' final_forecast value for both 100ml and 2ml
+                            final_forecast =
+                                computedFinalMap.get(hEdp.id) ??
+                                atomFinal * Number(hEdp[distField] ?? 0);
+                        }
+                    } else if (needsParfumMirror) {
+                        const hParf = group.find((p) => {
+                            const s = p.product_type?.slug?.toLowerCase();
+                            return (
+                                (s === "hampers-parfum" || s === "hampers-perfume") &&
+                                (p.size?.size === 100 ||
+                                    p.size?.size === 110 ||
+                                    p.size?.size === 120)
+                            );
+                        });
+                        if (hParf) {
+                            // Direct copy of hampers' final_forecast value for both 100ml and 2ml
+                            final_forecast =
+                                computedFinalMap.get(hParf.id) ??
+                                atomFinal * Number(hParf[distField] ?? 0);
+                        }
+                    }
+
+                    batch.push({
+                        product_id: product.id,
+                        month: m.month,
+                        year: m.year,
+                        base_forecast,
+                        final_forecast,
+                        trend: ForecastService.trend(final_forecast, input),
+                        forecast_percentage_id: pct?.id ?? 1,
+                        status: status,
+                    });
+                    nextInputMap.set(product.id, final_forecast);
+                }
+            }
+            currentInputMap = nextInputMap;
+        }
+
+        return batch;
+    }
+
     static async export(query: QueryForecastDTO) {
         const { data } = await ForecastService.get({ ...query, take: 10000, page: 1 });
 
@@ -210,320 +556,21 @@ export class ForecastService {
         }
 
         // 3. Load actual sales for the base period (average of M-1, M-2, M-3)
-        const AVG_MONTHS = 3;
-        const prevMonths = Array.from({ length: AVG_MONTHS }, (_, i) => {
-            const d = new Date(start_year, start_month - 1 - (i + 1), 1);
-            return { month: d.getMonth() + 1, year: d.getFullYear() };
-        });
-
-        const salesData = await prisma.$queryRaw<any[]>(Prisma.sql`
-            SELECT product_id, SUM(month_qty) as total_quantity
-            FROM (
-                SELECT
-                    product_id,
-                    year,
-                    month,
-                    COALESCE(
-                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL'::"IssuanceType" THEN quantity ELSE 0 END), 0),
-                        SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL'::"IssuanceType" THEN quantity ELSE 0 END)
-                    ) as month_qty
-                FROM product_issuances
-                WHERE product_id IN (${Prisma.join(products.map((p) => p.id))})
-                  AND (${Prisma.join(
-                      prevMonths.map(
-                          (pm) => Prisma.sql`(year = ${pm.year} AND month = ${pm.month})`,
-                      ),
-                      " OR ",
-                  )})
-                GROUP BY product_id, year, month
-            ) sub
-            GROUP BY product_id
-        `);
-
-        const inputMap = new Map<number, number>(
-            salesData.map((s) => [s.product_id, Number(s.total_quantity ?? 0) / AVG_MONTHS]),
+        const inputMap = await ForecastService.loadBaseSalesInput(
+            products.map((p) => p.id),
+            start_month,
+            start_year,
         );
 
         // 4. Calculate sequentially through the horizon
-        const batch: {
-            product_id: number;
-            month: number;
-            year: number;
-            base_forecast: number;
-            final_forecast: number;
-            trend: "UP" | "DOWN" | "STABLE";
-            forecast_percentage_id: number;
-            status: "ADJUSTED" | "DRAFT";
-        }[] = [];
-
-        // Group products by base name (for special rule Aroma groups, normalize HAMPERS prefix)
-        const groups = new Map<string, SelectedProduct[]>();
-        for (const p of products) {
-            const baseName = ForecastService.getAromaBaseName(p.name);
-            if (!groups.has(baseName)) groups.set(baseName, []);
-            groups.get(baseName)!.push(p);
-        }
-        const groupValues = Array.from(groups.values());
-
-        // track the input for the current month calculation (starts with actual sales)
-        let currentInputMap = new Map<number, number>(inputMap);
-        let previousTheoreticalAtomFinal = new Map<string, number>();
-
-        // Track aromas where regular variants should mirror hampers variants
-        const edpMirrorAromas = new Set<string>();
-        const parfumMirrorAromas = new Set<string>();
-
-        for (const group of groupValues) {
-            if (!group.length) continue;
-            const aromaName = ForecastService.getAromaBaseName(group[0]!.name);
-
-            const hasHampersEdp = group.some(
-                (p) =>
-                    p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
-                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
-            );
-            if (hasHampersEdp) edpMirrorAromas.add(aromaName);
-
-            const hasHampersParf = group.some(
-                (p) =>
-                    (p.product_type?.slug?.toLowerCase() === "hampers-parfum" ||
-                        p.product_type?.slug?.toLowerCase() === "hampers-perfume") &&
-                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
-            );
-            if (hasHampersParf) parfumMirrorAromas.add(aromaName);
-        }
-
-        for (let i = 0; i < monthsRange.length; i++) {
-            const m = monthsRange[i]!;
-            const pct = pctMap.get(`${m.year}-${m.month}`);
-
-            // Special Rule for Display: Ignore existing percentage settings and force 0 growth
-            const pctValue = body.is_others ? 0 : Number(pct?.value ?? 0);
-
-            // If not is_others, stop calculation if percentage is not found or zero
-            if (!body.is_others && (!pct || Number(pct.value) === 0)) {
-                break;
-            }
-            const nextInputMap = new Map<number, number>();
-            const status = i === 0 ? "ADJUSTED" : "DRAFT";
-
-            for (const group of groupValues) {
-                if (!group.length) continue;
-                const aromaName = ForecastService.getAromaBaseName(group[0]!.name);
-
-                // --- Skip "others" type products that shouldn't be in non-others forecast ---
-                const isOthersSlug = (s: string | undefined | null) => {
-                    if (!s) return false;
-                    const sl = s.toLowerCase();
-                    return (
-                        sl.includes("display") ||
-                        sl.includes("kertas") ||
-                        sl.includes("botol") ||
-                        sl.includes("paper-bag") ||
-                        sl.includes("kartu-garansi") ||
-                        sl.includes("canvas-bag")
-                    );
-                };
-
-                const edpAnchors = group.filter((p) => {
-                    const slug = p.product_type?.slug?.toLowerCase();
-                    const size = p.size?.size;
-                    return (
-                        (slug === "edp" || slug === "hampers-edp") &&
-                        (size === 100 || size === 110 || size === 120)
-                    );
-                });
-
-                const parfumAnchors = group.filter((p) => {
-                    const slug = p.product_type?.slug?.toLowerCase();
-                    const size = p.size?.size;
-                    return (
-                        (slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") &&
-                        (size === 100 || size === 110 || size === 120)
-                    );
-                });
-
-                let atomBase = 0;
-                if (i === 0) {
-                    atomBase =
-                        edpAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0) +
-                        parfumAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0);
-                } else {
-                    atomBase = previousTheoreticalAtomFinal.get(aromaName) ?? 0;
-                }
-
-                const atomFinal = atomBase * (1 + pctValue);
-                previousTheoreticalAtomFinal.set(aromaName, atomFinal);
-
-                // ═══ TWO-PASS APPROACH for Hampers Mirroring ═══
-                // Map to store computed final_forecast per product id within this group+month
-                const computedFinalMap = new Map<number, number>();
-
-                // --- PASS 1: Process hampers variants + atomizer + others first ---
-                for (const product of group) {
-                    const slug = product.product_type?.slug?.toLowerCase();
-                    const size = product.size?.size;
-                    const distPct = Number(product.distribution_percentage ?? 0);
-                    const input = currentInputMap.get(product.id) ?? 0;
-
-                    const isRegularEdpParfum =
-                        (slug === "edp" || slug === "parfum" || slug === "perfume") &&
-                        (size === 100 || size === 110 || size === 120 || size === 2);
-
-                    // In Pass 1, skip regular EDP/Parfum that need mirroring (defer to Pass 2)
-                    const needsMirrorInPass1 =
-                        isRegularEdpParfum &&
-                        ((slug === "edp" && edpMirrorAromas.has(aromaName)) ||
-                            ((slug === "parfum" || slug === "perfume") &&
-                                parfumMirrorAromas.has(aromaName)));
-
-                    if (needsMirrorInPass1) {
-                        continue;
-                    }
-
-                    let base_forecast = input * (1 + pctValue);
-                    let final_forecast = base_forecast;
-
-                    // If this is a non-others run, force others-type products to 0 or null (here 0)
-                    if (!body.is_others && isOthersSlug(slug)) {
-                        base_forecast = 0;
-                        final_forecast = 0;
-                    }
-                    // If this is an others-run, it only processes others (already filtered by query)
-                    // but we ensure non-regular items that skipped mirroring still happen here.
-
-                    const isEdpParfumAnchor =
-                        (slug === "edp" ||
-                            slug === "hampers-edp" ||
-                            slug === "parfum" ||
-                            slug === "perfume" ||
-                            slug === "hampers-parfum") &&
-                        (size === 100 || size === 110 || size === 120);
-                    const isVial2ml =
-                        size === 2 &&
-                        (slug === "edp" ||
-                            slug === "hampers-edp" ||
-                            slug === "parfum" ||
-                            slug === "perfume" ||
-                            slug === "hampers-parfum");
-
-                    if (slug === "atomizer") {
-                        base_forecast = atomBase;
-                        final_forecast = atomFinal;
-                    } else if (isEdpParfumAnchor) {
-                        base_forecast = input * (1 + pctValue);
-                        final_forecast = atomFinal * distPct;
-                    } else if (isVial2ml) {
-                        // Pass 1: Handle only Hampers 2ML or Regular 2ML that doesn't need mirroring
-                        // (Mirroring check is already done at the start of loop)
-                        base_forecast = input * (1 + pctValue);
-                        // Copy from its corresponding 100-120ml variant in this group
-                        const parent = group.find(
-                            (p) =>
-                                p.product_type?.slug?.toLowerCase() === slug &&
-                                (p.size?.size === 100 ||
-                                    p.size?.size === 110 ||
-                                    p.size?.size === 120),
-                        );
-                        if (parent) {
-                            final_forecast =
-                                computedFinalMap.get(parent.id) ??
-                                atomFinal * Number(parent.distribution_percentage ?? 0);
-                        } else {
-                            final_forecast = atomFinal * distPct;
-                        }
-                    }
-
-                    computedFinalMap.set(product.id, final_forecast);
-                    batch.push({
-                        product_id: product.id,
-                        month: m.month,
-                        year: m.year,
-                        base_forecast,
-                        final_forecast,
-                        trend: ForecastService.trend(final_forecast, input),
-                        forecast_percentage_id: pct?.id ?? 1,
-                        status: status,
-                    });
-                    nextInputMap.set(product.id, final_forecast);
-                }
-
-                // --- PASS 2: Process regular EDP/Parfum that need mirroring from Hampers ---
-                for (const product of group) {
-                    const slug = product.product_type?.slug?.toLowerCase();
-                    const size = product.size?.size;
-                    const input = currentInputMap.get(product.id) ?? 0;
-
-                    if (!body.is_others && isOthersSlug(slug)) continue;
-
-                    const isRegularEdp =
-                        slug === "edp" && (size === 100 || size === 110 || size === 120);
-                    const isRegularEdp2ml = slug === "edp" && size === 2;
-                    const isRegularParfum =
-                        (slug === "parfum" || slug === "perfume") &&
-                        (size === 100 || size === 110 || size === 120);
-                    const isRegularParfum2ml =
-                        (slug === "parfum" || slug === "perfume") && size === 2;
-
-                    const needsEdpMirror =
-                        (isRegularEdp || isRegularEdp2ml) && edpMirrorAromas.has(aromaName);
-                    const needsParfumMirror =
-                        (isRegularParfum || isRegularParfum2ml) &&
-                        parfumMirrorAromas.has(aromaName);
-
-                    if (!needsEdpMirror && !needsParfumMirror) continue;
-
-                    // Find the corresponding hampers product and COPY its final_forecast directly
-                    let final_forecast = 0;
-                    const base_forecast = input * (1 + pctValue);
-
-                    if (needsEdpMirror) {
-                        const hEdp = group.find(
-                            (p) =>
-                                p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
-                                (p.size?.size === 100 ||
-                                    p.size?.size === 110 ||
-                                    p.size?.size === 120),
-                        );
-                        if (hEdp) {
-                            // Direct copy of hampers' final_forecast value for both 100ml and 2ml
-                            final_forecast =
-                                computedFinalMap.get(hEdp.id) ??
-                                atomFinal * Number(hEdp.distribution_percentage ?? 0);
-                        }
-                    } else if (needsParfumMirror) {
-                        const hParf = group.find((p) => {
-                            const s = p.product_type?.slug?.toLowerCase();
-                            return (
-                                (s === "hampers-parfum" || s === "hampers-perfume") &&
-                                (p.size?.size === 100 ||
-                                    p.size?.size === 110 ||
-                                    p.size?.size === 120)
-                            );
-                        });
-                        if (hParf) {
-                            // Direct copy of hampers' final_forecast value for both 100ml and 2ml
-                            final_forecast =
-                                computedFinalMap.get(hParf.id) ??
-                                atomFinal * Number(hParf.distribution_percentage ?? 0);
-                        }
-                    }
-
-                    batch.push({
-                        product_id: product.id,
-                        month: m.month,
-                        year: m.year,
-                        base_forecast,
-                        final_forecast,
-                        trend: ForecastService.trend(final_forecast, input),
-                        forecast_percentage_id: pct?.id ?? 1,
-                        status: status,
-                    });
-                    nextInputMap.set(product.id, final_forecast);
-                }
-            }
-            currentInputMap = nextInputMap;
-        }
+        const batch = ForecastService.computeForecastBatch({
+            products,
+            monthsRange,
+            pctMap,
+            inputMap,
+            is_others: body.is_others,
+            distField: "distribution_percentage",
+        });
 
         // 5. Batch Save using Raw SQL Bulk Upsert (Optimization for large datasets)
         if (batch.length > 0) {
@@ -1059,6 +1106,7 @@ export class ForecastService {
                 product_type_name: string | null;
                 unit_name: string | null;
                 distribution_percentage: number | null;
+                reference_distribution_percentage: number | null;
                 safety_percentage: number | null;
                 forecasts_data: string | null;
                 safety_stock_data: string | null;
@@ -1077,6 +1125,7 @@ export class ForecastService {
                 pt.name            AS "product_type_name",
                 u.name             AS "unit_name",
                 p.distribution_percentage,
+                p.reference_distribution_percentage,
                 p.safety_percentage,
                 COALESCE(pi.quantity, 0)::float8 AS "current_stock",
 
@@ -1452,6 +1501,10 @@ export class ForecastService {
                 distribution_percentage: p.distribution_percentage
                     ? Number((Number(p.distribution_percentage) * 100).toFixed(2))
                     : 0,
+                reference_distribution_percentage:
+                    p.reference_distribution_percentage != null
+                        ? Number((Number(p.reference_distribution_percentage) * 100).toFixed(2))
+                        : null,
                 safety_percentage:
                     p.safety_percentage && Number(p.safety_percentage) > 0
                         ? Number((Number(p.safety_percentage) * 100).toFixed(2))
@@ -1490,8 +1543,8 @@ export class ForecastService {
             };
         });
     }
-    private static getAromaBaseName(name: string): string {
-        return name
+    private static getAromaBaseName(name?: string): string {
+        return (name || "")
             .replace(/^hampers\s+/i, "")
             .trim()
             .toUpperCase();
@@ -1656,6 +1709,104 @@ export class ForecastService {
             if (err?.code === "P2025") throw new ApiError(404, "Data forecast tidak ditemukan");
             throw err;
         }
+    }
+
+    static async compare(query: CompareForecastDTO) {
+        const { start_month, start_year, horizon = 12 } = query;
+
+        const monthsRange = Array.from({ length: horizon }, (_, i) => {
+            const date = new Date(start_year, start_month - 1 + i, 1);
+            return { month: date.getMonth() + 1, year: date.getFullYear() };
+        });
+
+        const percentages = await prisma.forecastPercentage.findMany({
+            where: { OR: monthsRange.map((m) => ({ month: m.month, year: m.year })) },
+        });
+        if (percentages.length === 0) {
+            throw new ApiError(
+                404,
+                `Data persentase forecast untuk periode ${start_month}/${start_year} belum diatur.`,
+            );
+        }
+        const pctMap = new Map(percentages.map((p) => [`${p.year}-${p.month}`, p]));
+
+        const products = await prisma.product.findMany({
+            where: { status: "ACTIVE", deleted_at: null, NOT: OTHERS_TYPE_NOT },
+            select: COMPARE_PRODUCT_SELECT,
+        });
+        if (products.length === 0) throw new ApiError(404, "Tidak ada produk aktif ditemukan.");
+
+        const inputMap = await ForecastService.loadBaseSalesInput(
+            products.map((p) => p.id),
+            start_month,
+            start_year,
+        );
+
+        const common = { products, monthsRange, pctMap, inputMap, is_others: false } as const;
+        const edarBatch = ForecastService.computeForecastBatch({
+            ...common,
+            distField: "distribution_percentage",
+        });
+        const acuanBatch = ForecastService.computeForecastBatch({
+            ...common,
+            distField: "reference_distribution_percentage",
+        });
+
+        const acuanMap = new Map(acuanBatch.map((r) => [`${r.product_id}-${r.year}-${r.month}`, r]));
+        const byProduct = new Map<number, ForecastBatchRow[]>();
+        for (const r of edarBatch) {
+            if (!byProduct.has(r.product_id)) byProduct.set(r.product_id, []);
+            byProduct.get(r.product_id)!.push(r);
+        }
+
+        const data = products
+            .map((p) => {
+                const rows = byProduct.get(p.id) ?? [];
+                const monthly = rows.map((r) => {
+                    const a = acuanMap.get(`${r.product_id}-${r.year}-${r.month}`);
+                    const final_acuan = a?.final_forecast ?? 0;
+                    const delta = final_acuan - r.final_forecast;
+                    return {
+                        month: r.month,
+                        year: r.year,
+                        final_edar: r.final_forecast,
+                        final_acuan,
+                        delta,
+                        delta_pct:
+                            r.final_forecast !== 0
+                                ? Number(((delta / r.final_forecast) * 100).toFixed(2))
+                                : null,
+                    };
+                });
+                const total_edar = monthly.reduce((s, m) => s + m.final_edar, 0);
+                const total_acuan = monthly.reduce((s, m) => s + m.final_acuan, 0);
+                const total_delta = total_acuan - total_edar;
+                return {
+                    product_id: p.id,
+                    product_code: p.code,
+                    product_name: p.name,
+                    product_type: p.product_type?.slug ?? null,
+                    product_size: p.size?.size ?? null,
+                    edar_pct:
+                        p.distribution_percentage != null
+                            ? Number((Number(p.distribution_percentage) * 100).toFixed(2))
+                            : null,
+                    acuan_pct:
+                        p.reference_distribution_percentage != null
+                            ? Number((Number(p.reference_distribution_percentage) * 100).toFixed(2))
+                            : null,
+                    monthly,
+                    total_edar,
+                    total_acuan,
+                    total_delta,
+                    total_delta_pct:
+                        total_edar !== 0 ? Number(((total_delta / total_edar) * 100).toFixed(2)) : null,
+                };
+            })
+            .filter((d) => d.monthly.length > 0)
+            .sort((a, b) => b.total_edar - a.total_edar);
+
+        return { period: { start_month, start_year, horizon }, data };
     }
 
     private static trend(forecast: number, input: number): "UP" | "DOWN" | "STABLE" {

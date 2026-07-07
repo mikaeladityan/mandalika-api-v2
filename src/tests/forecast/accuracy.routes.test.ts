@@ -64,16 +64,17 @@ describe("GET /api/app/forecasts/accuracy", () => {
                     product_type_name: "EDP",
                     size: 100,
                     unit_name: "pcs",
-                    forecast: 320,
+                    forecast: 300,
                     sales: 310,
                 },
             ])
             .mockResolvedValueOnce([
                 {
                     product_count: "1",
-                    total_forecast: "320",
+                    total_forecast: "300",
                     total_sales: "310",
                     excluded_count: "0",
+                    wmape_accuracy: "96.77",
                 },
             ]);
 
@@ -136,6 +137,7 @@ describe("GET /api/app/forecasts/accuracy", () => {
                     total_forecast: "80",
                     total_sales: "80",
                     excluded_count: "0",
+                    wmape_accuracy: "100.00",
                 },
             ]);
 
