@@ -23,7 +23,7 @@ const PRODUCT_SELECT = {
     safety_percentage: true,
 } as const;
 
-const OTHERS_TYPE_NOT = ["display", "kertas", "botol", "paper-bag", "kartu-garansi", "canvas-bag"].map(
+const OTHERS_TYPE_NOT = ["display", "kertas", "botol", "paper-bag", "kartu-garansi", "canvas-bag", "box-uk"].map(
     (s) => ({ product_type: { slug: { contains: s, mode: "insensitive" as const } } }),
 );
 
@@ -163,7 +163,8 @@ export class ForecastService {
                         sl.includes("botol") ||
                         sl.includes("paper-bag") ||
                         sl.includes("kartu-garansi") ||
-                        sl.includes("canvas-bag")
+                        sl.includes("canvas-bag") ||
+                        sl.includes("box-uk")
                     );
                 };
 
@@ -508,6 +509,11 @@ export class ForecastService {
                                             slug: { contains: "canvas-bag", mode: "insensitive" },
                                         },
                                     },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "box-uk", mode: "insensitive" },
+                                        },
+                                    },
                                 ],
                             }
                           : {
@@ -543,6 +549,11 @@ export class ForecastService {
                                     {
                                         product_type: {
                                             slug: { contains: "canvas-bag", mode: "insensitive" },
+                                        },
+                                    },
+                                    {
+                                        product_type: {
+                                            slug: { contains: "box-uk", mode: "insensitive" },
                                         },
                                     },
                                 ],
@@ -736,7 +747,8 @@ export class ForecastService {
             tSlug.includes("botol") ||
             tSlug.includes("paper-bag") ||
             tSlug.includes("kartu-garansi") ||
-            tSlug.includes("canvas-bag");
+            tSlug.includes("canvas-bag") ||
+            tSlug.includes("box-uk");
 
         if (!isOthersProduct) {
             throw new ApiError(403, "Update manual hanya diizinkan untuk produk Others.");
@@ -1038,6 +1050,11 @@ export class ForecastService {
                                   slug: { contains: "canvas-bag", mode: "insensitive" },
                               },
                           },
+                          {
+                              product_type: {
+                                  slug: { contains: "box-uk", mode: "insensitive" },
+                              },
+                          },
                       ],
                   }
                 : {
@@ -1058,6 +1075,11 @@ export class ForecastService {
                           {
                               product_type: {
                                   slug: { contains: "canvas-bag", mode: "insensitive" },
+                              },
+                          },
+                          {
+                              product_type: {
+                                  slug: { contains: "box-uk", mode: "insensitive" },
                               },
                           },
                       ],
@@ -1234,8 +1256,8 @@ export class ForecastService {
               AND (
                 ${
                     query.is_others
-                        ? Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%'`
-                        : Prisma.sql`pt.slug IS NULL OR (pt.slug NOT ILIKE '%display%' AND pt.slug NOT ILIKE '%kertas%' AND pt.slug NOT ILIKE '%botol%' AND pt.slug NOT ILIKE '%paper-bag%' AND pt.slug NOT ILIKE '%kartu-garansi%' AND pt.slug NOT ILIKE '%canvas-bag%')`
+                        ? Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%' OR pt.slug ILIKE '%box-uk%'`
+                        : Prisma.sql`pt.slug IS NULL OR (pt.slug NOT ILIKE '%display%' AND pt.slug NOT ILIKE '%kertas%' AND pt.slug NOT ILIKE '%botol%' AND pt.slug NOT ILIKE '%paper-bag%' AND pt.slug NOT ILIKE '%kartu-garansi%' AND pt.slug NOT ILIKE '%canvas-bag%' AND pt.slug NOT ILIKE '%box-uk%')`
                 }
               )
             ${searchRaw ? Prisma.sql`AND (p.name ILIKE ${searchRaw} OR p.code ILIKE ${searchRaw} OR pt.name ILIKE ${searchRaw})` : Prisma.empty}
@@ -1660,6 +1682,11 @@ export class ForecastService {
                                           slug: { contains: "canvas-bag", mode: "insensitive" },
                                       },
                                   },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "box-uk", mode: "insensitive" },
+                                      },
+                                  },
                               ],
                           }
                         : {
@@ -1692,6 +1719,11 @@ export class ForecastService {
                                   {
                                       product_type: {
                                           slug: { contains: "canvas-bag", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "box-uk", mode: "insensitive" },
                                       },
                                   },
                               ],

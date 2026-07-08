@@ -20,7 +20,7 @@ function toleranceBand(tolerance: number): { threshold: number; upper: number } 
     return { threshold: 100 - tolerance, upper: 100 + tolerance };
 }
 
-const OTHERS_SLUGS = Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%'`;
+const OTHERS_SLUGS = Prisma.sql`pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%' OR pt.slug ILIKE '%box-uk%'`;
 
 function buildTypeFilter(isOthers: boolean): Prisma.Sql {
     return isOthers
