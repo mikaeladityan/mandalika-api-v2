@@ -100,10 +100,33 @@ export const QueryProductSchema = z.object({
     visibleColumns: z.string().optional(),
 });
 
-export const UpdateProductSchema = RequestProductSchema.partial().refine(
-    (v) => Object.keys(v).length > 0,
-    { message: "Minimal satu field harus diisi" },
-);
+// Didefinisikan eksplisit (bukan RequestProductSchema.partial()) karena Zod 4
+// tetap meng-inject .default() saat .partial() — field yang tidak dikirim ikut
+// ter-reset (status→PENDING, z_value→1.65, dst). Update juga tidak boleh
+// menyentuh status; perubahan status hanya lewat PATCH /status/:id.
+export const UpdateProductSchema = z
+    .object({
+        code: z
+            .string()
+            .max(100)
+            .regex(/^\S+$/, { message: "Gunakan '_' (underscore) untuk spasi" }),
+        name: z
+            .string()
+            .min(5, "Nama produk minimal memiliki 5 karakter")
+            .max(100, "Nama produk tidak boleh melebihi 100 karakter"),
+        size: z.coerce.number("Ukuran tidak boleh kosong").min(1),
+        gender: z.enum(GENDER),
+        z_value: z.number(),
+        lead_time: z.number().int().min(1),
+        review_period: z.number().int().min(1),
+        unit: z.string().nullable(),
+        product_type: z.string().nullable(),
+        distribution_percentage: z.coerce.number().min(0),
+        safety_percentage: z.coerce.number().min(0),
+        description: z.string().nullable(),
+    })
+    .partial()
+    .refine((v) => Object.keys(v).length > 0, { message: "Minimal satu field harus diisi" });
 
 export const StatusQuerySchema = z.object({
     status: z.enum(STATUS),
