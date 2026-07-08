@@ -321,7 +321,20 @@ export class ForecastAccuracyService {
                   AND p.deleted_at IS NULL
                   AND p.distribution_percentage > 0
                   ${searchFilter}
-                ORDER BY (p.name || '|' || COALESCE(p.size_id::text, 'null')) ASC, p.id ASC
+                ORDER BY
+                    p.name ASC,
+                    CASE
+                        WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+                        WHEN pt.name ILIKE '%Atomizer%' THEN 2
+                        ELSE 3
+                    END ASC,
+                    ps.size DESC NULLS LAST,
+                    CASE
+                        WHEN pt.name ILIKE '%EDP%' THEN 1
+                        WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
+                        ELSE 3
+                    END ASC,
+                    p.id ASC
                 LIMIT ${limit} OFFSET ${skip}
             ),
             sales_range AS (
@@ -378,7 +391,21 @@ export class ForecastAccuracyService {
                 ON sr.product_id = pp.id AND sr.year = ms.year AND sr.month = ms.month
             LEFT JOIN pair_totals pt
                 ON pt.group_key = pp.group_key AND pt.year = ms.year AND pt.month = ms.month
-            ORDER BY pp.group_key ASC, pp.id ASC, ms.year ASC, ms.month ASC
+            ORDER BY
+                pp.name ASC,
+                CASE
+                    WHEN pp.type_name ILIKE '%EDP%' OR pp.type_name ILIKE '%Parfum%' OR pp.type_name ILIKE '%Perfume%' THEN 1
+                    WHEN pp.type_name ILIKE '%Atomizer%' THEN 2
+                    ELSE 3
+                END ASC,
+                pp.size DESC NULLS LAST,
+                CASE
+                    WHEN pp.type_name ILIKE '%EDP%' THEN 1
+                    WHEN pp.type_name ILIKE '%Parfum%' OR pp.type_name ILIKE '%Perfume%' THEN 2
+                    ELSE 3
+                END ASC,
+                pp.id ASC,
+                ms.year ASC, ms.month ASC
         `);
 
         // ── Summary (global — ignores search/pagination) ─────────────────────────
