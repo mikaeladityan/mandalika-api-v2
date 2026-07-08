@@ -1273,10 +1273,17 @@ export class ForecastService {
             LIMIT ${limit} OFFSET ${skip}
         `;
 
-        // EDAR vs ACT: pair sales share on the last ACT month. Members are fetched
+        // EDAR vs AVG ACT: pair sales share dirata-rata atas window `horizon` bulan
+        // ACT terakhir sebelum bulan mulai (per bulan dihitung ACT%, lalu di-AVG —
+        // konsisten dengan kolom AVG halaman EDAR vs ACT). Members are fetched
         // in a second query (ignoring type/size/search filters and pagination) so the
         // pair total stays correct when a member falls outside the current page/filter.
         const lastActMonth = prevMonths[prevMonths.length - 1]!;
+        const actWindow = Array.from({ length: monthsWindow.length }, (_, i) => {
+            const d = new Date(startYear, startMonth - 1 - (monthsWindow.length - i), 1);
+            return { month: d.getMonth() + 1, year: d.getFullYear() };
+        });
+        const actWindowKeys = actWindow.map((m) => m.year * 12 + m.month);
         const edarGroups = Array.from(
             new Map(
                 productsRaw
@@ -1297,7 +1304,7 @@ export class ForecastService {
                 size_id: number | null;
                 product_type_name: string | null;
                 distribution_percentage: number;
-                sales: number;
+                salesByMonth: Map<number, number>;
             }[]
         >();
         if (edarGroups.length > 0) {
@@ -1309,7 +1316,9 @@ export class ForecastService {
                     size_id: number | null;
                     product_type_name: string | null;
                     distribution_percentage: number;
-                    sales: number;
+                    year: number | null;
+                    month: number | null;
+                    sales: number | null;
                 }[]
             >`
                 SELECT
@@ -1319,18 +1328,17 @@ export class ForecastService {
                     p.size_id,
                     pt.name AS "product_type_name",
                     p.distribution_percentage::float8 AS "distribution_percentage",
-                    COALESCE((
-                        SELECT COALESCE(
-                            NULLIF(SUM(CASE WHEN (iss.year * 12 + iss.month) > ${ISSUANCE_THRESHOLD_PERIOD} AND iss.type != 'ALL'::"IssuanceType" THEN iss.quantity ELSE 0 END), 0),
-                            SUM(CASE WHEN (iss.year * 12 + iss.month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND iss.type = 'ALL'::"IssuanceType" THEN iss.quantity ELSE 0 END)
-                        )
-                        FROM product_issuances iss
-                        WHERE iss.product_id = p.id
-                          AND iss.year = ${lastActMonth.year}
-                          AND iss.month = ${lastActMonth.month}
-                    ), 0)::float8 AS "sales"
+                    iss.year,
+                    iss.month,
+                    COALESCE(
+                        NULLIF(SUM(CASE WHEN (iss.year * 12 + iss.month) > ${ISSUANCE_THRESHOLD_PERIOD} AND iss.type != 'ALL'::"IssuanceType" THEN iss.quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (iss.year * 12 + iss.month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND iss.type = 'ALL'::"IssuanceType" THEN iss.quantity ELSE 0 END)
+                    )::float8 AS "sales"
                 FROM "products" p
                 LEFT JOIN "product_types" pt ON pt.id = p.type_id
+                LEFT JOIN "product_issuances" iss
+                    ON iss.product_id = p.id
+                   AND (iss.year * 12 + iss.month) IN (${Prisma.join(actWindowKeys)})
                 WHERE p.status = 'ACTIVE'
                   AND p.deleted_at IS NULL
                   AND p.distribution_percentage > 0
@@ -1342,12 +1350,31 @@ export class ForecastService {
                       ),
                       " OR ",
                   )})
+                GROUP BY p.id, p.code, p.name, p.size_id, pt.name, p.distribution_percentage, iss.year, iss.month
             `;
             for (const r of pairRows) {
                 const key = `${r.name}|${r.size_id ?? "null"}`;
-                const list = pairMap.get(key) ?? [];
-                list.push(r);
-                pairMap.set(key, list);
+                let list = pairMap.get(key);
+                if (!list) {
+                    list = [];
+                    pairMap.set(key, list);
+                }
+                let member = list.find((m) => m.id === r.id);
+                if (!member) {
+                    member = {
+                        id: r.id,
+                        code: r.code,
+                        name: r.name,
+                        size_id: r.size_id,
+                        product_type_name: r.product_type_name,
+                        distribution_percentage: r.distribution_percentage,
+                        salesByMonth: new Map(),
+                    };
+                    list.push(member);
+                }
+                if (r.year != null && r.month != null) {
+                    member.salesByMonth.set(r.year * 12 + r.month, Number(r.sales ?? 0));
+                }
             }
         }
 
@@ -1470,23 +1497,50 @@ export class ForecastService {
             const edar_sales_share: ResponseForecastDTO["edar_sales_share"] = (() => {
                 if (Number(p.distribution_percentage ?? 0) <= 0) return null;
                 const members = pairMap.get(`${p.name}|${p.size_id ?? "null"}`) ?? [];
-                const pairTotal = members.reduce((s, m) => s + m.sales, 0);
-                const pct = (v: number) =>
-                    pairTotal > 0 ? Math.round((v / pairTotal) * 1000) / 10 : null;
+
+                // Per bulan window: ACT% = sales member / total pasangan bulan itu.
+                // AVG hanya atas bulan yang punya sales pasangan (> 0), lalu
+                // dibulatkan 1 desimal — konsisten kolom AVG halaman EDAR vs ACT.
+                const pctSums = new Map<number, { sum: number; count: number }>();
+                let monthsCounted = 0;
+                for (const key of actWindowKeys) {
+                    const pairTotal = members.reduce(
+                        (s, m) => s + (m.salesByMonth.get(key) ?? 0),
+                        0,
+                    );
+                    if (pairTotal <= 0) continue;
+                    monthsCounted++;
+                    for (const m of members) {
+                        const share = ((m.salesByMonth.get(key) ?? 0) / pairTotal) * 100;
+                        const acc = pctSums.get(m.id) ?? { sum: 0, count: 0 };
+                        acc.sum += share;
+                        acc.count++;
+                        pctSums.set(m.id, acc);
+                    }
+                }
+                const avgPct = (id: number) => {
+                    const acc = pctSums.get(id);
+                    if (!acc || acc.count === 0) return null;
+                    return Math.round((acc.sum / acc.count) * 10) / 10;
+                };
+                const totalSales = (m: (typeof members)[number]) =>
+                    Array.from(m.salesByMonth.values()).reduce((s, v) => s + v, 0);
+
                 const own = members.find((m) => m.id === p.id);
                 return {
                     month: lastActMonth.month,
                     year: lastActMonth.year,
-                    own_sales: own?.sales ?? 0,
-                    pair_total_sales: pairTotal,
-                    actual_pct: pct(own?.sales ?? 0),
+                    months_counted: monthsCounted,
+                    own_sales: own ? totalSales(own) : 0,
+                    pair_total_sales: members.reduce((s, m) => s + totalSales(m), 0),
+                    actual_pct: own ? avgPct(own.id) : null,
                     members: members.map((m) => ({
                         product_id: m.id,
                         product_code: m.code,
                         product_type: m.product_type_name ?? "",
                         edar_pct: Number((Number(m.distribution_percentage) * 100).toFixed(2)),
-                        sales: m.sales,
-                        actual_pct: pct(m.sales),
+                        sales: totalSales(m),
+                        actual_pct: avgPct(m.id),
                     })),
                 };
             })();

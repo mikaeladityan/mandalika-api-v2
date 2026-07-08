@@ -119,6 +119,14 @@ describe("ForecastService", () => {
             current_stock: 0,
         };
 
+        // Pair query sekarang mengembalikan sales per bulan (window AVG ACT);
+        // fixture memakai bulan ACT terakhir = bulan sebelum start window (now).
+        const lastAct = (() => {
+            const n = new Date();
+            const d = new Date(n.getFullYear(), n.getMonth() - 1, 1);
+            return { month: d.getMonth() + 1, year: d.getFullYear() };
+        })();
+
         const pairMember = (
             id: number,
             code: string,
@@ -131,6 +139,8 @@ describe("ForecastService", () => {
             size_id: 5,
             product_type_name: type,
             distribution_percentage: 0.5,
+            year: lastAct.year,
+            month: lastAct.month,
             sales,
         });
 
