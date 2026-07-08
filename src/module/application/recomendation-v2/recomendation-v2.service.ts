@@ -184,7 +184,7 @@ export class RecomendationV2Service {
                         f.product_id,
                         SUM(f.final_forecast) as total_forecast_horizon,
                         CASE
-                            WHEN (pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%')
+                            WHEN (pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%' OR pt.slug ILIKE '%box-uk%')
                                  AND COALESCE(p.safety_percentage, 0) = 0
                             THEN 0.25
                             ELSE COALESCE(p.safety_percentage, 0)
