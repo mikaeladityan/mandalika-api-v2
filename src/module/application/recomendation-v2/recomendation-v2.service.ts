@@ -304,7 +304,7 @@ export class RecomendationV2Service {
                     fm.lead_time AS lead_time,
                     mro.horizon AS work_order_horizon,
                     CASE
-                        WHEN fm.barcode LIKE 'KTP-%' OR fm.barcode LIKE 'KTB-%' OR fm.barcode LIKE 'KTL-%' OR fm.barcode LIKE 'KEM-%'
+                        WHEN fm.barcode LIKE 'KTP-%' OR fm.barcode LIKE 'KTB-%' OR fm.barcode LIKE 'KTL-%' OR fm.barcode LIKE 'KEM-%' OR fm.barcode LIKE 'BUK-%'
                         THEN COALESCE(sa.stock_fg_x_resep, 0)
                         ELSE 
                             -- Available Stock (On-Hand minus Booked by RELEASED production orders)
@@ -1618,7 +1618,7 @@ export class RecomendationV2Service {
                 ${horizon} AS horizon,
                 COALESCE(fc.total, 0) AS total_needed,
                 CASE
-                    WHEN rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KTB-%' OR rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KEM-%'
+                    WHEN rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KTB-%' OR rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KEM-%' OR rm.barcode LIKE 'BUK-%'
                     THEN COALESCE(fg.total, 0)
                     ELSE COALESCE(inv.total, 0)
                 END AS current_stock,
