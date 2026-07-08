@@ -199,6 +199,36 @@ export class ProductService {
                     include: { product_type: true, unit: true, size: true },
                 });
 
+                // Sinkronkan EDAR% ke varian pasangan (parent 110ml <-> vial 2ml,
+                // aroma & slug sama). Engine forecast memakai final parent untuk
+                // nilai 2ml, jadi tanpa sinkron ini EDAR% 2ml yang tampil bisa
+                // beda dari yang efektif dipakai — ambigu bagi user.
+                if (reqBody.distribution_percentage !== undefined) {
+                    const slug = result.product_type?.slug?.toLowerCase();
+                    const ownSize = result.size?.size != null ? Number(result.size.size) : null;
+                    const isEdarPaired =
+                        slug != null &&
+                        ["edp", "parfum", "perfume", "hampers-edp", "hampers-parfum"].includes(slug);
+                    const parentSizes = [100, 110, 120];
+                    const pairSizes =
+                        ownSize === 2 ? parentSizes : ownSize != null && parentSizes.includes(ownSize) ? [2] : null;
+
+                    if (isEdarPaired && pairSizes) {
+                        await tx.product.updateMany({
+                            where: {
+                                id: { not: id },
+                                deleted_at: null,
+                                name: { equals: result.name, mode: "insensitive" },
+                                product_type: { slug: { equals: slug, mode: "insensitive" } },
+                                size: { size: { in: pairSizes } },
+                            },
+                            data: {
+                                distribution_percentage: reqBody.distribution_percentage,
+                            },
+                        });
+                    }
+                }
+
                 return this.toResponseNumbers(result);
             });
 
