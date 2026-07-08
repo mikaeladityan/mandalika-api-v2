@@ -98,6 +98,7 @@ export type ResponseForecastDTO = {
     edar_sales_share: {
         month: number;
         year: number;
+        months_counted: number;
         own_sales: number;
         pair_total_sales: number;
         actual_pct: number | null;
