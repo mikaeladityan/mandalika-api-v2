@@ -1,7 +1,7 @@
 import prisma from "../../../../config/prisma.js";
 import { env } from "../../../../config/env.js";
 import { GoogleSheetsClient } from "../../../../lib/google-sheets.js";
-import { rawMatToRow, type RawMatWithSheetRelations } from "./rawmat-sheet.mapper.js";
+import { rawMatToRowSegments, type RawMatWithSheetRelations } from "./rawmat-sheet.mapper.js";
 import type { RawMatSheetSyncJob } from "./rawmat-sheet.schema.js";
 
 /**
@@ -12,16 +12,19 @@ import type { RawMatSheetSyncJob } from "./rawmat-sheet.schema.js";
  *   D: MATERIAL NAME
  *   E: UOM
  *   F: SUPPLIER (preferred)
- *   G: PRICE
- *   H: MOQ
- *   I: LEAD TIME
- *   J: MIN STOCK
- *   K: LOCAL/IMPORT
+ *   G: SUPPLIER_FLAG (manual di sheet — sync tidak menulis)
+ *   H: USD           (manual di sheet — sync tidak menulis)
+ *   I: PRICE
+ *   J: MOQ
+ *   K: LEAD TIME
+ *   L: MIN STOCK
+ *   M: LOCAL/IMPORT
  *
- * Update path uses an explicit B{n}:K{n} range so UID at column A is never
- * touched on update. Append path uses anchor A:K with the UID prepended so
- * Google's values.append does not silently left-shift the row (same fix as
- * FG product sheet).
+ * Update path menulis dua range terpisah (B{n}:F{n} dan I{n}:M{n}) supaya UID
+ * di kolom A dan kolom manual G/H tidak pernah tersentuh. Append path uses
+ * anchor A:M with the UID prepended (G/H dikirim string kosong) so Google's
+ * values.append does not silently left-shift the row (same fix as FG product
+ * sheet).
  */
 const EXPECTED_HEADERS = [
     "BARCODE",
@@ -29,17 +32,20 @@ const EXPECTED_HEADERS = [
     "MATERIAL NAME",
     "UOM",
     "SUPPLIER",
+    "SUPPLIER_FLAG",
+    "USD",
     "PRICE",
     "MOQ",
     "LEAD TIME",
     "MIN STOCK",
     "LOCAL/IMPORT",
 ] as const;
-const HEADER_RANGE = "B1:K1";
+const HEADER_RANGE = "B1:M1";
 const CODE_COLUMN_RANGE = "B2:B";
 const UID_COLUMN_RANGE = "A2:A";
-const APPEND_ANCHOR_RANGE = "A:K";
-const rowDataRange = (n: number) => `B${n}:K${n}`;
+const APPEND_ANCHOR_RANGE = "A:M";
+const rowLeftRange = (n: number) => `B${n}:F${n}`;
+const rowRightRange = (n: number) => `I${n}:M${n}`;
 
 const SHEET_INCLUDES = {
     raw_mat_category: { select: { name: true } },
@@ -98,7 +104,7 @@ export class RawMatSheetSyncService {
                 );
             }
 
-            const values = rawMatToRow(rm);
+            const { left, right } = rawMatToRowSegments(rm);
             let rowIndex = await GoogleSheetsClient.findRowByCode(
                 sheetId,
                 tab,
@@ -126,10 +132,12 @@ export class RawMatSheetSyncService {
                     sheetId,
                     tab,
                     APPEND_ANCHOR_RANGE,
-                    [nextUid, ...values],
+                    // G (SUPPLIER_FLAG) & H (USD) manual — kirim kosong saat append
+                    [nextUid, ...left, "", "", ...right],
                 );
             } else {
-                await GoogleSheetsClient.updateRow(sheetId, tab, rowDataRange(rowIndex), values);
+                await GoogleSheetsClient.updateRow(sheetId, tab, rowLeftRange(rowIndex), left);
+                await GoogleSheetsClient.updateRow(sheetId, tab, rowRightRange(rowIndex), right);
             }
             return;
         }

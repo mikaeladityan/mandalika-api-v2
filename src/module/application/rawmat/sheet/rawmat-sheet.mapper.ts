@@ -34,24 +34,32 @@ export function pickPreferredSupplier(rows: SupplierRow[]): SupplierRow | undefi
 }
 
 /**
- * Returns 10 cells matching the RM sheet column layout B-K:
- *   BARCODE | CATEGORY | MATERIAL NAME | UOM | SUPPLIER |
- *   PRICE   | MOQ      | LEAD TIME     | MIN STOCK | LOCAL/IMPORT
+ * RM sheet layout B-M. Kolom G (SUPPLIER_FLAG) dan H (USD) dikelola manual di
+ * sheet — sync TIDAK menulisnya. Karena itu row dipecah dua segmen:
+ *   left  (B-F): BARCODE | CATEGORY | MATERIAL NAME | UOM | SUPPLIER
+ *   right (I-M): PRICE   | MOQ      | LEAD TIME     | MIN STOCK | LOCAL/IMPORT
  *
- * Column A is reserved (not read or written). Sync MUST leave it alone.
+ * Column A (UID) is reserved (not read or written on update). Sync MUST leave it alone.
  */
-export function rawMatToRow(rm: RawMatWithSheetRelations): string[] {
+export function rawMatToRowSegments(rm: RawMatWithSheetRelations): {
+    left: string[];
+    right: string[];
+} {
     const pref = pickPreferredSupplier(rm.supplier_materials);
-    return [
-        rm.barcode ?? "",
-        rm.raw_mat_category?.name ?? "",
-        rm.name,
-        rm.unit_raw_material.name,
-        pref?.supplier.name ?? "",
-        pref != null ? String(pref.unit_price) : "",
-        pref?.min_buy != null ? String(pref.min_buy) : "",
-        pref?.lead_time != null ? String(pref.lead_time) : "",
-        rm.min_stock != null ? String(rm.min_stock) : "0",
-        pref?.supplier.source ?? rm.source ?? "",
-    ];
+    return {
+        left: [
+            rm.barcode ?? "",
+            rm.raw_mat_category?.name ?? "",
+            rm.name,
+            rm.unit_raw_material.name,
+            pref?.supplier.name ?? "",
+        ],
+        right: [
+            pref != null ? String(pref.unit_price) : "",
+            pref?.min_buy != null ? String(pref.min_buy) : "",
+            pref?.lead_time != null ? String(pref.lead_time) : "",
+            rm.min_stock != null ? String(rm.min_stock) : "0",
+            pref?.supplier.source ?? rm.source ?? "",
+        ],
+    };
 }

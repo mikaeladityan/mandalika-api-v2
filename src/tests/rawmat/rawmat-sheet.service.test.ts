@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const HEADERS = [
     "BARCODE", "CATEGORY", "MATERIAL NAME", "UOM",
-    "SUPPLIER", "PRICE", "MOQ", "LEAD TIME",
+    "SUPPLIER", "SUPPLIER_FLAG", "USD", "PRICE", "MOQ", "LEAD TIME",
     "MIN STOCK", "LOCAL/IMPORT",
 ];
 
@@ -28,7 +28,7 @@ vi.mock("../../lib/google-sheets.js", () => ({
     GoogleSheetsClient: {
         readHeader: vi.fn().mockResolvedValue([
             "BARCODE", "CATEGORY", "MATERIAL NAME", "UOM",
-            "SUPPLIER", "PRICE", "MOQ", "LEAD TIME",
+            "SUPPLIER", "SUPPLIER_FLAG", "USD", "PRICE", "MOQ", "LEAD TIME",
             "MIN STOCK", "LOCAL/IMPORT",
         ]),
         readColumn: vi.fn().mockResolvedValue([]),
@@ -67,11 +67,11 @@ const rmFixture = {
     ],
 };
 
-const rowValues = [
-    "RM-001", "BASE", "GLYCERIN", "KG",
-    "PT MAJU", "12500", "50", "7",
-    "25", "LOCAL",
-];
+// Kolom G (SUPPLIER_FLAG) & H (USD) manual di sheet — update menulis dua
+// segmen (B-F dan I-M); append menyisipkan dua sel kosong di posisi G/H.
+const rowLeft = ["RM-001", "BASE", "GLYCERIN", "KG", "PT MAJU"];
+const rowRight = ["12500", "50", "7", "25", "LOCAL"];
+const appendValues = [...rowLeft, "", "", ...rowRight];
 
 describe("computeNextUid", () => {
     it("returns '1' for an empty column", () => {
@@ -113,13 +113,16 @@ describe("RawMatSheetSyncService.handle", () => {
                 "rm-sheet", "MANDALIKA", "B2:B", "RM-001",
             );
             expect(GoogleSheetsClient.updateRow).toHaveBeenCalledWith(
-                "rm-sheet", "MANDALIKA", "B5:K5", rowValues,
+                "rm-sheet", "MANDALIKA", "B5:F5", rowLeft,
+            );
+            expect(GoogleSheetsClient.updateRow).toHaveBeenCalledWith(
+                "rm-sheet", "MANDALIKA", "I5:M5", rowRight,
             );
             expect(GoogleSheetsClient.appendRow).not.toHaveBeenCalled();
             expect(GoogleSheetsClient.readColumn).not.toHaveBeenCalled();
         });
 
-        it("appendRow gets UID + 10 data cells anchored to A:K when row missing (self-heal)", async () => {
+        it("appendRow gets UID + 12 data cells anchored to A:M when row missing (self-heal)", async () => {
             vi.mocked(prisma.rawMaterial.findUnique).mockResolvedValueOnce(rmFixture as never);
             vi.mocked(GoogleSheetsClient.findRowByCode).mockResolvedValueOnce(null);
             vi.mocked(GoogleSheetsClient.readColumn).mockResolvedValueOnce(["1", "2", "3"]);
@@ -130,8 +133,8 @@ describe("RawMatSheetSyncService.handle", () => {
                 "rm-sheet", "MANDALIKA", "A2:A",
             );
             expect(GoogleSheetsClient.appendRow).toHaveBeenCalledWith(
-                "rm-sheet", "MANDALIKA", "A:K",
-                ["4", ...rowValues],
+                "rm-sheet", "MANDALIKA", "A:M",
+                ["4", ...appendValues],
             );
             expect(GoogleSheetsClient.updateRow).not.toHaveBeenCalled();
         });
@@ -144,8 +147,8 @@ describe("RawMatSheetSyncService.handle", () => {
             await RawMatSheetSyncService.handle({ action: "upsert", rawMaterialId: 1 });
 
             expect(GoogleSheetsClient.appendRow).toHaveBeenCalledWith(
-                "rm-sheet", "MANDALIKA", "A:K",
-                ["1", ...rowValues],
+                "rm-sheet", "MANDALIKA", "A:M",
+                ["1", ...appendValues],
             );
         });
 
@@ -163,7 +166,10 @@ describe("RawMatSheetSyncService.handle", () => {
                 "rm-sheet", "MANDALIKA", "B2:B", "RM-OLD",
             );
             expect(GoogleSheetsClient.updateRow).toHaveBeenCalledWith(
-                "rm-sheet", "MANDALIKA", "B9:K9", rowValues,
+                "rm-sheet", "MANDALIKA", "B9:F9", rowLeft,
+            );
+            expect(GoogleSheetsClient.updateRow).toHaveBeenCalledWith(
+                "rm-sheet", "MANDALIKA", "I9:M9", rowRight,
             );
         });
 
@@ -186,7 +192,10 @@ describe("RawMatSheetSyncService.handle", () => {
                 2, "rm-sheet", "MANDALIKA", "B2:B", "RM-001",
             );
             expect(GoogleSheetsClient.updateRow).toHaveBeenCalledWith(
-                "rm-sheet", "MANDALIKA", "B11:K11", rowValues,
+                "rm-sheet", "MANDALIKA", "B11:F11", rowLeft,
+            );
+            expect(GoogleSheetsClient.updateRow).toHaveBeenCalledWith(
+                "rm-sheet", "MANDALIKA", "I11:M11", rowRight,
             );
         });
 
