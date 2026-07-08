@@ -164,7 +164,17 @@ export class ProductService {
             return created;
         } catch (e) {
             if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-                throw new ApiError(400, `Produk dengan kode: ${code} telah tersedia`);
+                // P2002 di transaksi ini bisa datang dari constraint selain code
+                // (mis. pkey type/unit/size saat sequence desync) — jangan klaim
+                // duplikat kode kecuali target constraint-nya memang code.
+                const target = String(e.meta?.target ?? "");
+                if (target.includes("code")) {
+                    throw new ApiError(400, `Produk dengan kode: ${code} telah tersedia`);
+                }
+                throw new ApiError(
+                    500,
+                    `Gagal membuat produk: konflik unik pada ${target || "constraint database"}. Hubungi developer.`,
+                );
             }
             throw e;
         }
