@@ -89,7 +89,9 @@ export const ResponseRawMaterialSchema = RequestRawMaterialSchema.omit({
 
 export const QueryRawMaterialSchema = z.object({
     page: z.number().int().positive().default(1).optional(),
-    take: z.number().int().positive().max(500).default(25).optional(),
+    // Max 5000: form option-list (recipe, BOM) memakai take besar untuk memuat
+    // semua pilihan sekaligus (SelectForm filter client-side)
+    take: z.number().int().positive().max(5000).default(25).optional(),
     status: z.enum(["actived", "deleted"]).default("actived"),
     type: z.enum(MaterialType).optional(),
     search: z.string().optional(),

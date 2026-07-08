@@ -77,7 +77,9 @@ export const QueryProductSchema = z.object({
     gender: z.enum(GENDER).optional(),
 
     page: z.coerce.number().int().positive().default(1).optional(),
-    take: z.coerce.number().int().positive().max(500).default(25).optional(),
+    // Max 5000: form option-list (recipe, GR/TG/DO/return) memakai take besar
+    // untuk memuat semua pilihan sekaligus (SelectForm filter client-side)
+    take: z.coerce.number().int().positive().max(5000).default(25).optional(),
 
     search: z.string().optional(),
     status: z.enum(STATUS).optional(),
