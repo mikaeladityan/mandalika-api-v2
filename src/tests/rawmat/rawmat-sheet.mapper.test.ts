@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rawMatToRow, pickPreferredSupplier } from "../../module/application/rawmat/sheet/rawmat-sheet.mapper.js";
+import { rawMatToRowSegments, pickPreferredSupplier } from "../../module/application/rawmat/sheet/rawmat-sheet.mapper.js";
 
 describe("pickPreferredSupplier", () => {
     it("returns the is_preferred ACTIVE supplier first", () => {
@@ -32,7 +32,7 @@ describe("pickPreferredSupplier", () => {
     });
 });
 
-describe("rawMatToRow", () => {
+describe("rawMatToRowSegments", () => {
     const baseRm = {
         id: 1,
         barcode: "RM-001",
@@ -46,51 +46,52 @@ describe("rawMatToRow", () => {
         ],
     };
 
-    it("returns 10 cells in B-K order with all fields populated", () => {
-        const row = rawMatToRow(baseRm as never);
-        expect(row).toEqual([
-            "RM-001",     // B BARCODE
-            "BASE",       // C CATEGORY
+    it("returns B-F and I-M segments with all fields populated", () => {
+        const { left, right } = rawMatToRowSegments(baseRm as never);
+        expect(left).toEqual([
+            "RM-001",       // B BARCODE
+            "BASE",         // C CATEGORY
             "GLYCERIN USP", // D NAME
-            "KG",         // E UOM
-            "PT MAJU",    // F SUPPLIER
-            "12500",      // G PRICE
-            "50",         // H MOQ
-            "7",          // I LEAD TIME
-            "25",         // J MIN STOCK
-            "LOCAL",      // K LOCAL/IMPORT
+            "KG",           // E UOM
+            "PT MAJU",      // F SUPPLIER
         ]);
-        expect(row).toHaveLength(10);
+        expect(right).toEqual([
+            "12500",  // I PRICE
+            "50",     // J MOQ
+            "7",      // K LEAD TIME
+            "25",     // L MIN STOCK
+            "LOCAL",  // M LOCAL/IMPORT
+        ]);
     });
 
     it("substitutes empty strings for null category and source", () => {
-        const row = rawMatToRow({ ...baseRm, raw_mat_category: null, source: null } as never);
-        expect(row[1]).toBe(""); // C
-        expect(row[9]).toBe(""); // K
+        const { left, right } = rawMatToRowSegments({ ...baseRm, raw_mat_category: null, source: null } as never);
+        expect(left[1]).toBe("");  // C
+        expect(right[4]).toBe(""); // M
     });
 
     it("substitutes '0' for null min_stock", () => {
-        const row = rawMatToRow({ ...baseRm, min_stock: null } as never);
-        expect(row[8]).toBe("0"); // J
+        const { right } = rawMatToRowSegments({ ...baseRm, min_stock: null } as never);
+        expect(right[3]).toBe("0"); // L
     });
 
     it("leaves supplier columns blank when no ACTIVE supplier", () => {
-        const row = rawMatToRow({ ...baseRm, supplier_materials: [] } as never);
-        expect(row[4]).toBe(""); // F SUPPLIER
-        expect(row[5]).toBe(""); // G PRICE
-        expect(row[6]).toBe(""); // H MOQ
-        expect(row[7]).toBe(""); // I LEAD TIME
+        const { left, right } = rawMatToRowSegments({ ...baseRm, supplier_materials: [] } as never);
+        expect(left[4]).toBe("");  // F SUPPLIER
+        expect(right[0]).toBe(""); // I PRICE
+        expect(right[1]).toBe(""); // J MOQ
+        expect(right[2]).toBe(""); // K LEAD TIME
     });
 
     it("emits '' for null min_buy / lead_time on preferred supplier", () => {
-        const row = rawMatToRow({
+        const { right } = rawMatToRowSegments({
             ...baseRm,
             supplier_materials: [
                 { id: 1, is_preferred: true, status: "ACTIVE", supplier: { name: "PT X" }, unit_price: 100, min_buy: null, lead_time: null },
             ],
         } as never);
-        expect(row[5]).toBe("100"); // G PRICE
-        expect(row[6]).toBe("");    // H MOQ null
-        expect(row[7]).toBe("");    // I LEAD TIME null
+        expect(right[0]).toBe("100"); // I PRICE
+        expect(right[1]).toBe("");    // J MOQ null
+        expect(right[2]).toBe("");    // K LEAD TIME null
     });
 });
