@@ -4,7 +4,8 @@ export const QueryRawMaterialStockSchema = z.object({
     category_id: z.coerce.number().positive().optional(),
     supplier_id: z.coerce.number().positive().optional(),
     page: z.coerce.number().int().positive().default(1).optional(),
-    take: z.coerce.number().int().positive().max(500).default(50).optional(),
+    // Max 5000: export CSV memakai take besar untuk mengambil semua baris
+    take: z.coerce.number().int().positive().max(5000).default(50).optional(),
     search: z.string().optional(),
     month: z.coerce.number().int().min(1).max(12).optional(),
     year: z.coerce.number().int().min(2000).optional(),
