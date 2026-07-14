@@ -234,3 +234,104 @@ describe("ConsolidationService.list — supplier identity masking", () => {
         }
     });
 });
+
+describe("ConsolidationService.bulkToggleHide", () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("sets hidden_at to a Date when hidden=true", async () => {
+        const updateMany = vi.fn().mockResolvedValue({ count: 2 });
+        // @ts-ignore
+        prisma.materialPurchaseDraft = { updateMany };
+
+        await ConsolidationService.bulkToggleHide({ ids: [1, 2], hidden: true });
+
+        expect(updateMany).toHaveBeenCalledWith({
+            where: { id: { in: [1, 2] } },
+            data: { hidden_at: expect.any(Date) },
+        });
+    });
+
+    it("clears hidden_at when hidden=false", async () => {
+        const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+        // @ts-ignore
+        prisma.materialPurchaseDraft = { updateMany };
+
+        await ConsolidationService.bulkToggleHide({ ids: [3], hidden: false });
+
+        expect(updateMany).toHaveBeenCalledWith({
+            where: { id: { in: [3] } },
+            data: { hidden_at: null },
+        });
+    });
+});
+
+describe("ConsolidationService.list — hidden filter", () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const setupListMocks = (visibleCount = 0, hiddenCount = 0) => {
+        const count = vi
+            .fn()
+            .mockResolvedValueOnce(visibleCount)
+            .mockResolvedValueOnce(hiddenCount);
+        const findMany = vi.fn().mockResolvedValue([]);
+        // @ts-ignore
+        prisma.materialPurchaseDraft = { count, findMany };
+        return { count, findMany };
+    };
+
+    it("filters hidden_at: null on visible view", async () => {
+        const { findMany } = setupListMocks();
+        await ConsolidationService.list({ page: 1, take: 10, view: "visible" } as any);
+        expect(findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({ hidden_at: null }),
+            }),
+        );
+    });
+
+    it("filters hidden_at: { not: null } on hidden view", async () => {
+        const { findMany } = setupListMocks();
+        await ConsolidationService.list({ page: 1, take: 10, view: "hidden" } as any);
+        expect(findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({ hidden_at: { not: null } }),
+            }),
+        );
+    });
+
+    it("returns visible_len, hidden_len, and len matching active view", async () => {
+        setupListMocks(5, 2);
+        const res = await ConsolidationService.list({ page: 1, take: 10, view: "visible" } as any);
+        expect(res.visible_len).toBe(5);
+        expect(res.hidden_len).toBe(2);
+        expect(res.len).toBe(5);
+    });
+
+    it("len uses hidden count on hidden view", async () => {
+        setupListMocks(5, 2);
+        const res = await ConsolidationService.list({ page: 1, take: 10, view: "hidden" } as any);
+        expect(res.len).toBe(2);
+    });
+});
+
+describe("ConsolidationService.summaryBySupplier — hidden excluded", () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("always filters hidden_at: null", async () => {
+        const findMany = vi.fn().mockResolvedValue([]);
+        // @ts-ignore
+        prisma.materialPurchaseDraft = { findMany };
+        await ConsolidationService.summaryBySupplier({ page: 1, take: 10 } as any);
+        expect(findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({ hidden_at: null }),
+            }),
+        );
+    });
+});

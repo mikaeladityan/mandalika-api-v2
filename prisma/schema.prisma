@@ -1416,6 +1416,7 @@ enum RecommendationStatus {
   DRAFT
   ACC
   REJECTED
+  POSTED
 }
 
 enum TransferLocationType {

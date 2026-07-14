@@ -1,7 +1,7 @@
 import { Prisma } from "../../../generated/prisma/client.js";
 import prisma from "../../../config/prisma.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
-import { QueryConsolidationDTO } from "./consolidation.schema.js";
+import { QueryConsolidationDTO, RequestBulkHideDTO } from "./consolidation.schema.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { RecomendationV2Service } from "../recomendation-v2/recomendation-v2.service.js";
 import { obscureSupplierName } from "../../../lib/utils/supplier-obscure.js";
@@ -40,7 +40,7 @@ const escapeCsv = (val: unknown): string => {
 
 export class ConsolidationService {
     static async list(query: QueryConsolidationDTO) {
-        const { search, page, take, month, year } = query;
+        const { search, page, take, month, year, view } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
         const now = new Date();
@@ -50,7 +50,7 @@ export class ConsolidationService {
         const type_condition = ConsolidationService.buildTypeCondition(query.type);
 
         const query_condition: any = {
-            status: { in: ["DRAFT", "ACC"] },
+            status: { in: ["DRAFT", "ACC", "POSTED"] },
             month: currentMonth,
             year: currentYear,
             quantity: {
@@ -73,9 +73,17 @@ export class ConsolidationService {
             };
         }
 
-        const total = await prisma.materialPurchaseDraft.count({
-            where: query_condition,
-        });
+        const [visible_len, hidden_len] = await Promise.all([
+            prisma.materialPurchaseDraft.count({
+                where: { ...query_condition, hidden_at: null },
+            }),
+            prisma.materialPurchaseDraft.count({
+                where: { ...query_condition, hidden_at: { not: null } },
+            }),
+        ]);
+        const total = view === "hidden" ? hidden_len : visible_len;
+
+        query_condition.hidden_at = view === "hidden" ? { not: null } : null;
 
         const dir: "asc" | "desc" = query.order === "asc" ? "asc" : "desc";
         const sortInMemoryBySupplier = query.sortBy === "supplier_name";
@@ -147,10 +155,10 @@ export class ConsolidationService {
                 const cmp = collator.compare(a.supplier_name || "", b.supplier_name || "");
                 return dir === "asc" ? cmp : -cmp;
             });
-            return { data: parsedAll.slice(skip, skip + limit), len: total };
+            return { data: parsedAll.slice(skip, skip + limit), len: total, visible_len, hidden_len };
         }
 
-        return { data: parsedAll, len: total };
+        return { data: parsedAll, len: total, visible_len, hidden_len };
     }
 
     static async summaryBySupplier(query: QueryConsolidationDTO) {
@@ -163,12 +171,13 @@ export class ConsolidationService {
         const type_condition = ConsolidationService.buildTypeCondition(query.type);
 
         const query_condition: any = {
-            status: { in: ["DRAFT", "ACC"] },
+            status: { in: ["DRAFT", "ACC", "POSTED"] },
             month: currentMonth,
             year: currentYear,
             quantity: {
                 gt: 0,
             },
+            hidden_at: null,
         };
 
         if (query.supplier_id || query.type || search) {
@@ -322,6 +331,14 @@ export class ConsolidationService {
         // BOM agar Excel mengenali UTF-8; CRLF mengikuti RFC 4180.
         const csv = "﻿" + lines.join("\r\n");
         return Buffer.from(csv, "utf8");
+    }
+
+    static async bulkToggleHide(body: RequestBulkHideDTO) {
+        const { ids, hidden } = body;
+        return await prisma.materialPurchaseDraft.updateMany({
+            where: { id: { in: ids } },
+            data: { hidden_at: hidden ? new Date() : null },
+        });
     }
 
     static async bulkUpdateStatus(ids: number[], status: any, userId?: string) {

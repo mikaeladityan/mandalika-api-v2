@@ -1,5 +1,5 @@
 import { Context } from "hono";
-import { QueryConsolidationSchema } from "./consolidation.schema.js";
+import { QueryConsolidationSchema, RequestBulkHideSchema } from "./consolidation.schema.js";
 import { ConsolidationService } from "./consolidation.service.js";
 import { ApiResponse } from "../../../lib/api.response.js";
 
@@ -50,5 +50,12 @@ export class ConsolidationController {
         const userId = c.get("userId") || "anonymous";
         const result = await ConsolidationService.bulkUpdateStatus(validPayload.ids, validPayload.status, userId);
         return ApiResponse.sendSuccess(c, result);
+    }
+
+    static async bulkToggleHide(c: Context) {
+        const body = await c.req.json();
+        const validBody = RequestBulkHideSchema.parse(body);
+        const result = await ConsolidationService.bulkToggleHide(validBody);
+        return ApiResponse.sendSuccess(c, result, 200);
     }
 }

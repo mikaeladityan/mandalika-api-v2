@@ -7,5 +7,6 @@ ConsolidationRoutes.get("/", ConsolidationController.list);
 ConsolidationRoutes.get("/summary", ConsolidationController.summary);
 ConsolidationRoutes.get("/export", ConsolidationController.export);
 ConsolidationRoutes.patch("/bulk-status", ConsolidationController.bulkUpdateStatus);
+ConsolidationRoutes.patch("/hide", ConsolidationController.bulkToggleHide);
 
 export default ConsolidationRoutes;
