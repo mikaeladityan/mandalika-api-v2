@@ -50,7 +50,7 @@ export class ConsolidationService {
         const type_condition = ConsolidationService.buildTypeCondition(query.type);
 
         const query_condition: any = {
-            status: { in: ["DRAFT", "ACC"] },
+            status: { in: ["DRAFT", "ACC", "POSTED"] },
             month: currentMonth,
             year: currentYear,
             quantity: {
@@ -171,7 +171,7 @@ export class ConsolidationService {
         const type_condition = ConsolidationService.buildTypeCondition(query.type);
 
         const query_condition: any = {
-            status: { in: ["DRAFT", "ACC"] },
+            status: { in: ["DRAFT", "ACC", "POSTED"] },
             month: currentMonth,
             year: currentYear,
             quantity: {
