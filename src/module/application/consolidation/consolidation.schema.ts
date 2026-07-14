@@ -13,6 +13,7 @@ export const QueryConsolidationSchema = z.object({
     columnOrder: z.string().optional(),
     selectedIds: z.string().optional(),
     type: z.enum(["ffo", "lokal", "impor", "tester"]).optional(),
+    view: z.enum(["visible", "hidden"]).optional().default("visible"),
 });
 
 export type QueryConsolidationDTO = z.infer<typeof QueryConsolidationSchema>;
@@ -39,3 +40,10 @@ export const BulkUpdateStatusSchema = z.object({
 });
 
 export type BulkUpdateStatusDTO = z.infer<typeof BulkUpdateStatusSchema>;
+
+export const RequestBulkHideSchema = z.object({
+    ids: z.array(z.number()).min(1),
+    hidden: z.boolean(),
+});
+
+export type RequestBulkHideDTO = z.infer<typeof RequestBulkHideSchema>;
