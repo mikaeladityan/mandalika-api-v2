@@ -5,6 +5,11 @@ import { normalizeSlug } from "../../../../lib/index.js";
 import { RequestTypeDTO, QueryTypeDTO, ResponseTypeDTO, UpdateTypeDTO } from "./type.schema.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 
+const OTHERS_SLUGS = [
+    "display", "kertas", "botol", "paper-bag",
+    "kartu-garansi", "canvas-bag", "box-uk", "others",
+];
+
 export class TypeService {
     static async create(body: RequestTypeDTO): Promise<ResponseTypeDTO> {
         const name = body.name.trim();
@@ -21,12 +26,25 @@ export class TypeService {
     }
 
     static async list(query: QueryTypeDTO): Promise<{ data: ResponseTypeDTO[]; len: number }> {
-        const { search, page = 1, take = 25 } = query;
+        const { search, page = 1, take = 25, is_others } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
-        const where = search
-            ? { name: { contains: search, mode: "insensitive" as const } }
-            : undefined;
+        const where: Prisma.ProductTypeWhereInput = {
+            ...(search && { name: { contains: search, mode: "insensitive" as const } }),
+            ...(is_others !== undefined && {
+                ...(is_others === "true"
+                    ? {
+                          OR: OTHERS_SLUGS.map((s) => ({
+                              slug: { contains: s, mode: "insensitive" as const },
+                          })),
+                      }
+                    : {
+                          NOT: OTHERS_SLUGS.map((s) => ({
+                              slug: { contains: s, mode: "insensitive" as const },
+                          })),
+                      }),
+            }),
+        };
 
         const [data, len] = await Promise.all([
             prisma.productType.findMany({
