@@ -23,7 +23,7 @@ const PRODUCT_SELECT = {
     safety_percentage: true,
 } as const;
 
-const OTHERS_TYPE_NOT = ["display", "kertas", "botol", "paper-bag", "kartu-garansi", "canvas-bag", "box-uk"].map(
+const OTHERS_TYPE_NOT = ["display", "kertas", "botol", "paper-bag", "kartu-garansi", "canvas-bag", "box-uk", "others"].map(
     (s) => ({ product_type: { slug: { contains: s, mode: "insensitive" as const } } }),
 );
 
@@ -164,7 +164,8 @@ export class ForecastService {
                         sl.includes("paper-bag") ||
                         sl.includes("kartu-garansi") ||
                         sl.includes("canvas-bag") ||
-                        sl.includes("box-uk")
+                        sl.includes("box-uk") ||
+                        sl.includes("others")
                     );
                 };
 
@@ -509,55 +510,65 @@ export class ForecastService {
                                             slug: { contains: "canvas-bag", mode: "insensitive" },
                                         },
                                     },
-                                    {
-                                        product_type: {
-                                            slug: { contains: "box-uk", mode: "insensitive" },
-                                        },
-                                    },
-                                ],
-                            }
-                          : {
-                                NOT: [
-                                    {
-                                        product_type: {
-                                            slug: { contains: "display", mode: "insensitive" },
-                                        },
-                                    },
-                                    {
-                                        product_type: {
-                                            slug: { contains: "kertas", mode: "insensitive" },
-                                        },
-                                    },
-                                    {
-                                        product_type: {
-                                            slug: { contains: "botol", mode: "insensitive" },
-                                        },
-                                    },
-                                    {
-                                        product_type: {
-                                            slug: { contains: "paper-bag", mode: "insensitive" },
-                                        },
-                                    },
-                                    {
-                                        product_type: {
-                                            slug: {
-                                                contains: "kartu-garansi",
-                                                mode: "insensitive",
-                                            },
-                                        },
-                                    },
-                                    {
-                                        product_type: {
-                                            slug: { contains: "canvas-bag", mode: "insensitive" },
-                                        },
-                                    },
-                                    {
-                                        product_type: {
-                                            slug: { contains: "box-uk", mode: "insensitive" },
-                                        },
-                                    },
-                                ],
-                            }),
+                                      {
+                                          product_type: {
+                                              slug: { contains: "box-uk", mode: "insensitive" },
+                                          },
+                                      },
+                                      {
+                                          product_type: {
+                                              slug: { contains: "others", mode: "insensitive" },
+                                          },
+                                      },
+                                  ],
+                              }
+                            : {
+                                  NOT: [
+                                      {
+                                          product_type: {
+                                              slug: { contains: "display", mode: "insensitive" },
+                                          },
+                                      },
+                                      {
+                                          product_type: {
+                                              slug: { contains: "kertas", mode: "insensitive" },
+                                          },
+                                      },
+                                      {
+                                          product_type: {
+                                              slug: { contains: "botol", mode: "insensitive" },
+                                          },
+                                      },
+                                      {
+                                          product_type: {
+                                              slug: { contains: "paper-bag", mode: "insensitive" },
+                                          },
+                                      },
+                                      {
+                                          product_type: {
+                                              slug: {
+                                                  contains: "kartu-garansi",
+                                                  mode: "insensitive",
+                                              },
+                                          },
+                                      },
+                                      {
+                                          product_type: {
+                                              slug: { contains: "canvas-bag", mode: "insensitive" },
+                                          },
+                                      },
+                                      {
+                                          product_type: {
+                                              slug: { contains: "box-uk", mode: "insensitive" },
+                                          },
+                                      },
+                                      {
+                                          product_type: {
+                                              slug: { contains: "others", mode: "insensitive" },
+                                          },
+                                      },
+                                  ],
+                              }),
                   },
                   select: PRODUCT_SELECT,
               });
@@ -748,7 +759,8 @@ export class ForecastService {
             tSlug.includes("paper-bag") ||
             tSlug.includes("kartu-garansi") ||
             tSlug.includes("canvas-bag") ||
-            tSlug.includes("box-uk");
+            tSlug.includes("box-uk") ||
+            tSlug.includes("others");
 
         if (!isOthersProduct) {
             throw new ApiError(403, "Update manual hanya diizinkan untuk produk Others.");
@@ -1050,40 +1062,50 @@ export class ForecastService {
                                   slug: { contains: "canvas-bag", mode: "insensitive" },
                               },
                           },
-                          {
-                              product_type: {
-                                  slug: { contains: "box-uk", mode: "insensitive" },
-                              },
-                          },
-                      ],
-                  }
-                : {
-                      NOT: [
-                          { product_type: { slug: { contains: "display", mode: "insensitive" } } },
-                          { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
-                          { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
-                          {
-                              product_type: {
-                                  slug: { contains: "paper-bag", mode: "insensitive" },
-                              },
-                          },
-                          {
-                              product_type: {
-                                  slug: { contains: "kartu-garansi", mode: "insensitive" },
-                              },
-                          },
-                          {
-                              product_type: {
-                                  slug: { contains: "canvas-bag", mode: "insensitive" },
-                              },
-                          },
-                          {
-                              product_type: {
-                                  slug: { contains: "box-uk", mode: "insensitive" },
-                              },
-                          },
-                      ],
-                  }),
+                           {
+                               product_type: {
+                                   slug: { contains: "box-uk", mode: "insensitive" },
+                               },
+                           },
+                           {
+                               product_type: {
+                                   slug: { contains: "others", mode: "insensitive" },
+                               },
+                           },
+                       ],
+                   }
+                 : {
+                       NOT: [
+                           { product_type: { slug: { contains: "display", mode: "insensitive" } } },
+                           { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
+                           { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
+                           {
+                               product_type: {
+                                   slug: { contains: "paper-bag", mode: "insensitive" },
+                               },
+                           },
+                           {
+                               product_type: {
+                                   slug: { contains: "kartu-garansi", mode: "insensitive" },
+                               },
+                           },
+                           {
+                               product_type: {
+                                   slug: { contains: "canvas-bag", mode: "insensitive" },
+                               },
+                           },
+                           {
+                               product_type: {
+                                   slug: { contains: "box-uk", mode: "insensitive" },
+                               },
+                           },
+                           {
+                               product_type: {
+                                   slug: { contains: "others", mode: "insensitive" },
+                               },
+                           },
+                       ],
+                   }),
             ...(query.type_id && { type_id: query.type_id }),
             ...(query.size_id && { size_id: query.size_id }),
             ...(query.search && {
@@ -1687,6 +1709,11 @@ export class ForecastService {
                                           slug: { contains: "box-uk", mode: "insensitive" },
                                       },
                                   },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "others", mode: "insensitive" },
+                                      },
+                                  },
                               ],
                           }
                         : {
@@ -1724,6 +1751,11 @@ export class ForecastService {
                                   {
                                       product_type: {
                                           slug: { contains: "box-uk", mode: "insensitive" },
+                                      },
+                                  },
+                                  {
+                                      product_type: {
+                                          slug: { contains: "others", mode: "insensitive" },
                                       },
                                   },
                               ],
