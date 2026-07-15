@@ -19,12 +19,13 @@ export class TypeController {
     }
 
     static async list(c: Context) {
-        const { search, page, take } = c.req.query();
+        const { search, page, take, is_others } = c.req.query();
 
         const query: QueryTypeDTO = {
             search,
             page: page ? Number(page) : undefined,
             take: take ? Number(take) : undefined,
+            is_others: is_others === "true" ? "true" : is_others === "false" ? "false" : undefined,
         };
 
         const result = await TypeService.list(query);

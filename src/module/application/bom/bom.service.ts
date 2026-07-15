@@ -201,7 +201,8 @@ export class BOMService {
                     r.pt_slug.includes("paper-bag") || 
                     r.pt_slug.includes("kartu-garansi") || 
                     r.pt_slug.includes("canvas-bag") ||
-                    r.pt_slug.includes("box-uk")
+                    r.pt_slug.includes("box-uk") ||
+                    r.pt_slug.includes("others")
                 );
                 const safetyPct = (r.p_safety_percentage && r.p_safety_percentage > 0)
                     ? Number(r.p_safety_percentage)
@@ -462,7 +463,8 @@ export class BOMService {
                                 ptSlug.includes("paper-bag") || 
                                 ptSlug.includes("kartu-garansi") || 
                                 ptSlug.includes("canvas-bag") ||
-                                ptSlug.includes("box-uk");
+                                ptSlug.includes("box-uk") ||
+                                ptSlug.includes("others");
                 
                 const safetyPct = (r.products.safety_percentage && Number(r.products.safety_percentage) > 0)
                     ? Number(r.products.safety_percentage)

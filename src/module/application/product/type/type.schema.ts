@@ -8,6 +8,7 @@ export const QueryTypeSchema = z.object({
     search: z.string().optional(),
     page: z.coerce.number().int().positive().default(1).optional(),
     take: z.coerce.number().int().positive().max(500).default(25).optional(),
+    is_others: z.enum(["true", "false"]).optional(),
 });
 
 export const ResponseTypeSchema = RequestTypeSchema.extend({
