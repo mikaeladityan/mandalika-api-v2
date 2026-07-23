@@ -279,7 +279,7 @@ describe("AuthRoutes", () => {
     // ─── DELETE /api/auth (logout) ────────────────────────────────────────────
 
     describe("DELETE /api/auth", () => {
-        it("should return 201 and clear session on logout", async () => {
+        it("should return 200 and clear session on logout", async () => {
             mockAuthSession();
 
             const res = await app.request("/api/auth", {
@@ -288,7 +288,7 @@ describe("AuthRoutes", () => {
             });
 
             const body = await res.json();
-            expect(res.status).toBe(201);
+            expect(res.status).toBe(200);
             expect(body.status).toBe("success");
             expect(redisClient.del).toHaveBeenCalled();
         });
