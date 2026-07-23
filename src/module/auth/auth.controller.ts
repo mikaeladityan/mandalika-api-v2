@@ -3,7 +3,7 @@ import { AuthService } from "./auth.service.js";
 import { CreateLoggingActivityDTO } from "../application/log/log.schema.js";
 import { CreateLogger } from "../application/log/log.service.js";
 import { ApiResponse } from "../../lib/api.response.js";
-import { SessionManager } from "../../lib/session.management.js";
+import { SessionManager, sessionCache } from "../../lib/session.management.js";
 import { ApiError } from "../../lib/errors/api.error.js";
 import { generateHexToken } from "../../lib/index.js";
 import { getConnInfo } from "@hono/node-server/conninfo";
@@ -66,7 +66,8 @@ export class AuthController {
             c.req.header("Authorization")?.replace("Bearer ", "");
 
         if (sessionId) {
-            // Read session to get email before deleting, so we can remove from index
+            sessionCache.delete(sessionId);
+
             const raw = await redisClient.get(`session:${sessionId}`);
             if (raw) {
                 try {
@@ -85,8 +86,14 @@ export class AuthController {
             await redisClient.del(`csrf:${sessionId}`);
         }
 
-        deleteCookie(c, env.CSRF_COOKIE_NAME);
-        deleteCookie(c, env.SESSION_COOKIE_NAME);
+        deleteCookie(c, env.CSRF_COOKIE_NAME, {
+            path: "/",
+            domain: env.isProduction && env.COOKIE_DOMAIN ? env.COOKIE_DOMAIN : undefined,
+        });
+        deleteCookie(c, env.SESSION_COOKIE_NAME, {
+            path: "/",
+            domain: env.isProduction && env.COOKIE_DOMAIN ? env.COOKIE_DOMAIN : undefined,
+        });
 
         return ApiResponse.sendSuccess(c, {}, 200);
     }

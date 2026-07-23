@@ -8,6 +8,7 @@ const CSRF_EXEMPT_ROUTES = [
     "GET:/csrf",
     "GET:/health",
     "OPTIONS:*",
+    "DELETE:/api/auth",
     // "POST:/api/app/recomendations/order",
     // "POST:/api/app/recomendations/approve",
     // "PATCH:/api/app/po/open/*",
