@@ -139,6 +139,7 @@ export class ForecastAccuracyService {
             total_sales: number | string | null;
             excluded_count: number | string;
             wmape_accuracy: number | string | null;
+            wmape_error: number | string | null;
             bias_pct: number | string | null;
             accurate_count: number | string;
             under_count: number | string;
@@ -169,6 +170,8 @@ export class ForecastAccuracyService {
                 COUNT(*) FILTER (WHERE ROUND(sales) <= 0 OR forecast IS NULL)::int                                          AS excluded_count,
                 GREATEST(0, (1 - SUM(ABS(ROUND(forecast) - ROUND(sales))) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL)
                     / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL), 0)) * 100)::float8 AS wmape_accuracy,
+                (SUM(ABS(ROUND(forecast) - ROUND(sales))) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL)
+                    / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL), 0) * 100)::float8 AS wmape_error,
                 (SUM(ROUND(forecast)) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL)
                     / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL), 0) * 100)::float8  AS bias_pct,
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${threshold} AND ${upper})::int AS accurate_count,
@@ -183,6 +186,7 @@ export class ForecastAccuracyService {
             total_sales: 0,
             excluded_count: 0,
             wmape_accuracy: null,
+            wmape_error: null,
             bias_pct: null,
             accurate_count: 0,
             under_count: 0,
@@ -223,6 +227,7 @@ export class ForecastAccuracyService {
         const product_count = Number(agg.product_count ?? 0);
         const excluded_count = Number(agg.excluded_count ?? 0);
         const wmape_accuracy = agg.wmape_accuracy != null ? Number(agg.wmape_accuracy) : null;
+        const wmape_error = agg.wmape_error != null ? Number(agg.wmape_error) : null;
         const bias_pct = agg.bias_pct != null ? Number(agg.bias_pct) : null;
         const accurate_count = Number(agg.accurate_count ?? 0);
         const under_count = Number(agg.under_count ?? 0);
@@ -235,6 +240,7 @@ export class ForecastAccuracyService {
                 total_forecast,
                 total_sales,
                 accuracy_percentage: wmape_accuracy != null ? `${wmape_accuracy.toFixed(2)}%` : "N/A",
+                margin_of_error_percentage: wmape_error != null ? `${wmape_error.toFixed(2)}%` : "N/A",
                 bias_percentage: bias_pct != null ? `${bias_pct.toFixed(2)}%` : "N/A",
                 product_count,
                 excluded_count,
