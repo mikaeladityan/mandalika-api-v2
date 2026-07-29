@@ -18,6 +18,7 @@ import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 import * as ExcelJS from "exceljs";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { logger } from "../../../lib/logger.js";
+import { calculatePOEta } from "../purchase/po/po-eta.js";
 
 const EDITABLE_PO_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "ORDERED"] as const;
 type EditablePOStatus = typeof EDITABLE_PO_STATUSES[number];
@@ -832,6 +833,16 @@ export class RecomendationV2Service {
                         include: { items: true },
                     });
 
+                    await tx.purchaseTracking.create({
+                        data: {
+                            po_id: po.id,
+                            order_status: "ORDERED",
+                            payment_status: "UNPAID",
+                            eta_date: calculatePOEta(po.ordered_at ?? new Date(), [resolved.lead_time]),
+                            updated_by: userId,
+                        },
+                    });
+
                     const item = po.items[0];
                     if (!item) throw new ApiError(500, "Gagal membuat PO item");
                     return {
@@ -1326,6 +1337,7 @@ export class RecomendationV2Service {
                         supplier_id: number;
                         supplier_name: string;
                         unit_price: number;
+                        lead_time: number | null;
                         moq: Prisma.Decimal | null;
                     };
                     const groups = new Map<string, ResolvedDraft[]>();
@@ -1341,6 +1353,7 @@ export class RecomendationV2Service {
                             supplier_id: r.supplier_id,
                             supplier_name: r.supplier_name,
                             unit_price: r.unit_price,
+                            lead_time: r.lead_time,
                             moq: moqRow?.min_buy ?? null,
                         });
                         groups.set(key, arr);
@@ -1406,6 +1419,15 @@ export class RecomendationV2Service {
                                 items: { create: poItemsData },
                             },
                             select: { id: true },
+                        });
+                        await tx.purchaseTracking.create({
+                            data: {
+                                po_id: po.id,
+                                order_status: "ORDERED",
+                                payment_status: "UNPAID",
+                                eta_date: calculatePOEta(new Date(), items.map((item) => item.lead_time)),
+                                updated_by: userId,
+                            },
                         });
                         createdPoIds.push(po.id);
                         affectedDraftIds.push(...items.map((it) => it.draft.id));
@@ -1884,7 +1906,7 @@ export class RecomendationV2Service {
         tx: Prisma.TransactionClient,
         rawMatId: number,
         overrideSupplierId?: number,
-    ): Promise<{ supplier_id: number; supplier_name: string; unit_price: number }> {
+    ): Promise<{ supplier_id: number; supplier_name: string; unit_price: number; lead_time: number | null }> {
         let supplierId = overrideSupplierId;
 
         if (!supplierId) {
@@ -1906,7 +1928,7 @@ export class RecomendationV2Service {
 
         const supplierMaterial = await tx.supplierMaterial.findFirst({
             where: { supplier_id: supplierId, raw_material_id: rawMatId, status: "ACTIVE" },
-            select: { unit_price: true },
+            select: { unit_price: true, lead_time: true },
         });
 
         let unitPrice = supplierMaterial ? Number(supplierMaterial.unit_price) : 0;
@@ -1920,6 +1942,11 @@ export class RecomendationV2Service {
             if (lastItem) unitPrice = Number(lastItem.unit_price);
         }
 
-        return { supplier_id: supplier.id, supplier_name: supplier.name, unit_price: unitPrice };
+        return {
+            supplier_id: supplier.id,
+            supplier_name: supplier.name,
+            unit_price: unitPrice,
+            lead_time: supplierMaterial?.lead_time ?? null,
+        };
     }
 }
