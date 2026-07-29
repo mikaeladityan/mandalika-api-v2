@@ -53,6 +53,7 @@ const mockReceipt = {
             item_name: "Kain Katun",
             uom: "meter",
             qty_received: 50,
+            qty_missing: 0,
             unit_price: 20000,
             amount: 1000000,
             notes: null,
@@ -176,6 +177,23 @@ describe("ReceiptService", () => {
                     userId,
                 )
             ).rejects.toThrow(ApiError);
+        });
+
+        it("should throw if received plus missing exceeds open qty", async () => {
+            // @ts-ignore
+            prisma.purchaseOrderItem = {
+                findMany: vi.fn().mockResolvedValue([mockPOItem]),
+            };
+
+            await expect(
+                ReceiptService.create(
+                    {
+                        warehouse_id: 3,
+                        items: [{ po_id: 1, po_item_id: 10, qty_received: 80, qty_missing: 30 }],
+                    },
+                    userId,
+                ),
+            ).rejects.toThrow(/received \+ missing/i);
         });
 
         it("should create receipt successfully", async () => {
@@ -305,6 +323,69 @@ describe("ReceiptService", () => {
             expect(mockTx.purchaseOrderItem.update).toHaveBeenCalledOnce();
             expect(mockTx.stockMovement.create).toHaveBeenCalledOnce();
             expect(mockTx.accountPayable.create).toHaveBeenCalledOnce();
+        });
+
+        it("closes missing qty without adding it to inventory", async () => {
+            const missingReceipt = {
+                ...mockReceipt,
+                items: [{ ...mockReceipt.items[0], qty_received: 80, qty_missing: 20 }],
+            };
+            const mockPO = {
+                id: 1,
+                supplier_id: 1,
+                supplier_name: "PT Supplier ABC",
+                status: "ORDERED",
+                items: [{ ...mockPOItem, qty_received: 0 }],
+            };
+            // @ts-ignore
+            prisma.purchaseReceipt = { findUniqueOrThrow: vi.fn().mockResolvedValue(missingReceipt) };
+            // @ts-ignore
+            prisma.purchaseOrder = { findMany: vi.fn().mockResolvedValue([mockPO]) };
+            const itemUpdate = vi.fn().mockResolvedValue({});
+            const inventoryUpsert = vi.fn().mockResolvedValue({ id: 1, quantity: 80 });
+            const mockTx = {
+                purchaseReceipt: {
+                    update: vi.fn().mockResolvedValue({ ...missingReceipt, status: "POSTED" }),
+                    findUniqueOrThrow: vi.fn().mockResolvedValue({ ...missingReceipt, status: "POSTED" }),
+                },
+                purchaseOrderItem: {
+                    update: itemUpdate,
+                    findMany: vi.fn().mockResolvedValue([{ ...mockPOItem, qty_ordered: 80, qty_received: 80, subtotal: 1600000 }]),
+                },
+                purchaseOrder: {
+                    update: vi.fn().mockResolvedValue({}),
+                    findUnique: vi.fn().mockResolvedValue({ id: 1, supplier_id: 1, supplier_name: "PT Supplier ABC" }),
+                },
+                purchaseTracking: { upsert: vi.fn().mockResolvedValue({}) },
+                rawMaterialInventory: {
+                    findUnique: vi.fn().mockResolvedValue(null),
+                    upsert: inventoryUpsert,
+                },
+                stockMovement: { create: vi.fn().mockResolvedValue({ id: 1 }) },
+                accountPayable: {
+                    create: vi.fn().mockResolvedValue({ id: 1, ap_number: "AP-001" }),
+                    findFirst: vi.fn().mockResolvedValue(null),
+                    count: vi.fn().mockResolvedValue(0),
+                },
+            };
+            // @ts-ignore
+            prisma.$transaction = vi.fn().mockImplementation(async (cb) => cb(mockTx));
+
+            await ReceiptService.post(1, userId);
+
+            expect(itemUpdate).toHaveBeenCalledWith(expect.objectContaining({
+                data: expect.objectContaining({
+                    qty_received: { increment: 80 },
+                    qty_ordered: { decrement: 20 },
+                    subtotal: { decrement: 400000 },
+                }),
+            }));
+            expect(inventoryUpsert).toHaveBeenCalledWith(expect.objectContaining({
+                create: expect.objectContaining({ quantity: 80 }),
+            }));
+            expect(mockTx.purchaseOrder.update).toHaveBeenCalledWith(expect.objectContaining({
+                data: expect.objectContaining({ status: "CLOSED", total_estimated: 1600000 }),
+            }));
         });
     });
 

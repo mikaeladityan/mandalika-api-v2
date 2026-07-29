@@ -955,7 +955,10 @@ export class RecomendationV2Service {
                 throw new ApiError(403, `Status PO ${item.po.status} tidak bisa dihapus dari sini`);
             }
             if (Number(item.qty_received) > 0) {
-                throw new ApiError(422, "Tidak bisa hapus, PO sudah ada GR");
+                throw new ApiError(
+                    422,
+                    "PO tidak dapat dihapus karena sudah memiliki penerimaan barang. Gunakan retur vendor jika barang perlu dikembalikan.",
+                );
             }
 
             await tx.$queryRaw`SELECT id FROM purchase_orders WHERE id = ${item.po.id} FOR UPDATE`;

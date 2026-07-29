@@ -1150,6 +1150,7 @@ model PurchaseReceiptItem {
   item_name       String   @db.VarChar(255)
   uom             String   @db.VarChar(50)
   qty_received    Decimal  @db.Decimal(18, 2)
+  qty_missing     Decimal  @default(0) @db.Decimal(18, 2)
   unit_price      Decimal  @db.Decimal(18, 4)
   amount          Decimal  @db.Decimal(18, 2)
   notes           String?
