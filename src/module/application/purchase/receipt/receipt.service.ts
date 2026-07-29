@@ -200,10 +200,11 @@ export class ReceiptService {
                 throw new ApiError(400, `PO ${poItem.po.id} must be in ORDERED status to receive items.`);
             }
             const openQty = Number(poItem.qty_ordered) - Number(poItem.qty_received);
-            if (item.qty_received > openQty + 0.001) {
+            const accountedQty = item.qty_received + (item.qty_missing ?? 0);
+            if (accountedQty > openQty + 0.001) {
                 throw new ApiError(
                     400,
-                    `Item "${poItem.item_name}": qty_received (${item.qty_received}) exceeds open qty (${openQty.toFixed(2)}).`,
+                    `Item "${poItem.item_name}": received + missing (${accountedQty}) exceeds open qty (${openQty.toFixed(2)}).`,
                 );
             }
         }
@@ -228,6 +229,7 @@ export class ReceiptService {
                     item_name: poItem.item_name,
                     uom: poItem.uom,
                     qty_received: item.qty_received,
+                    qty_missing: item.qty_missing ?? 0,
                     unit_price: poItem.unit_price,
                     amount,
                     notes: item.notes ?? null,
@@ -280,10 +282,11 @@ export class ReceiptService {
                         throw new ApiError(400, `PO ${poItem.po.id} must be in ORDERED status to receive items.`);
                     }
                     const openQty = Number(poItem.qty_ordered) - Number(poItem.qty_received);
-                    if (item.qty_received > openQty + 0.001) {
+                    const accountedQty = item.qty_received + (item.qty_missing ?? 0);
+                    if (accountedQty > openQty + 0.001) {
                         throw new ApiError(
                             400,
-                            `Item "${poItem.item_name}": qty exceeds open qty (${openQty.toFixed(2)}).`,
+                            `Item "${poItem.item_name}": received + missing exceeds open qty (${openQty.toFixed(2)}).`,
                         );
                     }
                 }
@@ -309,6 +312,7 @@ export class ReceiptService {
                         item_name: poItem.item_name,
                         uom: poItem.uom,
                         qty_received: item.qty_received,
+                        qty_missing: item.qty_missing ?? 0,
                         unit_price: poItem.unit_price,
                         amount,
                         notes: item.notes ?? null,
@@ -392,7 +396,13 @@ export class ReceiptService {
                 for (const item of poItems) {
                     await tx.purchaseOrderItem.update({
                         where: { id: item.po_item_id },
-                        data: { qty_received: { increment: Number(item.qty_received) } },
+                        data: {
+                            qty_received: { increment: Number(item.qty_received) },
+                            ...(Number(item.qty_missing) > 0 && {
+                                qty_ordered: { decrement: Number(item.qty_missing) },
+                                subtotal: { decrement: Number(item.qty_missing) * Number(item.unit_price) },
+                            }),
+                        },
                     });
                 }
 
@@ -402,13 +412,22 @@ export class ReceiptService {
                     (i) => Number(i.qty_received) >= Number(i.qty_ordered) - 0.001,
                 );
                 const hasPartial = updatedItems.some((i) => Number(i.qty_received) > 0);
+                const totalEstimated = updatedItems.reduce(
+                    (sum, item) => sum + Number(item.subtotal),
+                    0,
+                );
 
-                if (allReceived && po.status !== "CLOSED") {
-                    await tx.purchaseOrder.update({
-                        where: { id: poId },
-                        data: { status: "CLOSED", closed_at: new Date(), updated_by: userId },
-                    });
-                }
+                await tx.purchaseOrder.update({
+                    where: { id: poId },
+                    data: {
+                        total_estimated: totalEstimated,
+                        ...(allReceived && po.status !== "CLOSED" && {
+                            status: "CLOSED",
+                            closed_at: new Date(),
+                        }),
+                        updated_by: userId,
+                    },
+                });
 
                 // 4. Update PurchaseTracking
                 const trackingOrderStatus = allReceived ? "RECEIVED" : (hasPartial ? "PARTIALLY_RECEIVED" : "ARRIVED");

@@ -5,8 +5,11 @@ export const ReceiptStatusEnum = z.enum(["DRAFT", "POSTED", "APPROVED"]);
 export const CreateReceiptItemSchema = z.object({
     po_id: z.number().int().positive(),
     po_item_id: z.number().int().positive(),
-    qty_received: z.number().positive(),
+    qty_received: z.number().min(0),
+    qty_missing: z.number().min(0).optional(),
     notes: z.string().optional().nullable(),
+}).refine((item) => item.qty_received + (item.qty_missing ?? 0) > 0, {
+    message: "Received atau missing harus lebih dari 0",
 });
 
 export const CreateReceiptSchema = z.object({
