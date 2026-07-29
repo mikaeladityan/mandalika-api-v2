@@ -113,6 +113,42 @@ describe("ReceiptService", () => {
         });
     });
 
+    describe("listOpenPOs", () => {
+        it("lists ORDERED POs and keeps only outstanding items", async () => {
+            const findMany = vi.fn().mockResolvedValue([
+                {
+                    id: 1,
+                    po_number: "PO-001",
+                    po_date: new Date(),
+                    po_type: "LOCAL",
+                    supplier_id: 42,
+                    supplier_name: "PT Supplier",
+                    supplier_code: null,
+                    status: "ORDERED",
+                    tracking: { order_status: "PARTIALLY_RECEIVED", eta_date: null, arrive_date: null },
+                    supplier: null,
+                    warehouse: null,
+                    items: [
+                        { ...mockPOItem, id: 10, qty_ordered: 100, qty_received: 25 },
+                        { ...mockPOItem, id: 11, qty_ordered: 50, qty_received: 50 },
+                    ],
+                },
+            ]);
+            const count = vi.fn().mockResolvedValue(1);
+            // @ts-ignore
+            prisma.purchaseOrder = { findMany, count };
+
+            const result = await ReceiptService.listOpenPOs({ page: 1, take: 50 });
+
+            expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+                where: { status: "ORDERED" },
+            }));
+            expect(result.total).toBe(1);
+            expect(result.data[0]!.items).toHaveLength(1);
+            expect(result.data[0]!.items[0]!.open_qty).toBe(75);
+        });
+    });
+
     describe("create", () => {
         it("should throw if PO item not found", async () => {
             // @ts-ignore

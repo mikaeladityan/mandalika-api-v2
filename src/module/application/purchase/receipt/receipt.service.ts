@@ -72,7 +72,7 @@ export class ReceiptService {
         const { skip, take: limit } = GetPagination(page, take);
 
         const where: any = {
-            status: { in: ["ORDERED", "SHIPPED", "ARRIVED"] },
+            status: "ORDERED",
         };
 
         if (search) {
