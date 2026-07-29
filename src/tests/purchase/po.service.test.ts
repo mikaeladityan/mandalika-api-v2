@@ -155,7 +155,12 @@ describe("POService", () => {
         });
 
         it("should create PurchaseTracking when status becomes ORDERED", async () => {
-            const mockPOApproved = { ...mockPODraft, status: "APPROVED", payment_terms: [] };
+            const mockPOApproved = {
+                ...mockPODraft,
+                status: "APPROVED",
+                payment_terms: [],
+                items: [{ raw_material_id: 10 }, { raw_material_id: 11 }],
+            };
             const mockPOOrdered = { ...mockPODraft, status: "ORDERED" };
             const mockFindUniqueOrThrow = vi.fn().mockResolvedValue(mockPOApproved);
             const mockUpdate = vi.fn().mockResolvedValue(mockPOOrdered);
@@ -166,6 +171,9 @@ describe("POService", () => {
             // @ts-ignore
             prisma.$transaction = vi.fn().mockImplementation(async (cb) => cb({
                 purchaseOrder: { update: mockUpdate, count: vi.fn().mockResolvedValue(0) },
+                supplierMaterial: {
+                    findMany: vi.fn().mockResolvedValue([{ lead_time: 7 }, { lead_time: 14 }]),
+                },
                 purchaseTracking: { upsert: mockUpsert },
                 accountPayable: { create: vi.fn().mockResolvedValue({}), count: vi.fn().mockResolvedValue(0) },
             }));
@@ -178,6 +186,9 @@ describe("POService", () => {
                 where: { po_id: 1 },
                 create: expect.objectContaining({ order_status: "ORDERED" })
             }));
+            const orderedAt = mockUpdate.mock.calls[0]![0].data.ordered_at as Date;
+            const etaDate = mockUpsert.mock.calls[0]![0].create.eta_date as Date;
+            expect(etaDate.getTime() - orderedAt.getTime()).toBe(14 * 86_400_000);
         });
     });
 });

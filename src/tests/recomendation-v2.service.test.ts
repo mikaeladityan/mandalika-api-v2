@@ -142,6 +142,7 @@ describe("RecomendationV2Service - Override Features", () => {
             },
             purchaseOrderItem: { findFirst: vi.fn().mockResolvedValue(null) },
             purchaseOrder: { create: createImpl },
+            purchaseTracking: { create: vi.fn().mockResolvedValue({}) },
         });
 
         const buildPoResult = (po_number: string) => ({
@@ -254,6 +255,31 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(result.supplier_name).toHaveLength(7);
             expect(result.supplier_name).not.toContain("Supplier");
         });
+
+        it("creates ORDERED tracking ETA from the selected supplier lead time", async () => {
+            const orderedAt = new Date("2026-06-10T00:00:00.000Z");
+            const create = vi.fn().mockResolvedValue({
+                ...buildPoResult("PO-x-010"),
+                ordered_at: orderedAt,
+            });
+            const tx = buildTx(create);
+            tx.supplierMaterial.findFirst = vi
+                .fn()
+                .mockResolvedValueOnce({ supplier_id: 7, unit_price: 1000 })
+                .mockResolvedValue({ unit_price: 1000, lead_time: 12 });
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(tx));
+
+            await RecomendationV2Service.createOpenPoCell(body, userId);
+
+            expect(tx.purchaseTracking.create).toHaveBeenCalledWith({
+                data: expect.objectContaining({
+                    po_id: 99,
+                    order_status: "ORDERED",
+                    eta_date: new Date("2026-06-22T00:00:00.000Z"),
+                }),
+            });
+        });
     });
 
     describe("createOpenPosFromDrafts", () => {
@@ -306,6 +332,7 @@ describe("RecomendationV2Service - Override Features", () => {
             supplier: { findUnique: vi.fn().mockResolvedValue({ id: 7, name: "Supplier A" }) },
             purchaseOrderItem: { findFirst: vi.fn().mockResolvedValue(null) },
             purchaseOrder: { create: createImpl },
+            purchaseTracking: { create: vi.fn().mockResolvedValue({}) },
         });
 
         it("creates 1 PO with 1 item for a single draft and marks it ACC", async () => {
@@ -374,6 +401,34 @@ describe("RecomendationV2Service - Override Features", () => {
             const itemsCounts = create.mock.calls.map((c: any) => c[0].data.items.create.length).sort();
             expect(itemsCounts).toEqual([1, 2]);
             expect(result.affected_draft_ids.sort()).toEqual([1, 2, 3]);
+        });
+
+        it("uses the longest item lead time for grouped PO ETA", async () => {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date("2026-06-10T00:00:00.000Z"));
+            const drafts = [
+                buildDraft({ id: 1, raw_mat_id: 10 }),
+                buildDraft({ id: 2, raw_mat_id: 11 }),
+            ];
+            const create = vi.fn().mockResolvedValue({ id: 901 });
+            const tx = buildTx(drafts, create);
+            tx.supplierMaterial.findFirst = vi
+                .fn()
+                .mockResolvedValueOnce({ supplier_id: 7, unit_price: 1000 })
+                .mockResolvedValueOnce({ unit_price: 1000, lead_time: 7 })
+                .mockResolvedValueOnce({ supplier_id: 7, unit_price: 1000 })
+                .mockResolvedValueOnce({ unit_price: 1000, lead_time: 21 });
+            // @ts-ignore
+            prisma.$transaction = vi.fn(async (cb) => cb(tx));
+
+            await RecomendationV2Service.createOpenPosFromDrafts([1, 2], userId);
+
+            expect(tx.purchaseTracking.create).toHaveBeenCalledWith({
+                data: expect.objectContaining({
+                    po_id: 901,
+                    eta_date: new Date("2026-07-01T00:00:00.000Z"),
+                }),
+            });
         });
 
         it("returns empty result when no eligible drafts (DRAFT/ACC) are found", async () => {

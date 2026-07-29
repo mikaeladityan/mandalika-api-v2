@@ -5,6 +5,7 @@ import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { generatePONumber, generateAPNumber } from "../../../../lib/utils/generate-number.js";
 import { obscureSupplierName, withObscuredSupplierRelation } from "../../../../lib/utils/supplier-obscure.js";
+import { calculatePOEta } from "./po-eta.js";
 
 const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
     DRAFT: ["SUBMITTED", "CANCELLED"],
@@ -238,7 +239,10 @@ export class POService {
     static async updateStatus(id: number, body: UpdatePOStatusDTO, userId: string) {
         const po = await prisma.purchaseOrder.findUniqueOrThrow({
             where: { id },
-            include: { payment_terms: true },
+            include: {
+                payment_terms: true,
+                items: { select: { raw_material_id: true } },
+            },
         });
         const allowed = VALID_STATUS_TRANSITIONS[po.status] ?? [];
 
@@ -273,16 +277,36 @@ export class POService {
             });
 
             if (body.status === "ORDERED") {
+                const rawMaterialIds = po.items.flatMap((item) =>
+                    item.raw_material_id == null ? [] : [item.raw_material_id],
+                );
+                const supplierMaterials = po.supplier_id != null && rawMaterialIds.length > 0
+                    ? await tx.supplierMaterial.findMany({
+                        where: {
+                            supplier_id: po.supplier_id,
+                            raw_material_id: { in: rawMaterialIds },
+                            status: "ACTIVE",
+                        },
+                        select: { lead_time: true },
+                    })
+                    : [];
+                const etaDate = calculatePOEta(
+                    orderedAt,
+                    supplierMaterials.map((material) => material.lead_time),
+                );
+
                 await tx.purchaseTracking.upsert({
                     where: { po_id: id },
                     create: {
                         po_id: id,
                         order_status: "ORDERED",
                         payment_status: "UNPAID",
+                        eta_date: etaDate,
                         updated_by: userId,
                     },
                     update: {
                         order_status: "ORDERED",
+                        eta_date: etaDate,
                         updated_by: userId,
                     }
                 });
@@ -460,6 +484,8 @@ export class POService {
             supplier_id: number | null;
             warehouse_id: number | null;
             created_by: string;
+            eta_date: Date | null;
+            order_status: string | null;
         };
 
         const [rows, countRows] = await Promise.all([
@@ -485,11 +511,26 @@ export class POService {
                         po.supplier_name,
                         po.supplier_id,
                         po.warehouse_id,
-                        po.created_by
+                        po.created_by,
+                        COALESCE(
+                            pt.eta_date,
+                            (COALESCE(po.ordered_at, po.po_date) + make_interval(days => po_lead_time.max_lead_time))
+                        ) AS eta_date,
+                        pt.order_status
                     FROM purchase_order_items poi
                     JOIN purchase_orders po ON po.id = poi.po_id
+                    LEFT JOIN purchase_trackings pt ON pt.po_id = po.id
+                    LEFT JOIN LATERAL (
+                        SELECT MAX(sm.lead_time)::int AS max_lead_time
+                        FROM purchase_order_items po_items
+                        JOIN supplier_materials sm
+                          ON sm.raw_material_id = po_items.raw_material_id
+                         AND sm.supplier_id = po.supplier_id
+                         AND sm.status = 'ACTIVE'
+                        WHERE po_items.po_id = po.id
+                    ) po_lead_time ON true
                     WHERE ${where}
-                    ORDER BY po.po_date DESC
+                    ORDER BY eta_date ASC NULLS LAST, po.po_date DESC
                     LIMIT ${limit} OFFSET ${skip}
                 `,
             ),

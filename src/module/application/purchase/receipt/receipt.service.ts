@@ -68,7 +68,7 @@ export class ReceiptService {
     }
 
     static async listOpenPOs(query: QueryOpenPOForReceiptDTO) {
-        const { page, take, search, supplier_id, warehouse_id, po_type, month, year } = query;
+        const { page, take, search, supplier_id, warehouse_id, po_type, month, year, po_id } = query;
         const { skip, take: limit } = GetPagination(page, take);
 
         const where: any = {
@@ -84,6 +84,7 @@ export class ReceiptService {
         if (supplier_id) where.supplier_id = supplier_id;
         if (warehouse_id) where.warehouse_id = warehouse_id;
         if (po_type) where.po_type = po_type;
+        if (po_id) where.id = po_id;
 
         if (month) {
             const y = year ?? new Date().getFullYear();

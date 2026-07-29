@@ -55,6 +55,7 @@ export const QueryOpenPOForReceiptSchema = z.object({
     po_type: z.enum(["LOCAL", "IMPORT"]).optional(),
     month: z.coerce.number().min(1).max(12).optional(),
     year: z.coerce.number().min(2000).optional(),
+    po_id: z.coerce.number().int().positive().optional(),
 });
 
 export type QueryOpenPOForReceiptDTO = z.infer<typeof QueryOpenPOForReceiptSchema>;
