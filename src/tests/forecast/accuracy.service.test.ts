@@ -74,6 +74,7 @@ describe("accuracy.schema", () => {
                     total_forecast: 100,
                     total_sales: 95,
                     accuracy_percentage: "94.74%",
+                    margin_of_error_percentage: "5.26%",
                     bias_percentage: "105.26%",
                     product_count: 1,
                     excluded_count: 0,
@@ -226,6 +227,7 @@ describe("ForecastAccuracyService.list", () => {
         total_sales: "310",
         excluded_count: 1,
         wmape_accuracy: "96.77",
+        wmape_error: "3.23",
         bias_pct: "103.23",
         accurate_count: 1,
         under_count: 0,
@@ -310,6 +312,7 @@ describe("ForecastAccuracyService.list", () => {
         expect(sola.accuracy_status).toBe("over");
 
         expect(result.summary.accuracy_percentage).toBe("96.77%");
+        expect(result.summary.margin_of_error_percentage).toBe("3.23%");
         expect(result.summary.bias_percentage).toBe("103.23%");
         expect(result.summary.accurate_count).toBe(1);
     });
@@ -355,6 +358,7 @@ describe("ForecastAccuracyService.list", () => {
                     total_sales: null,
                     excluded_count: 0,
                     wmape_accuracy: null,
+                    wmape_error: null,
                     bias_pct: null,
                     accurate_count: 0,
                     under_count: 0,
@@ -376,6 +380,7 @@ describe("ForecastAccuracyService.list", () => {
         expect(result.summary.total_forecast).toBe(0);
         expect(result.summary.total_sales).toBe(0);
         expect(result.summary.accuracy_percentage).toBe("N/A");
+        expect(result.summary.margin_of_error_percentage).toBe("N/A");
         expect(result.summary.bias_percentage).toBe("N/A");
     });
 });

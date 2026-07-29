@@ -39,6 +39,7 @@ export const ResponseForecastAccuracySchema = z.object({
         total_forecast: z.number(),
         total_sales: z.number(),
         accuracy_percentage: z.string().regex(ACCURACY_PERCENTAGE_REGEX),
+        margin_of_error_percentage: z.string().regex(ACCURACY_PERCENTAGE_REGEX),
         bias_percentage: z.string().regex(ACCURACY_PERCENTAGE_REGEX),
         product_count: z.number().int(),
         excluded_count: z.number().int(),
