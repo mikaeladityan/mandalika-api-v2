@@ -6,6 +6,7 @@ import type {
     QueryForecastAccuracyDTO,
     QueryForecastAccuracyTrendDTO,
     QueryEdarVsActDTO,
+    RequestBulkToggleAccuracyVisibilityDTO,
     ResponseForecastAccuracyDTO,
     ResponseForecastAccuracyItemDTO,
     ResponseForecastAccuracyTrendDTO,
@@ -83,6 +84,9 @@ export class ForecastAccuracyService {
         const sizeIdFilter = query.size_id
             ? Prisma.sql`AND p.size_id = ${query.size_id}`
             : Prisma.empty;
+        const viewFilter = query.view === "hidden"
+            ? Prisma.sql`AND p.accuracy_hidden_at IS NOT NULL`
+            : Prisma.sql`AND p.accuracy_hidden_at IS NULL`;
 
         const salesCte = Prisma.sql`
             SELECT product_id,
@@ -104,6 +108,8 @@ export class ForecastAccuracyService {
             unit_name: string | null;
             forecast: string | number | null;
             sales: string | number | null;
+            accuracy_hidden_at: Date | null;
+            total_count: number | string;
         };
 
         const rows = await prisma.$queryRaw<Row[]>(Prisma.sql`
@@ -115,7 +121,9 @@ export class ForecastAccuracyService {
                 ps.size        AS size,
                 u.name         AS unit_name,
                 COALESCE(f.final_forecast, f.base_forecast, 0)::float8 AS forecast,
-                COALESCE(s.sales, 0)::float8                          AS sales
+                COALESCE(s.sales, 0)::float8                          AS sales,
+                p.accuracy_hidden_at,
+                COUNT(*) OVER()::int AS total_count
             FROM products p
             LEFT JOIN product_types     pt ON pt.id = p.type_id
             LEFT JOIN unit_of_materials u  ON u.id  = p.unit_id
@@ -125,6 +133,7 @@ export class ForecastAccuracyService {
             LEFT JOIN (${salesCte}) s ON s.product_id = p.id
             WHERE p.status = 'ACTIVE'
               AND p.deleted_at IS NULL
+              ${viewFilter}
               AND ${typeFilter}
               ${searchFilter}
               ${typeIdFilter}
@@ -158,6 +167,7 @@ export class ForecastAccuracyService {
                 LEFT JOIN (${salesCte}) s ON s.product_id = p.id
                 WHERE p.status = 'ACTIVE'
                   AND p.deleted_at IS NULL
+                  AND p.accuracy_hidden_at IS NULL
                   AND ${typeFilter}
                   ${searchFilter}
                   ${typeIdFilter}
@@ -219,6 +229,7 @@ export class ForecastAccuracyService {
                 diff: forecast - sales,
                 accuracy_percentage,
                 accuracy_status,
+                accuracy_hidden_at: r.accuracy_hidden_at?.toISOString() ?? null,
             };
         });
 
@@ -249,8 +260,15 @@ export class ForecastAccuracyService {
                 over_count,
             },
             data,
-            len: product_count,
+            len: Number(rows[0]?.total_count ?? product_count),
         };
+    }
+
+    static async bulkToggleVisibility(body: RequestBulkToggleAccuracyVisibilityDTO) {
+        return prisma.product.updateMany({
+            where: { id: { in: body.ids } },
+            data: { accuracy_hidden_at: body.hidden ? new Date() : null },
+        });
     }
 
     static formatAccuracy(forecast: number, sales: number): string {
@@ -307,6 +325,7 @@ export class ForecastAccuracyService {
                 FROM products p
                 WHERE p.status = 'ACTIVE'
                   AND p.deleted_at IS NULL
+                  AND p.accuracy_hidden_at IS NULL
                   AND p.distribution_percentage > 0
             ),
             page_prods AS (
@@ -325,6 +344,7 @@ export class ForecastAccuracyService {
                 LEFT JOIN unit_of_materials  u  ON u.id  = p.unit_id
                 WHERE p.status = 'ACTIVE'
                   AND p.deleted_at IS NULL
+                  AND p.accuracy_hidden_at IS NULL
                   AND p.distribution_percentage > 0
                   ${searchFilter}
                 ORDER BY
@@ -446,6 +466,7 @@ export class ForecastAccuracyService {
                 FROM products p
                 WHERE p.status = 'ACTIVE'
                   AND p.deleted_at IS NULL
+                  AND p.accuracy_hidden_at IS NULL
                   AND p.distribution_percentage > 0
             ),
             sales_range AS (
@@ -511,6 +532,7 @@ export class ForecastAccuracyService {
             FROM products p
             WHERE p.status = 'ACTIVE'
               AND p.deleted_at IS NULL
+              AND p.accuracy_hidden_at IS NULL
               AND p.distribution_percentage > 0
         `);
 
@@ -618,6 +640,7 @@ export class ForecastAccuracyService {
                 LEFT JOIN product_types pt ON pt.id = p.type_id
                 WHERE p.status = 'ACTIVE'
                   AND p.deleted_at IS NULL
+                  AND p.accuracy_hidden_at IS NULL
                   AND ${typeFilter}
             ),
             sales_data AS (

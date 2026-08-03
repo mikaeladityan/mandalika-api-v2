@@ -12,6 +12,7 @@ export const QueryForecastAccuracySchema = z.object({
     size_id: z.coerce.number().int().positive().optional(),
     tolerance: z.coerce.number().min(0.5).max(50).default(25),
     search: z.string().trim().min(1).optional(),
+    view: z.enum(["visible", "hidden"]).optional(),
     page: z.coerce.number().int().positive().default(1),
     take: z.coerce.number().int().positive().max(500).default(25),
 });
@@ -27,7 +28,17 @@ export const ResponseForecastAccuracyItemSchema = z.object({
     diff: z.number(),
     accuracy_percentage: z.string().regex(ACCURACY_PERCENTAGE_REGEX),
     accuracy_status: z.enum(["tepat_sasaran", "under", "over"]).nullable(),
+    accuracy_hidden_at: z.string().nullable().optional(),
 });
+
+export const RequestBulkToggleAccuracyVisibilitySchema = z.object({
+    ids: z.array(z.number().int().positive()).min(1),
+    hidden: z.boolean(),
+});
+
+export type RequestBulkToggleAccuracyVisibilityDTO = z.infer<
+    typeof RequestBulkToggleAccuracyVisibilitySchema
+>;
 
 export const ResponseForecastAccuracySchema = z.object({
     period: z.object({

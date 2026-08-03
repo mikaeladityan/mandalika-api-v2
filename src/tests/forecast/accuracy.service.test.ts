@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
     QueryForecastAccuracySchema,
+    RequestBulkToggleAccuracyVisibilitySchema,
     ResponseForecastAccuracySchema,
 } from "../../module/application/forecast/accuracy/accuracy.schema.js";
 import { ForecastAccuracyService } from "../../module/application/forecast/accuracy/accuracy.service.js";
@@ -9,6 +10,9 @@ import prisma from "../../config/prisma.js";
 vi.mock("../../config/prisma.js", () => ({
     default: {
         $queryRaw: vi.fn(),
+        product: {
+            updateMany: vi.fn(),
+        },
     },
 }));
 
@@ -62,6 +66,22 @@ describe("accuracy.schema", () => {
             expect(QueryForecastAccuracySchema.parse({ is_others: "1" }).is_others).toBe(true);
             expect(QueryForecastAccuracySchema.parse({ is_others: "0" }).is_others).toBe(false);
             expect(QueryForecastAccuracySchema.parse({}).is_others).toBe(false);
+        });
+
+        it("accepts visible and hidden views", () => {
+            expect(QueryForecastAccuracySchema.parse({ view: "visible" }).view).toBe("visible");
+            expect(QueryForecastAccuracySchema.parse({ view: "hidden" }).view).toBe("hidden");
+            expect(() => QueryForecastAccuracySchema.parse({ view: "all" })).toThrow();
+        });
+    });
+
+    describe("RequestBulkToggleAccuracyVisibilitySchema", () => {
+        it("requires positive product IDs", () => {
+            expect(RequestBulkToggleAccuracyVisibilitySchema.parse({ ids: [1, 2], hidden: true })).toEqual({
+                ids: [1, 2],
+                hidden: true,
+            });
+            expect(() => RequestBulkToggleAccuracyVisibilitySchema.parse({ ids: [], hidden: true })).toThrow();
         });
     });
 
