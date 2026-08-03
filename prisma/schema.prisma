@@ -124,6 +124,7 @@ model Product {
   created_at               DateTime                @default(now())
   updated_at               DateTime                @updatedAt
   deleted_at               DateTime?
+  accuracy_hidden_at       DateTime?
   distribution_percentage  Decimal?                @default(0) @db.Decimal(5, 2)
   reference_distribution_percentage Decimal?       @default(0) @db.Decimal(5, 2)
   safety_percentage        Decimal?                @default(0) @db.Decimal(5, 2)

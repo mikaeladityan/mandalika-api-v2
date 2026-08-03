@@ -1,7 +1,12 @@
 import type { Context } from "hono";
 import { ApiResponse } from "../../../../lib/api.response.js";
 import { ForecastAccuracyService } from "./accuracy.service.js";
-import { QueryForecastAccuracySchema, QueryForecastAccuracyTrendSchema, QueryEdarVsActSchema } from "./accuracy.schema.js";
+import {
+    QueryForecastAccuracySchema,
+    QueryForecastAccuracyTrendSchema,
+    QueryEdarVsActSchema,
+    RequestBulkToggleAccuracyVisibilitySchema,
+} from "./accuracy.schema.js";
 
 export class ForecastAccuracyController {
     static async list(c: Context) {
@@ -20,5 +25,11 @@ export class ForecastAccuracyController {
         const params = QueryEdarVsActSchema.parse(c.req.query());
         const result = await ForecastAccuracyService.edarVsAct(params);
         return ApiResponse.sendSuccess(c, result, 200, params);
+    }
+
+    static async bulkToggleVisibility(c: Context) {
+        const body = RequestBulkToggleAccuracyVisibilitySchema.parse(await c.req.json());
+        const result = await ForecastAccuracyService.bulkToggleVisibility(body);
+        return ApiResponse.sendSuccess(c, result, 200);
     }
 }
