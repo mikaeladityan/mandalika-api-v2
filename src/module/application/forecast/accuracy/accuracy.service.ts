@@ -621,6 +621,7 @@ export class ForecastAccuracyService {
             under_count: number | string;
             over_count: number | string;
             excluded_count: number | string;
+            wmape_accuracy: number | string | null;
         };
 
         const rows = await prisma.$queryRaw<TrendRow[]>(Prisma.sql`
@@ -672,7 +673,9 @@ export class ForecastAccuracyService {
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${threshold} AND ${upper})::int AS accurate_count,
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${threshold})::int                    AS under_count,
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${upper})::int                        AS over_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) <= 0 OR forecast IS NULL)::int                                                                                                              AS excluded_count
+                COUNT(*) FILTER (WHERE ROUND(sales) <= 0 OR forecast IS NULL)::int                                                                                                              AS excluded_count,
+                GREATEST(0, (1 - SUM(ABS(ROUND(forecast) - ROUND(sales))) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL)
+                    / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL), 0)) * 100)::float8                                                                    AS wmape_accuracy
             FROM matched
             GROUP BY year, month
             ORDER BY year ASC, month ASC
@@ -694,6 +697,7 @@ export class ForecastAccuracyService {
                 under_count,
                 over_count,
                 excluded_count,
+                wmape_accuracy: r.wmape_accuracy != null ? Number(r.wmape_accuracy) : 0,
                 pct_accurate: base > 0 ? parseFloat(((accurate_count / base) * 100).toFixed(1)) : 0,
                 pct_under: base > 0 ? parseFloat(((under_count / base) * 100).toFixed(1)) : 0,
                 pct_over: base > 0 ? parseFloat(((over_count / base) * 100).toFixed(1)) : 0,
