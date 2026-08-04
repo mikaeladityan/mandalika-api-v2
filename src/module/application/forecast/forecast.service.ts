@@ -112,19 +112,19 @@ export class ForecastService {
         let previousTheoreticalAtomFinal = new Map<string, number>();
 
         // Track aromas where regular variants should mirror hampers variants
-        const edpMirrorAromas = new Set<string>();
+        const extMirrorAromas = new Set<string>();
         const parfumMirrorAromas = new Set<string>();
 
         for (const group of groupValues) {
             if (!group.length) continue;
             const aromaName = ForecastService.getAromaBaseName(group[0]!.name);
 
-            const hasHampersEdp = group.some(
+            const hasHampersExt = group.some(
                 (p) =>
-                    p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
+                    p.product_type?.slug?.toLowerCase() === "hampers-ext" &&
                     (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
             );
-            if (hasHampersEdp) edpMirrorAromas.add(aromaName);
+            if (hasHampersExt) extMirrorAromas.add(aromaName);
 
             const hasHampersParf = group.some(
                 (p) =>
@@ -169,11 +169,11 @@ export class ForecastService {
                     );
                 };
 
-                const edpAnchors = group.filter((p) => {
+                const extAnchors = group.filter((p) => {
                     const slug = p.product_type?.slug?.toLowerCase();
                     const size = p.size?.size;
                     return (
-                        (slug === "edp" || slug === "hampers-edp") &&
+                        (slug === "ext" || slug === "hampers-ext") &&
                         (size === 100 || size === 110 || size === 120)
                     );
                 });
@@ -190,7 +190,7 @@ export class ForecastService {
                 let atomBase = 0;
                 if (i === 0) {
                     atomBase =
-                        edpAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0) +
+                        extAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0) +
                         parfumAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0);
                 } else {
                     atomBase = previousTheoreticalAtomFinal.get(aromaName) ?? 0;
@@ -210,14 +210,14 @@ export class ForecastService {
                     const distPct = Number(product[distField] ?? 0);
                     const input = currentInputMap.get(product.id) ?? 0;
 
-                    const isRegularEdpParfum =
-                        (slug === "edp" || slug === "parfum" || slug === "perfume") &&
+                    const isRegularExtParfum =
+                        (slug === "ext" || slug === "parfum" || slug === "perfume") &&
                         (size === 100 || size === 110 || size === 120 || size === 2);
 
-                    // In Pass 1, skip regular EDP/Parfum that need mirroring (defer to Pass 2)
+                    // In Pass 1, skip regular EXT/Parfum that need mirroring (defer to Pass 2)
                     const needsMirrorInPass1 =
-                        isRegularEdpParfum &&
-                        ((slug === "edp" && edpMirrorAromas.has(aromaName)) ||
+                        isRegularExtParfum &&
+                        ((slug === "ext" && extMirrorAromas.has(aromaName)) ||
                             ((slug === "parfum" || slug === "perfume") &&
                                 parfumMirrorAromas.has(aromaName)));
 
@@ -236,17 +236,17 @@ export class ForecastService {
                     // If this is an others-run, it only processes others (already filtered by query)
                     // but we ensure non-regular items that skipped mirroring still happen here.
 
-                    const isEdpParfumAnchor =
-                        (slug === "edp" ||
-                            slug === "hampers-edp" ||
+                    const isExtParfumAnchor =
+                        (slug === "ext" ||
+                            slug === "hampers-ext" ||
                             slug === "parfum" ||
                             slug === "perfume" ||
                             slug === "hampers-parfum") &&
                         (size === 100 || size === 110 || size === 120);
                     const isVial2ml =
                         size === 2 &&
-                        (slug === "edp" ||
-                            slug === "hampers-edp" ||
+                        (slug === "ext" ||
+                            slug === "hampers-ext" ||
                             slug === "parfum" ||
                             slug === "perfume" ||
                             slug === "hampers-parfum");
@@ -254,7 +254,7 @@ export class ForecastService {
                     if (slug === "atomizer") {
                         base_forecast = atomBase;
                         final_forecast = atomFinal;
-                    } else if (isEdpParfumAnchor) {
+                    } else if (isExtParfumAnchor) {
                         base_forecast = input * (1 + pctValue);
                         final_forecast = atomFinal * distPct;
                     } else if (isVial2ml) {
@@ -292,7 +292,7 @@ export class ForecastService {
                     nextInputMap.set(product.id, final_forecast);
                 }
 
-                // --- PASS 2: Process regular EDP/Parfum that need mirroring from Hampers ---
+                // --- PASS 2: Process regular EXT/Parfum that need mirroring from Hampers ---
                 for (const product of group) {
                     const slug = product.product_type?.slug?.toLowerCase();
                     const size = product.size?.size;
@@ -300,40 +300,40 @@ export class ForecastService {
 
                     if (!is_others && isOthersSlug(slug)) continue;
 
-                    const isRegularEdp =
-                        slug === "edp" && (size === 100 || size === 110 || size === 120);
-                    const isRegularEdp2ml = slug === "edp" && size === 2;
+                    const isRegularExt =
+                        slug === "ext" && (size === 100 || size === 110 || size === 120);
+                    const isRegularExt2ml = slug === "ext" && size === 2;
                     const isRegularParfum =
                         (slug === "parfum" || slug === "perfume") &&
                         (size === 100 || size === 110 || size === 120);
                     const isRegularParfum2ml =
                         (slug === "parfum" || slug === "perfume") && size === 2;
 
-                    const needsEdpMirror =
-                        (isRegularEdp || isRegularEdp2ml) && edpMirrorAromas.has(aromaName);
+                    const needsExtMirror =
+                        (isRegularExt || isRegularExt2ml) && extMirrorAromas.has(aromaName);
                     const needsParfumMirror =
                         (isRegularParfum || isRegularParfum2ml) &&
                         parfumMirrorAromas.has(aromaName);
 
-                    if (!needsEdpMirror && !needsParfumMirror) continue;
+                    if (!needsExtMirror && !needsParfumMirror) continue;
 
                     // Find the corresponding hampers product and COPY its final_forecast directly
                     let final_forecast = 0;
                     const base_forecast = input * (1 + pctValue);
 
-                    if (needsEdpMirror) {
-                        const hEdp = group.find(
+                    if (needsExtMirror) {
+                        const hExt = group.find(
                             (p) =>
-                                p.product_type?.slug?.toLowerCase() === "hampers-edp" &&
+                                p.product_type?.slug?.toLowerCase() === "hampers-ext" &&
                                 (p.size?.size === 100 ||
                                     p.size?.size === 110 ||
                                     p.size?.size === 120),
                         );
-                        if (hEdp) {
+                        if (hExt) {
                             // Direct copy of hampers' final_forecast value for both 100ml and 2ml
                             final_forecast =
-                                computedFinalMap.get(hEdp.id) ??
-                                atomFinal * Number(hEdp[distField] ?? 0);
+                                computedFinalMap.get(hExt.id) ??
+                                atomFinal * Number(hExt[distField] ?? 0);
                         }
                     } else if (needsParfumMirror) {
                         const hParf = group.find((p) => {
@@ -1301,13 +1301,13 @@ export class ForecastService {
                         group_sort_priority DESC,
                         p.name ASC, 
                         CASE 
-                            WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+                            WHEN pt.name ILIKE '%EXT%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
                             WHEN pt.name ILIKE '%Atomizer%' THEN 2
                             ELSE 3
                         END ASC,
                         ps.size DESC NULLS LAST,
                         CASE 
-                            WHEN pt.name ILIKE '%EDP%' THEN 1
+                            WHEN pt.name ILIKE '%EXT%' THEN 1
                             WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
                             ELSE 3
                         END ASC,

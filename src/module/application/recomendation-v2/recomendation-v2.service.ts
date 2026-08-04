@@ -180,6 +180,22 @@ export class RecomendationV2Service {
                       )
                       ${searchFilter}
                 ),
+                -- Latest FG stock per product (dipakai buat netting Need Produce M1)
+                product_stock_agg AS (
+                    SELECT latest_periods.product_id, SUM(pi.quantity) as total_qty
+                    FROM (
+                        SELECT DISTINCT ON (product_id, warehouse_id) product_id, warehouse_id, year, month
+                        FROM "product_inventories"
+                        WHERE (year * 12 + month) <= (${fgInvYear} * 12 + ${fgInvMonth})
+                        ORDER BY product_id, warehouse_id, year DESC, month DESC
+                    ) latest_periods
+                    JOIN "product_inventories" pi
+                        ON pi.product_id = latest_periods.product_id
+                        AND pi.warehouse_id = latest_periods.warehouse_id
+                        AND pi.year = latest_periods.year
+                        AND pi.month = latest_periods.month
+                    GROUP BY latest_periods.product_id
+                ),
                 prod_stats AS (
                     SELECT
                         f.product_id,
@@ -245,21 +261,7 @@ export class RecomendationV2Service {
                     JOIN "products" p ON p.id = rec.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     LEFT JOIN prod_dynamic_ss dss ON dss.product_id = p.id
-                    LEFT JOIN (
-                          SELECT latest_periods.product_id, SUM(pi.quantity) as total_qty
-                          FROM (
-                              SELECT DISTINCT ON (product_id, warehouse_id) product_id, warehouse_id, year, month
-                              FROM "product_inventories"
-                              WHERE (year * 12 + month) <= (${fgInvYear} * 12 + ${fgInvMonth})
-                              ORDER BY product_id, warehouse_id, year DESC, month DESC
-                          ) latest_periods
-                          JOIN "product_inventories" pi
-                            ON pi.product_id = latest_periods.product_id
-                            AND pi.warehouse_id = latest_periods.warehouse_id
-                            AND pi.year = latest_periods.year
-                            AND pi.month = latest_periods.month
-                          GROUP BY latest_periods.product_id
-                    ) pi_agg ON pi_agg.product_id = p.id
+                    LEFT JOIN product_stock_agg pi_agg ON pi_agg.product_id = p.id
                     GROUP BY fm.id
                 ),
                 rm_current_sales_agg AS (
@@ -421,13 +423,22 @@ export class RecomendationV2Service {
                              )
                         ), '[]'::json)
                         FROM (
-                            SELECT f.month, f.year, SUM(FLOOR(f.final_forecast * rec.quantity * 
+                            -- Bulan berjalan (M1) pakai Need Produce (Final Forecast dikurangi
+                            -- stok FG produk yang masih tersedia, clamp ke 0); bulan selanjutnya
+                            -- tetap pakai Final Forecast mentah. Selaras dengan BOM Detail.
+                            SELECT f.month, f.year, SUM(FLOOR(
+                                (CASE
+                                    WHEN f.month = ${currentMonth} AND f.year = ${currentYear}
+                                    THEN GREATEST(f.final_forecast - COALESCE(pstock.total_qty, 0), 0)
+                                    ELSE f.final_forecast
+                                END) * rec.quantity *
                                 CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                             ) as total_needed
                             FROM "forecasts" f
                             JOIN "recipes" rec ON rec.product_id = f.product_id AND rec.is_active = true
                             JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                             LEFT JOIN "product_size" ps ON ps.id = p.size_id
+                            LEFT JOIN product_stock_agg pstock ON pstock.product_id = f.product_id
                             WHERE rec.raw_mat_id = fm.id
                               AND (f.year * 12 + f.month) >= ${fcStartY * 12 + fcStartM}
                               AND (f.year * 12 + f.month) <= ${fcEndY * 12 + fcEndM}
@@ -463,22 +474,30 @@ export class RecomendationV2Service {
                 LEFT JOIN LATERAL (
                     SELECT COALESCE(SUM(COALESCE(o.quantity, mr.calc_needed)), 0) AS total_needed
                     FROM (
-                        SELECT f.month, f.year, SUM(FLOOR(f.final_forecast * rec.quantity * 
+                        -- Bulan berjalan (M1) pakai Need Produce (netted stok FG), bulan
+                        -- selanjutnya tetap Final Forecast mentah. Selaras BOM Detail & NEED BUY.
+                        SELECT f.month, f.year, SUM(FLOOR(
+                            (CASE
+                                WHEN f.month = ${currentMonth} AND f.year = ${currentYear}
+                                THEN GREATEST(f.final_forecast - COALESCE(pstock.total_qty, 0), 0)
+                                ELSE f.final_forecast
+                            END) * rec.quantity *
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ) as calc_needed
                         FROM "recipes" rec
                         JOIN "forecasts" f ON f.product_id = rec.product_id
                         JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                         LEFT JOIN "product_size" ps ON ps.id = p.size_id
+                        LEFT JOIN product_stock_agg pstock ON pstock.product_id = f.product_id
                         WHERE rec.raw_mat_id = fm.id
                           AND mro.horizon IS NOT NULL
                           AND (f.year * 12 + f.month) >= ${currentYear * 12 + currentMonth}
                           AND (f.year * 12 + f.month) <= (${currentYear} * 12 + ${currentMonth} + COALESCE(mro.horizon, 0) - 1)
                         GROUP BY f.month, f.year
                     ) mr
-                    LEFT JOIN "raw_material_need_overrides" o 
-                         ON o.raw_material_id = fm.id 
-                         AND o.month = mr.month 
+                    LEFT JOIN "raw_material_need_overrides" o
+                         ON o.raw_material_id = fm.id
+                         AND o.month = mr.month
                          AND o.year = mr.year
                 ) h_fc ON TRUE
                 LEFT JOIN rm_forecast_agg fa ON fa.raw_mat_id = fm.id

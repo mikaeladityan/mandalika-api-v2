@@ -386,9 +386,9 @@ vi.mock("../config/prisma.js", () => ({
                     created_at: new Date(),
                     updated_at: new Date(),
                     product: {
-                        id: 1, code: "EDP_110", name: "Product EDP 110ml",
+                        id: 1, code: "EXT_110", name: "Product EXT 110ml",
                         distribution_percentage: "50.00",
-                        product_type: { id: 1, name: "EDP", slug: "edp" },
+                        product_type: { id: 1, name: "EXT", slug: "ext" },
                         size: { id: 1, size: 110 },
                         unit: { id: 1, name: "pcs", slug: "pcs" },
                     },
@@ -402,9 +402,9 @@ vi.mock("../config/prisma.js", () => ({
                     trend: "UP", status: "DRAFT", forecast_percentage_id: 1,
                     created_at: new Date(), updated_at: new Date(),
                     product: {
-                        id: 1, code: "EDP_110", name: "Product EDP 110ml",
+                        id: 1, code: "EXT_110", name: "Product EXT 110ml",
                         distribution_percentage: "50.00",
-                        product_type: { id: 1, name: "EDP", slug: "edp" },
+                        product_type: { id: 1, name: "EXT", slug: "ext" },
                         size: { id: 1, size: 110 }, unit: { id: 1, name: "pcs", slug: "pcs" },
                     },
                     forecast_percentage: { id: 1, month: 1, year: 2026, value: "20.00" },
@@ -803,7 +803,7 @@ vi.mock("../config/prisma.js", () => ({
                     email: where?.email || "test@example.com",
                     role: "STAFF",
                     status: "ACTIVE",
-                    password: "$2b$10$hashedpassword",
+                    password: "$2b$10$hashextassword",
                     user: {
                         first_name: "Test",
                         last_name: "User",

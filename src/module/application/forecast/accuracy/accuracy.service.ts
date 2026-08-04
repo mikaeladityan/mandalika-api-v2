@@ -350,13 +350,13 @@ export class ForecastAccuracyService {
                 ORDER BY
                     p.name ASC,
                     CASE
-                        WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+                        WHEN pt.name ILIKE '%EXT%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
                         WHEN pt.name ILIKE '%Atomizer%' THEN 2
                         ELSE 3
                     END ASC,
                     ps.size DESC NULLS LAST,
                     CASE
-                        WHEN pt.name ILIKE '%EDP%' THEN 1
+                        WHEN pt.name ILIKE '%EXT%' THEN 1
                         WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
                         ELSE 3
                     END ASC,
@@ -420,13 +420,13 @@ export class ForecastAccuracyService {
             ORDER BY
                 pp.name ASC,
                 CASE
-                    WHEN pp.type_name ILIKE '%EDP%' OR pp.type_name ILIKE '%Parfum%' OR pp.type_name ILIKE '%Perfume%' THEN 1
+                    WHEN pp.type_name ILIKE '%EXT%' OR pp.type_name ILIKE '%Parfum%' OR pp.type_name ILIKE '%Perfume%' THEN 1
                     WHEN pp.type_name ILIKE '%Atomizer%' THEN 2
                     ELSE 3
                 END ASC,
                 pp.size DESC NULLS LAST,
                 CASE
-                    WHEN pp.type_name ILIKE '%EDP%' THEN 1
+                    WHEN pp.type_name ILIKE '%EXT%' THEN 1
                     WHEN pp.type_name ILIKE '%Parfum%' OR pp.type_name ILIKE '%Perfume%' THEN 2
                     ELSE 3
                 END ASC,

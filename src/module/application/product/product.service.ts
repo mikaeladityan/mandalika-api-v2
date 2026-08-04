@@ -69,13 +69,13 @@ const FORECAST_DEFAULT_ORDER = Prisma.sql`
     group_sort_priority DESC,
     p.name ASC,
     CASE
-        WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+        WHEN pt.name ILIKE '%EXT%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
         WHEN pt.name ILIKE '%Atomizer%' THEN 2
         ELSE 3
     END ASC,
     ps.size DESC NULLS LAST,
     CASE
-        WHEN pt.name ILIKE '%EDP%' THEN 1
+        WHEN pt.name ILIKE '%EXT%' THEN 1
         WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
         ELSE 3
     END ASC,
@@ -218,7 +218,7 @@ export class ProductService {
                     const ownSize = result.size?.size != null ? Number(result.size.size) : null;
                     const isEdarPaired =
                         slug != null &&
-                        ["edp", "parfum", "perfume", "hampers-edp", "hampers-parfum"].includes(slug);
+                        ["ext", "parfum", "perfume", "hampers-ext", "hampers-parfum"].includes(slug);
                     const parentSizes = [100, 110, 120];
                     const pairSizes =
                         ownSize === 2 ? parentSizes : ownSize != null && parentSizes.includes(ownSize) ? [2] : null;

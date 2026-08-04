@@ -49,15 +49,15 @@ const mockRawRow = {
     base_forecast: "120.00", final_forecast: "110.00",
     trend: "UP", status: "DRAFT",
     forecast_percentage_id: 1, created_at: new Date(), updated_at: new Date(),
-    p_id: 1, p_code: "EDP110", p_name: "EDP 110ml", p_dist_pct: "50.00",
-    pt_id: 1, pt_name: "EDP", pt_slug: "edp",
+    p_id: 1, p_code: "EXT110", p_name: "EXT 110ml", p_dist_pct: "50.00",
+    pt_id: 1, pt_name: "EXT", pt_slug: "ext",
     ps_id: 1, ps_size: 110,
     u_id: 1, u_name: "pcs", u_slug: "pcs",
     fp_id: 1, fp_month: 1, fp_year: 2026, fp_value: "20.00",
 };
 
 const mockProducts = [
-    { id: 1, name: "EDP 110ML", distribution_percentage: "50.00", product_type: { id: 1, name: "EDP",     slug: "edp"     }, size: { id: 1, size: 110 } },
+    { id: 1, name: "EXT 110ML", distribution_percentage: "50.00", product_type: { id: 1, name: "EXT",     slug: "ext"     }, size: { id: 1, size: 110 } },
     { id: 2, name: "PERFUME 110ML", distribution_percentage: "50.00", product_type: { id: 2, name: "PERFUME", slug: "perfume" }, size: { id: 1, size: 110 } },
 ];
 
@@ -365,8 +365,8 @@ describe("ForecastRoutes", () => {
                 {
                     id: 1,
                     code: "P001",
-                    name: "AROMA X EDP 110ML",
-                    product_type: { slug: "edp" },
+                    name: "AROMA X EXT 110ML",
+                    product_type: { slug: "ext" },
                     size: { size: 110 },
                     distribution_percentage: "0",
                     reference_distribution_percentage: "0.6",

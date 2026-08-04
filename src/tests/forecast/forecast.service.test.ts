@@ -7,14 +7,14 @@ import { ForecastService } from "../../module/application/forecast/forecast.serv
 const mockProducts = [
     {
         id: 1,
-        name: "EDP 110ml",
+        name: "EXT 110ml",
         distribution_percentage: "50.00",
-        product_type: { slug: "edp" },
+        product_type: { slug: "ext" },
         size: { size: 110 },
     },
     {
         id: 2,
-        name: "EDP 110ml",
+        name: "EXT 110ml",
         distribution_percentage: "50.00",
         product_type: { slug: "parfum" },
         size: { size: 110 },
@@ -36,7 +36,7 @@ describe("ForecastService", () => {
                     name: "Product 1",
                     z_value: 1.65,
                     size: 110,
-                    product_type_name: "EDP",
+                    product_type_name: "EXT",
                     unit_name: "pcs",
                     distribution_percentage: null,
                     reference_distribution_percentage: 0.35,
@@ -82,7 +82,7 @@ describe("ForecastService", () => {
                     name: "Product 2",
                     z_value: 1.65,
                     size: 110,
-                    product_type_name: "EDP",
+                    product_type_name: "EXT",
                     unit_name: "pcs",
                     distribution_percentage: null,
                     safety_percentage: null,
@@ -109,7 +109,7 @@ describe("ForecastService", () => {
             z_value: 1.65,
             size: 110,
             size_id: 5,
-            product_type_name: "EDP",
+            product_type_name: "EXT",
             unit_name: "pcs",
             safety_percentage: null,
             forecasts_data: "[]",
@@ -170,18 +170,18 @@ describe("ForecastService", () => {
                     },
                 ])
                 .mockResolvedValueOnce([
-                    pairMember(1, "PW110E-GOR", "EDP", 7),
+                    pairMember(1, "PW110E-GOR", "EXT", 7),
                     pairMember(2, "PW110P-GOR", "Parfum", 3),
                 ]);
 
             const result = await ForecastService.get({ page: 1, take: 25 });
 
-            const edp = result.data.find((d) => d.product_id === 1)!.edar_sales_share!;
-            expect(edp.own_sales).toBe(7);
-            expect(edp.pair_total_sales).toBe(10);
-            expect(edp.actual_pct).toBe(70);
-            expect(edp.members).toHaveLength(2);
-            expect(edp.members[0]!.edar_pct).toBe(50);
+            const ext = result.data.find((d) => d.product_id === 1)!.edar_sales_share!;
+            expect(ext.own_sales).toBe(7);
+            expect(ext.pair_total_sales).toBe(10);
+            expect(ext.actual_pct).toBe(70);
+            expect(ext.members).toHaveLength(2);
+            expect(ext.members[0]!.edar_pct).toBe(50);
 
             const parfum = result.data.find((d) => d.product_id === 2)!.edar_sales_share!;
             expect(parfum.actual_pct).toBe(30);
@@ -200,7 +200,7 @@ describe("ForecastService", () => {
                     },
                 ])
                 .mockResolvedValueOnce([
-                    pairMember(1, "PW110E-GOR", "EDP", 7),
+                    pairMember(1, "PW110E-GOR", "EXT", 7),
                     pairMember(2, "PW110P-GOR", "Parfum", 3),
                 ]);
 
@@ -225,7 +225,7 @@ describe("ForecastService", () => {
                     },
                 ])
                 .mockResolvedValueOnce([
-                    pairMember(1, "PW110E-GOR", "EDP", 0),
+                    pairMember(1, "PW110E-GOR", "EXT", 0),
                     pairMember(2, "PW110P-GOR", "Parfum", 0),
                 ]);
 
@@ -248,7 +248,7 @@ describe("ForecastService", () => {
                         distribution_percentage: 0.5,
                     },
                 ])
-                .mockResolvedValueOnce([pairMember(1, "PW110E-GOR", "EDP", 5)]);
+                .mockResolvedValueOnce([pairMember(1, "PW110E-GOR", "EXT", 5)]);
 
             const result = await ForecastService.get({ page: 1, take: 25 });
 
