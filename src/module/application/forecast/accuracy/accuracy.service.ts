@@ -289,6 +289,9 @@ export class ForecastAccuracyService {
         const searchFilter = searchRaw
             ? Prisma.sql`AND (p.name ILIKE ${searchRaw} OR p.code ILIKE ${searchRaw})`
             : Prisma.empty;
+        const viewFilter = query.view === "hidden"
+            ? Prisma.sql`AND p.accuracy_hidden_at IS NOT NULL`
+            : Prisma.sql`AND p.accuracy_hidden_at IS NULL`;
 
         // ── Flat rows: page_products × month_series ─────────────────────────────
         type FlatRow = {
@@ -344,7 +347,7 @@ export class ForecastAccuracyService {
                 LEFT JOIN unit_of_materials  u  ON u.id  = p.unit_id
                 WHERE p.status = 'ACTIVE'
                   AND p.deleted_at IS NULL
-                  AND p.accuracy_hidden_at IS NULL
+                  ${viewFilter}
                   AND p.distribution_percentage > 0
                   ${searchFilter}
                 ORDER BY
@@ -373,7 +376,6 @@ export class ForecastAccuracyService {
                         SUM(CASE WHEN (pi.year * 12 + pi.month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type = 'ALL'::"IssuanceType" THEN pi.quantity ELSE 0 END)
                     )::float8 AS sales
                 FROM product_issuances pi
-                INNER JOIN all_edar ae ON ae.id = pi.product_id
                 WHERE (pi.year * 12 + pi.month)
                       BETWEEN (${from_year} * 12 + ${from_month})
                       AND     (${to_year}   * 12 + ${to_month})
@@ -532,8 +534,9 @@ export class ForecastAccuracyService {
             FROM products p
             WHERE p.status = 'ACTIVE'
               AND p.deleted_at IS NULL
-              AND p.accuracy_hidden_at IS NULL
+              ${viewFilter}
               AND p.distribution_percentage > 0
+              ${searchFilter}
         `);
 
         // ── Build months header list ─────────────────────────────────────────────
