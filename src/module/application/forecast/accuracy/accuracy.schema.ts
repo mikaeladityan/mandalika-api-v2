@@ -104,6 +104,7 @@ export const QueryEdarVsActSchema = z.object({
     to_month:   z.coerce.number().int().min(1).max(12),
     to_year:    z.coerce.number().int().min(2000).max(2100),
     search:     z.string().trim().min(1).optional(),
+    view:       z.enum(["visible", "hidden"]).optional(),
     page:       z.coerce.number().int().positive().default(1),
     take:       z.coerce.number().int().positive().max(500).default(25),
 });
