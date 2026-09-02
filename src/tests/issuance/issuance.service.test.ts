@@ -340,6 +340,7 @@ describe("IssuanceService", () => {
                 end_month: 3, end_year: 2025
             });
             expect(result.issuances[0]?.quantity[0]?.trend).toBe("STABLE");
+            expect(result.issuances[0]?.quantity[0]?.percentage).toBeNull();
         });
 
         it("should return UP trend for significant increase", async () => {
@@ -368,6 +369,8 @@ describe("IssuanceService", () => {
             });
             const series = result.issuances[0]?.quantity!;
             expect(series[1]?.trend).toBe("UP");
+            // quantity goes 50 → 100, so ((100-50)/50)*100 = 100
+            expect(series[1]?.percentage).toBe(100);
         });
 
         it("should return DOWN trend for significant decrease", async () => {
@@ -395,6 +398,8 @@ describe("IssuanceService", () => {
             });
             const series = result.issuances[0]?.quantity!;
             expect(series[1]?.trend).toBe("DOWN");
+            // quantity goes 100 → 10, so ((10-100)/100)*100 = -90
+            expect(series[1]?.percentage).toBe(-90);
         });
 
         it("should return STABLE when prev quantity is 0", async () => {
@@ -419,6 +424,7 @@ describe("IssuanceService", () => {
             const series = result.issuances[0]?.quantity!;
             // prev is 0, delta is Infinity → STABLE (guarded)
             expect(series[1]?.trend).toBe("STABLE");
+            expect(series[1]?.percentage).toBeNull();
         });
     });
 });

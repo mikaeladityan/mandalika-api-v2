@@ -252,10 +252,11 @@ export class IssuanceService {
                 return { year, month, quantity: qty };
             });
 
-            const trends = this.calculateTrendSeries(rawSeries.map((r) => r.quantity));
+            const trendSeries = this.calculateTrendSeries(rawSeries.map((r) => r.quantity));
             const quantitySeries = rawSeries.map((r, i) => ({
                 ...r,
-                trend: trends[i] ?? Trend.STABLE,
+                trend: trendSeries[i]?.trend ?? Trend.STABLE,
+                percentage: trendSeries[i]?.percentage ?? null,
             }));
 
             return {
@@ -441,14 +442,17 @@ export class IssuanceService {
         };
     }
 
-    private static calculateTrendSeries(values: number[], threshold = 5): Trend[] {
+    private static calculateTrendSeries(
+        values: number[],
+        threshold = 5,
+    ): { trend: Trend; percentage: number | null }[] {
         return values.map((current, i) => {
-            if (i === 0) return Trend.STABLE;
+            if (i === 0) return { trend: Trend.STABLE, percentage: null };
             const prev = values[i - 1]!;
-            if (prev === 0) return Trend.STABLE;
+            if (prev === 0) return { trend: Trend.STABLE, percentage: null };
             const delta = ((current - prev) / prev) * 100;
-            if (!Number.isFinite(delta) || Math.abs(delta) < threshold) return Trend.STABLE;
-            return delta > 0 ? Trend.UP : Trend.DOWN;
+            const trend = Math.abs(delta) < threshold ? Trend.STABLE : delta > 0 ? Trend.UP : Trend.DOWN;
+            return { trend, percentage: delta };
         });
     }
 
@@ -640,6 +644,6 @@ type IssuanceListItem = {
         product_type: { id: number; name: string; slug: string } | null;
         size: string;
     };
-    quantity: Array<{ year: number; month: number; quantity: number; trend: Trend }>;
+    quantity: Array<{ year: number; month: number; quantity: number; trend: Trend; percentage: number | null }>;
     totalQuantity: number;
 };
