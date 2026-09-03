@@ -119,6 +119,7 @@ export type ResponseForecastDTO = {
         period: string;
         base_forecast: number;
         final_forecast: number | null;
+        gross_forecast: number | null;
         trend: string;
         status: string | null;
         is_current_month: boolean;
