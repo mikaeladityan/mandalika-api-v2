@@ -304,12 +304,8 @@ export class RecomendationV2Service {
                     fm.min_buy AS moq,
                     fm.lead_time AS lead_time,
                     mro.horizon AS work_order_horizon,
-                    CASE
-                        WHEN fm.barcode LIKE 'KTP-%' OR fm.barcode LIKE 'KTB-%' OR fm.barcode LIKE 'KTL-%' OR fm.barcode LIKE 'KEM-%' OR fm.barcode LIKE 'BUK-%'
-                        THEN COALESCE(sa.stock_fg_x_resep, 0)
-                        ELSE 
-                            -- Available Stock (On-Hand minus Booked by RELEASED production orders)
-                            GREATEST(0,
+                    -- Forecast sudah dikurangi stok FG; kurangi hanya stok RM agar tidak double-count.
+                    GREATEST(0,
                                 COALESCE((
                                     SELECT SUM(rmi.quantity)
                                     FROM (
@@ -333,8 +329,7 @@ export class RecomendationV2Service {
                                     WHERE poi.raw_material_id = fm.id
                                       AND po.status = 'RELEASED'
                                 ), 0)
-                            )
-                    END AS current_stock,
+                            ) AS current_stock,
                     (
                         COALESCE((
                             SELECT SUM(po.quantity)
@@ -1642,11 +1637,7 @@ export class RecomendationV2Service {
                 0 AS quantity,
                 ${horizon} AS horizon,
                 COALESCE(fc.total, 0) AS total_needed,
-                CASE
-                    WHEN rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KTB-%' OR rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KEM-%' OR rm.barcode LIKE 'BUK-%'
-                    THEN COALESCE(fg.total, 0)
-                    ELSE COALESCE(inv.total, 0)
-                END AS current_stock,
+                COALESCE(inv.total, 0) AS current_stock,
                 COALESCE(fg.total, 0) AS stock_fg_x_resep,
                 COALESCE(ss.total, 0) AS safety_stock_x_resep,
                 ${now} AS created_at,

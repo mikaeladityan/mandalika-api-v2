@@ -30,7 +30,7 @@ export class IssuanceController {
         } = c.req.query();
 
         const params: QueryIssuanceDTO = {
-            sortBy: (sortBy as QueryIssuanceDTO["sortBy"]) || "name",
+            sortBy: (sortBy as QueryIssuanceDTO["sortBy"]) || "quantity",
             sortOrder: (sortOrder as QueryIssuanceDTO["sortOrder"]) || "desc",
             gender: (gender as QueryIssuanceDTO["gender"]) || undefined,
             variant: variant || undefined,

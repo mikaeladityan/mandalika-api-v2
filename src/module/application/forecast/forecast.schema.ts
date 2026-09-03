@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { STATUS } from "../../../generated/prisma/client.js";
 
 // ─── Run Forecast ──────────────────────────────────────────────────────────────
 
@@ -80,6 +81,7 @@ export type UpdateManualForecastDTO = z.infer<typeof UpdateManualForecastSchema>
 
 export type ResponseForecastDTO = {
     product_id: number;
+    product_status: STATUS;
     product_code: string | null;
     product_name: string;
     product_type: string;
@@ -146,4 +148,3 @@ export const CompareForecastSchema = z.object({
     horizon: z.coerce.number().int().min(1).max(12).default(12),
 });
 export type CompareForecastDTO = z.infer<typeof CompareForecastSchema>;
-

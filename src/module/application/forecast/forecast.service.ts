@@ -44,6 +44,24 @@ export type ForecastBatchRow = {
 export type DistField = "distribution_percentage" | "reference_distribution_percentage";
 
 export class ForecastService {
+    static applyOpeningStockToForecastBatch(
+        batch: ForecastBatchRow[],
+        openingStockByProduct: Map<number, number>,
+    ): ForecastBatchRow[] {
+        const remainingStock = new Map(openingStockByProduct);
+
+        return [...batch]
+            .sort((a, b) => a.year * 12 + a.month - (b.year * 12 + b.month))
+            .map((row) => {
+                const stock = remainingStock.get(row.product_id) ?? 0;
+                const grossForecast = Math.max(0, row.final_forecast);
+                const consumedStock = Math.min(stock, grossForecast);
+                remainingStock.set(row.product_id, stock - consumedStock);
+
+                return { ...row, final_forecast: grossForecast - consumedStock };
+            });
+    }
+
     static async loadBaseSalesInput(
         productIds: number[],
         start_month: number,
@@ -585,7 +603,7 @@ export class ForecastService {
         );
 
         // 4. Calculate sequentially through the horizon
-        const batch = ForecastService.computeForecastBatch({
+        const grossBatch = ForecastService.computeForecastBatch({
             products,
             monthsRange,
             pctMap,
@@ -593,6 +611,24 @@ export class ForecastService {
             is_others: body.is_others,
             distField: "distribution_percentage",
         });
+
+        const inventoryRows = await prisma.productInventory.groupBy({
+            by: ["product_id"],
+            where: {
+                product_id: { in: products.map((p) => p.id) },
+                month: start_month,
+                year: start_year,
+                warehouse: { type: "FINISH_GOODS", deleted_at: null },
+            },
+            _sum: { quantity: true },
+        });
+        const openingStockByProduct = new Map(
+            inventoryRows.map((row) => [row.product_id, Number(row._sum.quantity ?? 0)]),
+        );
+        const batch = ForecastService.applyOpeningStockToForecastBatch(
+            grossBatch,
+            openingStockByProduct,
+        );
 
         // 5. Batch Save using Raw SQL Bulk Upsert (Optimization for large datasets)
         if (batch.length > 0) {
@@ -1039,7 +1075,7 @@ export class ForecastService {
         const { skip, take: limit } = GetPagination(page, take);
 
         const where: Prisma.ProductWhereInput = {
-            status: "ACTIVE",
+            status: { in: ["ACTIVE", "PENDING"] },
             deleted_at: null,
             ...(query.is_others
                 ? {
@@ -1142,6 +1178,7 @@ export class ForecastService {
         const productsRaw = await prisma.$queryRaw<
             {
                 id: number;
+                status: "ACTIVE" | "PENDING";
                 code: string | null;
                 name: string;
                 z_value: number;
@@ -1161,6 +1198,7 @@ export class ForecastService {
         >`
             SELECT
                 p.id,
+                p.status,
                 p.code,
                 p.name,
                 p.z_value,
@@ -1273,7 +1311,7 @@ export class ForecastService {
                   AND w.deleted_at IS NULL
                 GROUP BY pi.product_id
             ) pi ON p.id = pi.product_id
-            WHERE p.status = 'ACTIVE'
+            WHERE p.status IN ('ACTIVE', 'PENDING')
               AND p.deleted_at IS NULL
               AND (
                 ${
@@ -1530,13 +1568,13 @@ export class ForecastService {
                 last_updated: ss?.created_at ? new Date(ss.created_at) : null,
             };
 
-            // Calculate Need Produce for M1: Forecast M1 - Current Stock
+            // final_forecast sudah menjadi kebutuhan produksi bersih setelah stok FG.
             const m1MonthData = monthly_data.find(
                 (m) => m.month === startMonth && m.year === startYear,
             );
             const m1Forecast = m1MonthData?.final_forecast ?? 0;
             const currentStock = Number(p.current_stock ?? 0);
-            const needProduce = Math.max(0, m1Forecast - currentStock);
+            const needProduce = m1Forecast;
 
             const edar_sales_share: ResponseForecastDTO["edar_sales_share"] = (() => {
                 if (Number(p.distribution_percentage ?? 0) <= 0) return null;
@@ -1591,6 +1629,7 @@ export class ForecastService {
 
             return {
                 product_id: p.id,
+                product_status: p.status,
                 product_code: p.code,
                 product_name: p.name,
                 product_type: p.product_type_name ?? "",
