@@ -74,7 +74,7 @@ export class ForecastService {
 
         let status: InventoryTurnoverStatus;
         if (stock === 0) status = "KOSONG";
-        else if (averageMonthlyUsage === 0 && forecast === 0) status = "TIDAK_BERGERAK";
+        else if (averageMonthlyUsage === 0) status = "TIDAK_BERGERAK";
         else if (forecastCoverage == null || forecastCoverage < leadTimeMonths) status = "KRITIS";
         else if (forecastCoverage < targetCoverage) status = "TIPIS";
         else if (forecastCoverage <= targetCoverage * 2) status = "SEHAT";
@@ -98,7 +98,7 @@ export class ForecastService {
         const month = query.month ?? now.getUTCMonth() + 1;
         const year = query.year ?? now.getUTCFullYear();
         const period = year * 12 + month;
-        const previousPeriods = Array.from({ length: 3 }, (_, index) => period - (3 - index));
+        const averagePeriods = Array.from({ length: 4 }, (_, index) => period - (3 - index));
         const search = query.search ? `%${query.search}%` : null;
 
         const rows = await prisma.$queryRaw<
@@ -117,37 +117,44 @@ export class ForecastService {
                 p.code AS product_code,
                 p.name AS product_name,
                 p.lead_time,
-                COALESCE(stock.quantity, 0)::float8 AS stock,
+                COALESCE(stock.average_quantity, 0)::float8 AS stock,
                 COALESCE(usage.average_monthly_usage, 0)::float8 AS average_monthly_usage,
                 COALESCE(fc.final_forecast, 0)::float8 AS forecast
             FROM products p
             LEFT JOIN product_types pt ON pt.id = p.type_id
             LEFT JOIN product_size ps ON ps.id = p.size_id
             LEFT JOIN LATERAL (
-                SELECT SUM(latest.quantity) AS quantity
+                SELECT AVG(monthly.quantity) AS average_quantity
                 FROM (
-                    SELECT DISTINCT ON (pi.warehouse_id) pi.warehouse_id, pi.quantity
-                    FROM product_inventories pi
-                    JOIN warehouses w ON w.id = pi.warehouse_id
-                    WHERE pi.product_id = p.id
-                      AND (pi.year * 12 + pi.month) <= ${period}
-                      AND w.type = 'FINISH_GOODS'
-                      AND w.deleted_at IS NULL
-                    ORDER BY pi.warehouse_id, pi.year DESC, pi.month DESC, pi.date DESC
-                ) latest
+                    SELECT snapshot.period, COALESCE((
+                        SELECT SUM(latest.quantity)
+                        FROM (
+                            SELECT DISTINCT ON (pi.warehouse_id) pi.warehouse_id, pi.quantity
+                            FROM product_inventories pi
+                            JOIN warehouses w ON w.id = pi.warehouse_id
+                            WHERE pi.product_id = p.id
+                              AND (pi.year * 12 + pi.month) <= snapshot.period
+                              AND w.type = 'FINISH_GOODS'
+                              AND w.deleted_at IS NULL
+                            ORDER BY pi.warehouse_id, pi.year DESC, pi.month DESC, pi.date DESC
+                        ) latest
+                    ), 0) AS quantity
+                    FROM (VALUES ${Prisma.join(averagePeriods.map((value) => Prisma.sql`(${value})`))}) AS snapshot(period)
+                ) monthly
             ) stock ON true
             LEFT JOIN LATERAL (
                 SELECT AVG(monthly.quantity) AS average_monthly_usage
                 FROM (
-                    SELECT
-                        COALESCE(
+                    SELECT usage_period.period, COALESCE((
+                        SELECT COALESCE(
                             NULLIF(SUM(CASE WHEN (pi.year * 12 + pi.month) > ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type != 'ALL'::"IssuanceType" THEN pi.quantity ELSE 0 END), 0),
                             SUM(CASE WHEN (pi.year * 12 + pi.month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type = 'ALL'::"IssuanceType" THEN pi.quantity ELSE 0 END)
-                        ) AS quantity
-                    FROM product_issuances pi
-                    WHERE pi.product_id = p.id
-                      AND (pi.year * 12 + pi.month) IN (${Prisma.join(previousPeriods)})
-                    GROUP BY pi.year, pi.month
+                        )
+                        FROM product_issuances pi
+                        WHERE pi.product_id = p.id
+                          AND (pi.year * 12 + pi.month) = usage_period.period
+                    ), 0) AS quantity
+                    FROM (VALUES ${Prisma.join(averagePeriods.map((value) => Prisma.sql`(${value})`))}) AS usage_period(period)
                 ) monthly
             ) usage ON true
             LEFT JOIN forecasts fc
@@ -242,8 +249,8 @@ export class ForecastService {
         const headers = [
             "KODE FG",
             "NAMA FG",
-            "STOK (ML)",
-            "PEMAKAIAN RATA2/BULAN",
+            "STOK RATA2 4 BULAN (ML)",
+            "PEMAKAIAN RATA2 4 BULAN (ML/BULAN)",
             "FORECAST BULAN INI",
             "CAKUPAN HISTORIS",
             "CAKUPAN VS FORECAST",

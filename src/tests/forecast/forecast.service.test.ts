@@ -55,12 +55,12 @@ describe("ForecastService", () => {
             const stopped = ForecastService.calculateInventoryTurnover({
                 stock: 25_000,
                 averageMonthlyUsage: 0,
-                forecast: 0,
+                forecast: 500,
                 leadTimeDays: 30,
             });
             expect(stopped.status).toBe("TIDAK_BERGERAK");
-            expect(stopped.forecast_coverage).toBeNull();
-            expect(stopped.annual_turnover).toBeNull();
+            expect(stopped.forecast_coverage).toBe(50);
+            expect(stopped.annual_turnover).toBeCloseTo(0.24);
         });
     });
 
