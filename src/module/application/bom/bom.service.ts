@@ -439,43 +439,11 @@ export class BOMService {
 
                 const productForecasts = r.products.forecasts || [];
 
-                // Calculate product-specific Need Produce for entire Horizon
-                // (Forecast bulan berjalan dikurangi stok FG yang masih tersedia)
-                const productStockDetail = r.products.product_inventories.reduce(
-                    (sum, pi) => sum + Number(pi.quantity),
-                    0,
-                );
-                let runningStockDetail = productStockDetail;
-
-                const productNeedProduce = forecastRange.map((p) => {
-                    const fMatch = productForecasts.find(
-                        (f) => f.month === p.month && f.year === p.year,
-                    );
-                    const fValAtMonth = fMatch ? Math.round(Number(fMatch.final_forecast)) : 0;
-                    const needAtMonth = Math.max(0, fValAtMonth - runningStockDetail);
-                    runningStockDetail = Math.max(0, runningStockDetail - fValAtMonth);
-
-                    const val = r.use_size_calc
-                        ? needAtMonth * pSize * Number(r.quantity)
-                        : needAtMonth * Number(r.quantity);
-
-                    return {
-                        period: p.key,
-                        month: p.month,
-                        year: p.year,
-                        value: Math.round(val),
-                    };
-                });
-
-                forecastRange.forEach((p, idx) => {
+                forecastRange.forEach((p) => {
                     const fVal = forecastMap.get(`${r.product_id}-${p.month}-${p.year}`) || 0;
-                    const rawReq = r.use_size_calc
+                    const req = r.use_size_calc
                         ? Math.floor(fVal * pSize * Number(r.quantity))
                         : Math.floor(fVal * Number(r.quantity));
-
-                    // Bulan berjalan (M1) pakai Need Produce (netted stok FG), bulan
-                    // selanjutnya tetap pakai Final Forecast mentah.
-                    const req = idx === 0 ? (productNeedProduce[0]?.value ?? rawReq) : rawReq;
                     monthly_data[p.key] = req;
                     productTotal += req;
                 });
