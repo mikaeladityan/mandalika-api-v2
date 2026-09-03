@@ -103,6 +103,7 @@ export class IssuanceService {
         take = 10,
         search,
         type,
+        sales_analytics,
     }: QueryIssuanceDTO): Promise<{ issuances: IssuanceListItem[]; len: number }> {
         // 1. Calculate Defaults
         const now = new Date();
@@ -154,6 +155,12 @@ export class IssuanceService {
             conditions.push(Prisma.sql`p.id = ${product_id}`);
         }
 
+        if (sales_analytics) {
+            conditions.push(
+                Prisma.sql`p.code !~* '^(KEM-|KTP-|KTL-|KTB-|DW|BUK-|DP|GB|KA)'`,
+            );
+        }
+
         const saTypeFilter = type
             ? Prisma.sql`AND (
                 ((sa.year * 12 + sa.month) <= ${IssuanceService.THRESHOLD_PERIOD} AND sa.type = 'ALL'::"IssuanceType")
@@ -177,7 +184,23 @@ export class IssuanceService {
 
         // ponytail: special product codes at bottom; add when filter/exclude option needed
         const orderBySql =
-            sortBy === "name" && sortOrder === "asc"
+            sales_analytics
+                ? Prisma.sql`ORDER BY
+                    "groupSortPriority" DESC,
+                    p.name ASC,
+                    CASE
+                        WHEN pt.name ILIKE '%EXT%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+                        WHEN pt.name ILIKE '%Atomizer%' THEN 2
+                        ELSE 3
+                    END ASC,
+                    ps.size DESC NULLS LAST,
+                    CASE
+                        WHEN pt.name ILIKE '%EXT%' THEN 1
+                        WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
+                        ELSE 3
+                    END ASC,
+                    p.id ASC`
+                : sortBy === "name" && sortOrder === "asc"
                 ? Prisma.sql`ORDER BY (CASE WHEN p.code ~ '^(KEM|KTB|KTL|KTP)-' THEN 1 ELSE 0 END), p.name ASC`
                 : sortBy === "name" && sortOrder === "desc"
                   ? Prisma.sql`ORDER BY (CASE WHEN p.code ~ '^(KEM|KTB|KTL|KTP)-' THEN 1 ELSE 0 END), p.name DESC`
@@ -199,6 +222,14 @@ export class IssuanceService {
                 pt.id                            AS pt_id,
                 pt.name                          AS pt_name,
                 pt.slug                          AS pt_slug,
+                COALESCE((
+                    SELECT MAX(f.final_forecast)
+                    FROM forecasts f
+                    JOIN products grouped_product ON grouped_product.id = f.product_id
+                    WHERE grouped_product.name = p.name
+                      AND f.month = ${now.getUTCMonth() + 1}
+                      AND f.year = ${now.getUTCFullYear()}
+                ), 0)                            AS "groupSortPriority",
                 COALESCE(SUM(sa.quantity), 0)    AS "totalQuantity",
                 COALESCE(
                     json_agg(
