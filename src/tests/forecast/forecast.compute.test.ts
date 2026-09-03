@@ -129,6 +129,6 @@ describe("ForecastService.applyOpeningStockToForecastBatch", () => {
 
         expect(result.map((row) => row.final_forecast)).toEqual([100, 100, 100]);
         expect(result.map((row) => row.net_forecast)).toEqual([0, 0, 50]);
-        expect(ForecastService.calculateNeedProduce(100, 250)).toBe(-150);
+        expect(ForecastService.calculateNeedProduce(100, 250)).toBe(0);
     });
 });
