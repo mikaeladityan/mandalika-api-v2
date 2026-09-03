@@ -8,6 +8,7 @@ import {
     FinalizeForecastSchema,
     QueryForecastSchema,
     CompareForecastSchema,
+    QueryInventoryTurnoverSchema,
 } from "./forecast.schema.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 
@@ -39,6 +40,23 @@ export class ForecastController {
         const query = CompareForecastSchema.parse(c.req.query());
         const result = await ForecastService.compare(query);
         return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async inventoryTurnover(c: Context) {
+        const query = QueryInventoryTurnoverSchema.parse(c.req.query());
+        const result = await ForecastService.inventoryTurnover(query);
+        return ApiResponse.sendSuccess(c, result, 200, query);
+    }
+
+    static async exportInventoryTurnover(c: Context) {
+        const query = QueryInventoryTurnoverSchema.parse(c.req.query());
+        const buffer = await ForecastService.exportInventoryTurnover(query);
+        c.header("Content-Type", "text/csv; charset=utf-8");
+        c.header(
+            "Content-Disposition",
+            `attachment; filename="Inventory_Turnover_${new Date().toISOString().split("T")[0]}.csv"`,
+        );
+        return c.body(buffer as any);
     }
     
     static async export(c: Context) {

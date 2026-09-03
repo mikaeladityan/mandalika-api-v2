@@ -26,6 +26,44 @@ describe("ForecastService", () => {
         vi.clearAllMocks();
     });
 
+    describe("calculateInventoryTurnover", () => {
+        it("calculates coverage, turnover, status, and excess stock", () => {
+            const result = ForecastService.calculateInventoryTurnover({
+                stock: 185_815,
+                averageMonthlyUsage: 25_715,
+                forecast: 20_000,
+                leadTimeDays: 75,
+            });
+
+            expect(result.forecast_coverage).toBeCloseTo(9.29075);
+            expect(result.days_inventory).toBeCloseTo(278.7225);
+            expect(result.annual_turnover).toBeCloseTo(1.2916, 4);
+            expect(result.target_coverage).toBe(3.5);
+            expect(result.status).toBe("BERLEBIH");
+            expect(result.excess_stock).toBe(45_815);
+        });
+
+        it("handles empty and non-moving stock without division by zero", () => {
+            expect(
+                ForecastService.calculateInventoryTurnover({
+                    stock: 0,
+                    averageMonthlyUsage: 420,
+                    forecast: 900,
+                    leadTimeDays: 15,
+                }).status,
+            ).toBe("KOSONG");
+            const stopped = ForecastService.calculateInventoryTurnover({
+                stock: 25_000,
+                averageMonthlyUsage: 0,
+                forecast: 0,
+                leadTimeDays: 30,
+            });
+            expect(stopped.status).toBe("TIDAK_BERGERAK");
+            expect(stopped.forecast_coverage).toBeNull();
+            expect(stopped.annual_turnover).toBeNull();
+        });
+    });
+
     describe("get", () => {
         it("should return forecast list with correct len", async () => {
             (prisma.product.count as any).mockResolvedValue(1);

@@ -10,6 +10,9 @@ import {
     RunForecastDTO,
     UpdateManualForecastDTO,
     CompareForecastDTO,
+    InventoryTurnoverStatus,
+    QueryInventoryTurnoverDTO,
+    ResponseInventoryTurnoverDTO,
 } from "./forecast.schema.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 
@@ -45,6 +48,234 @@ export type ForecastBatchRow = {
 export type DistField = "distribution_percentage" | "reference_distribution_percentage";
 
 export class ForecastService {
+    static calculateInventoryTurnover(input: {
+        stock: number;
+        averageMonthlyUsage: number;
+        forecast: number;
+        leadTimeDays: number;
+    }): Omit<
+        ResponseInventoryTurnoverDTO,
+        | "product_id"
+        | "product_code"
+        | "product_name"
+        | "stock"
+        | "average_monthly_usage"
+        | "forecast"
+    > {
+        const stock = Math.max(0, input.stock);
+        const averageMonthlyUsage = Math.max(0, input.averageMonthlyUsage);
+        const forecast = Math.max(0, input.forecast);
+        const leadTimeMonths = Math.max(0, input.leadTimeDays) / 30;
+        const targetCoverage = leadTimeMonths + 1;
+        const historicalCoverage = averageMonthlyUsage > 0 ? stock / averageMonthlyUsage : null;
+        const forecastCoverage = forecast > 0 ? stock / forecast : null;
+        const daysInventory = forecastCoverage == null ? null : forecastCoverage * 30;
+        const annualTurnover = stock > 0 && forecast > 0 ? (forecast * 12) / stock : null;
+
+        let status: InventoryTurnoverStatus;
+        if (stock === 0) status = "KOSONG";
+        else if (averageMonthlyUsage === 0 && forecast === 0) status = "TIDAK_BERGERAK";
+        else if (forecastCoverage == null || forecastCoverage < leadTimeMonths) status = "KRITIS";
+        else if (forecastCoverage < targetCoverage) status = "TIPIS";
+        else if (forecastCoverage <= targetCoverage * 2) status = "SEHAT";
+        else status = "BERLEBIH";
+
+        return {
+            historical_coverage: historicalCoverage,
+            forecast_coverage: forecastCoverage,
+            days_inventory: daysInventory,
+            annual_turnover: annualTurnover,
+            lead_time_months: leadTimeMonths,
+            target_coverage: targetCoverage,
+            status,
+            excess_stock:
+                status === "BERLEBIH" ? Math.max(0, stock - targetCoverage * 2 * forecast) : 0,
+        };
+    }
+
+    static async inventoryTurnover(query: QueryInventoryTurnoverDTO) {
+        const now = new Date();
+        const month = query.month ?? now.getUTCMonth() + 1;
+        const year = query.year ?? now.getUTCFullYear();
+        const period = year * 12 + month;
+        const previousPeriods = Array.from({ length: 3 }, (_, index) => period - (3 - index));
+        const search = query.search ? `%${query.search}%` : null;
+
+        const rows = await prisma.$queryRaw<
+            Array<{
+                product_id: number;
+                product_code: string;
+                product_name: string;
+                lead_time: number;
+                stock: number | string | null;
+                average_monthly_usage: number | string | null;
+                forecast: number | string | null;
+            }>
+        >(Prisma.sql`
+            SELECT
+                p.id AS product_id,
+                p.code AS product_code,
+                p.name AS product_name,
+                p.lead_time,
+                COALESCE(stock.quantity, 0)::float8 AS stock,
+                COALESCE(usage.average_monthly_usage, 0)::float8 AS average_monthly_usage,
+                COALESCE(fc.final_forecast, 0)::float8 AS forecast
+            FROM products p
+            LEFT JOIN product_types pt ON pt.id = p.type_id
+            LEFT JOIN product_size ps ON ps.id = p.size_id
+            LEFT JOIN LATERAL (
+                SELECT SUM(latest.quantity) AS quantity
+                FROM (
+                    SELECT DISTINCT ON (pi.warehouse_id) pi.warehouse_id, pi.quantity
+                    FROM product_inventories pi
+                    JOIN warehouses w ON w.id = pi.warehouse_id
+                    WHERE pi.product_id = p.id
+                      AND (pi.year * 12 + pi.month) <= ${period}
+                      AND w.type = 'FINISH_GOODS'
+                      AND w.deleted_at IS NULL
+                    ORDER BY pi.warehouse_id, pi.year DESC, pi.month DESC, pi.date DESC
+                ) latest
+            ) stock ON true
+            LEFT JOIN LATERAL (
+                SELECT AVG(monthly.quantity) AS average_monthly_usage
+                FROM (
+                    SELECT
+                        COALESCE(
+                            NULLIF(SUM(CASE WHEN (pi.year * 12 + pi.month) > ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type != 'ALL'::"IssuanceType" THEN pi.quantity ELSE 0 END), 0),
+                            SUM(CASE WHEN (pi.year * 12 + pi.month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type = 'ALL'::"IssuanceType" THEN pi.quantity ELSE 0 END)
+                        ) AS quantity
+                    FROM product_issuances pi
+                    WHERE pi.product_id = p.id
+                      AND (pi.year * 12 + pi.month) IN (${Prisma.join(previousPeriods)})
+                    GROUP BY pi.year, pi.month
+                ) monthly
+            ) usage ON true
+            LEFT JOIN forecasts fc
+              ON fc.product_id = p.id AND fc.month = ${month} AND fc.year = ${year}
+            WHERE p.status NOT IN ('BLOCK'::"STATUS", 'DELETE'::"STATUS", 'PENDING'::"STATUS")
+              AND p.code !~* '^(KEM-|KTP-|KTL-|KTB-|DW|DU|GS|BUK-|DP|GB|KA)'
+              ${search ? Prisma.sql`AND (p.name ILIKE ${search} OR p.code ILIKE ${search})` : Prisma.empty}
+            ORDER BY
+                COALESCE((
+                    SELECT MAX(grouped_forecast.final_forecast)
+                    FROM forecasts grouped_forecast
+                    JOIN products grouped_product ON grouped_product.id = grouped_forecast.product_id
+                    WHERE grouped_product.name = p.name
+                      AND grouped_forecast.month = ${month}
+                      AND grouped_forecast.year = ${year}
+                ), 0) DESC,
+                p.name ASC,
+                CASE
+                    WHEN pt.name ILIKE '%EXT%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+                    WHEN pt.name ILIKE '%Atomizer%' THEN 2
+                    ELSE 3
+                END ASC,
+                ps.size DESC NULLS LAST,
+                CASE
+                    WHEN pt.name ILIKE '%EXT%' THEN 1
+                    WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
+                    ELSE 3
+                END ASC,
+                p.id ASC
+        `);
+
+        const calculated = rows.map<ResponseInventoryTurnoverDTO>((row) => {
+            const stock = Number(row.stock ?? 0);
+            const averageMonthlyUsage = Number(row.average_monthly_usage ?? 0);
+            const forecast = Number(row.forecast ?? 0);
+            return {
+                product_id: row.product_id,
+                product_code: row.product_code,
+                product_name: row.product_name,
+                stock,
+                average_monthly_usage: averageMonthlyUsage,
+                forecast,
+                ...ForecastService.calculateInventoryTurnover({
+                    stock,
+                    averageMonthlyUsage,
+                    forecast,
+                    leadTimeDays: row.lead_time,
+                }),
+            };
+        });
+        const filtered = query.status
+            ? calculated.filter((row) => row.status === query.status)
+            : calculated;
+        const totalStock = filtered.reduce((sum, row) => sum + row.stock, 0);
+        const totalUsage = filtered.reduce((sum, row) => sum + row.average_monthly_usage, 0);
+        const totalForecast = filtered.reduce((sum, row) => sum + row.forecast, 0);
+        const historicalCoverage = totalUsage > 0 ? totalStock / totalUsage : null;
+        const forecastCoverage = totalForecast > 0 ? totalStock / totalForecast : null;
+        const page = query.page ?? 1;
+        const take = query.take ?? 50;
+
+        // ponytail: in-memory derived-status pagination; move calculation into SQL if SKU count grows into tens of thousands.
+        return {
+            period: { month, year },
+            summary: {
+                total_stock: totalStock,
+                average_monthly_usage: totalUsage,
+                forecast: totalForecast,
+                historical_coverage: historicalCoverage,
+                forecast_coverage: forecastCoverage,
+                days_inventory: historicalCoverage == null ? null : historicalCoverage * 30,
+                annual_turnover: historicalCoverage && historicalCoverage > 0 ? 12 / historicalCoverage : null,
+                excess_stock: filtered.reduce((sum, row) => sum + row.excess_stock, 0),
+            },
+            len: filtered.length,
+            data: filtered.slice((page - 1) * take, page * take),
+        };
+    }
+
+    static async exportInventoryTurnover(query: QueryInventoryTurnoverDTO) {
+        const result = await ForecastService.inventoryTurnover({
+            ...query,
+            page: 1,
+            take: 1000,
+        });
+        const escape = (value: string | number | null) => {
+            const text = String(value ?? "");
+            return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+        };
+        const decimal = (value: number | null) =>
+            value == null ? "" : Number(value.toFixed(2));
+        const headers = [
+            "KODE FG",
+            "NAMA FG",
+            "STOK (ML)",
+            "PEMAKAIAN RATA2/BULAN",
+            "FORECAST BULAN INI",
+            "CAKUPAN HISTORIS",
+            "CAKUPAN VS FORECAST",
+            "HARI PERSEDIAAN",
+            "PERPUTARAN (KALI/TAHUN)",
+            "LEAD TIME (BULAN)",
+            "TARGET CAKUPAN",
+            "STATUS",
+            "STOK BERLEBIH (ML)",
+        ];
+        const rows = result.data.map((row) =>
+            [
+                row.product_code,
+                row.product_name,
+                Math.round(row.stock),
+                Math.round(row.average_monthly_usage),
+                Math.round(row.forecast),
+                decimal(row.historical_coverage),
+                decimal(row.forecast_coverage),
+                row.days_inventory == null ? "" : Math.round(row.days_inventory),
+                decimal(row.annual_turnover),
+                decimal(row.lead_time_months),
+                decimal(row.target_coverage),
+                row.status.replaceAll("_", " "),
+                Math.round(row.excess_stock),
+            ]
+                .map(escape)
+                .join(","),
+        );
+        return Buffer.from(`\uFEFF${[headers.join(","), ...rows].join("\n")}`, "utf-8");
+    }
+
     static calculateNeedProduce(grossForecast: number, currentStock: number): number {
         return Math.max(0, grossForecast - currentStock);
     }

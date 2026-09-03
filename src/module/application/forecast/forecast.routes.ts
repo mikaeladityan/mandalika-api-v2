@@ -6,6 +6,7 @@ import { ForecastController } from "./forecast.controller.js";
 import {
     DeleteForecastByPeriodSchema,
     FinalizeForecastSchema,
+    QueryInventoryTurnoverSchema,
     RunForecastSchema,
     UpdateManualForecastSchema,
 } from "./forecast.schema.js";
@@ -23,6 +24,8 @@ ForecastRoutes.patch("/manual-update", validateBody(UpdateManualForecastSchema),
 ForecastRoutes.delete("/reset/:product_id", ForecastController.resetByProduct);
 
 ForecastRoutes.get("/compare", ForecastController.compare);
+ForecastRoutes.get("/inventory-turnover/export", ForecastController.exportInventoryTurnover);
+ForecastRoutes.get("/inventory-turnover", ForecastController.inventoryTurnover);
 ForecastRoutes.get("/export", ForecastController.export);
 ForecastRoutes.get("/", ForecastController.list);
 ForecastRoutes.post("/", validateBody(RunForecastSchema), ForecastController.run);
