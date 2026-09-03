@@ -113,3 +113,20 @@ describe("ForecastService.computeForecastBatch", () => {
         expect(m2.status).toBe("DRAFT");
     });
 });
+
+describe("ForecastService.applyOpeningStockToForecastBatch", () => {
+    it("membawa sisa stok dari M1 ke bulan berikutnya", () => {
+        const rows = [
+            { product_id: 1, month: 1, year: 2026, base_forecast: 100, final_forecast: 100, trend: "STABLE", forecast_percentage_id: 1, status: "ADJUSTED" },
+            { product_id: 1, month: 2, year: 2026, base_forecast: 100, final_forecast: 100, trend: "STABLE", forecast_percentage_id: 1, status: "DRAFT" },
+            { product_id: 1, month: 3, year: 2026, base_forecast: 100, final_forecast: 100, trend: "STABLE", forecast_percentage_id: 1, status: "DRAFT" },
+        ] as const;
+
+        const result = ForecastService.applyOpeningStockToForecastBatch(
+            rows.map((row) => ({ ...row })),
+            new Map([[1, 250]]),
+        );
+
+        expect(result.map((row) => row.final_forecast)).toEqual([0, 0, 50]);
+    });
+});

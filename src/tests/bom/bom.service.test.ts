@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { BOMService } from "../../module/application/bom/bom.service.js";
 import prisma from "../../config/prisma.js";
 
@@ -16,6 +16,7 @@ const mockBOMRows = [
         rm_barcode: "FO-001",
         rm_name: "Fragrance Oil Test",
         recipe_qty: 0.5,
+        use_size_calc: true,
         urm_name: "ML",
         rm_current_stock: 500,
         id: 100 // recipe id
@@ -23,14 +24,20 @@ const mockBOMRows = [
 ];
 
 describe("BOMService", () => {
+    afterEach(() => vi.useRealTimers());
+
     it("should list grouped BOM data correctly", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(2026, 3, 1));
         // Mock $queryRaw in order of service calls: 
         // 1. productsPage
         // 2. rows
-        // 3. countRes
+        // 3. salesData
+        // 4. countRes
         const qRaw = prisma.$queryRaw as any;
         qRaw.mockResolvedValueOnce([{ id: 1, total_forecast: 100 }]); // productsPage
         qRaw.mockResolvedValueOnce(mockBOMRows); // rows
+        qRaw.mockResolvedValueOnce([]); // salesData
         qRaw.mockResolvedValueOnce([{ total: 1n }]); // countRes
 
         // Mock findMany for sales, forecast, and safety stock
@@ -60,6 +67,7 @@ describe("BOMService", () => {
         const qRaw = prisma.$queryRaw as any;
         qRaw.mockResolvedValueOnce([{ id: 1, total_forecast: 0 }]);
         qRaw.mockResolvedValueOnce(mockBOMRows);
+        qRaw.mockResolvedValueOnce([]);
         qRaw.mockResolvedValueOnce([{ total: 1n }]);
 
         (prisma.productIssuance.findMany as any).mockResolvedValue([]);

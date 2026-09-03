@@ -210,17 +210,13 @@ export class BOMService {
 
                 const calculatedSS = avgForecastForSS * safetyPct;
 
-                // Calculate Need Produce for entire horizon
-                let runningStock = Number(r.p_current_stock ?? 0);
+                // Forecast sudah berupa kebutuhan produksi bersih setelah stok FG.
                 const needProduceRange = fscRange.map((f) => {
-                    const consumption = f.value;
-                    const need = Math.max(0, consumption - runningStock);
-                    runningStock = Math.max(0, runningStock - consumption);
                     return {
                         period: f.period,
                         month: f.month,
                         year: f.year,
-                        value: need,
+                        value: f.value,
                     };
                 });
 
@@ -509,6 +505,24 @@ export class BOMService {
                     : (isOthers ? 0.25 : 0);
 
                 const productSS = Math.round(avgProductForecast * safetyPct);
+
+                // Forecast sudah berupa kebutuhan produksi bersih setelah stok FG.
+                const productNeedProduce = forecastRange.map((p) => {
+                    const fMatch = productForecasts.find(
+                        (f) => f.month === p.month && f.year === p.year,
+                    );
+                    const fValAtMonth = fMatch ? Math.round(Number(fMatch.final_forecast)) : 0;
+                    const val = r.use_size_calc
+                        ? fValAtMonth * pSize * Number(r.quantity)
+                        : fValAtMonth * Number(r.quantity);
+
+                    return {
+                        period: p.key,
+                        month: p.month,
+                        year: p.year,
+                        value: Math.round(val),
+                    };
+                });
 
                 // Calculate product-specific Sales History (Material Equivalent)
                 const productSalesHistory = salesRange.map((s) => {

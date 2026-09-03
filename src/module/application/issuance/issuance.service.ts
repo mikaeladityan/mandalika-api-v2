@@ -175,18 +175,19 @@ export class IssuanceService {
 
         if (total === 0) return { issuances: [], len: 0 };
 
+        // ponytail: special product codes at bottom; add when filter/exclude option needed
         const orderBySql =
             sortBy === "name" && sortOrder === "asc"
-                ? Prisma.sql`ORDER BY p.name ASC`
+                ? Prisma.sql`ORDER BY (CASE WHEN p.code ~ '^(KEM|KTB|KTL|KTP)-' THEN 1 ELSE 0 END), p.name ASC`
                 : sortBy === "name" && sortOrder === "desc"
-                  ? Prisma.sql`ORDER BY p.name DESC`
+                  ? Prisma.sql`ORDER BY (CASE WHEN p.code ~ '^(KEM|KTB|KTL|KTP)-' THEN 1 ELSE 0 END), p.name DESC`
                   : sortBy === "code" && sortOrder === "asc"
-                    ? Prisma.sql`ORDER BY p.code ASC`
+                    ? Prisma.sql`ORDER BY (CASE WHEN p.code ~ '^(KEM|KTB|KTL|KTP)-' THEN 1 ELSE 0 END), p.code ASC`
                     : sortBy === "code" && sortOrder === "desc"
-                      ? Prisma.sql`ORDER BY p.code DESC`
+                      ? Prisma.sql`ORDER BY (CASE WHEN p.code ~ '^(KEM|KTB|KTL|KTP)-' THEN 1 ELSE 0 END), p.code DESC`
                       : sortBy === "quantity" && sortOrder === "asc"
-                        ? Prisma.sql`ORDER BY "totalQuantity" ASC`
-                        : Prisma.sql`ORDER BY "totalQuantity" DESC`;
+                        ? Prisma.sql`ORDER BY (CASE WHEN p.code ~ '^(KEM|KTB|KTL|KTP)-' THEN 1 ELSE 0 END), "totalQuantity" ASC`
+                        : Prisma.sql`ORDER BY (CASE WHEN p.code ~ '^(KEM|KTB|KTL|KTP)-' THEN 1 ELSE 0 END), "totalQuantity" DESC`;
 
         const rows = await prisma.$queryRaw<RawIssuanceRow[]>(Prisma.sql`
             SELECT
