@@ -526,23 +526,28 @@ export class IssuanceService {
             data[0].quantity.forEach((p) => {
                 const yearShort = String(p.year).slice(-2);
                 allColumns.push({
-                    header: `${monthsShort[p.month - 1]?.toUpperCase()} '${yearShort}`,
+                    header: `${query.sales_analytics ? "SALES " : ""}${monthsShort[p.month - 1]?.toUpperCase()} '${yearShort}`,
                     key: `period_${p.year}_${p.month}`,
                     width: 12,
                     uiId: "periods",
                 });
-                if (query.sales_analytics) {
+            });
+        }
+
+        allColumns.push({ header: "TOTAL", key: "totalQuantity", width: 15, uiId: "total" });
+
+        if (query.sales_analytics && data.length > 0 && data[0]?.quantity) {
+            data[0].quantity.forEach((p) => {
+                const yearShort = String(p.year).slice(-2);
                     allColumns.push({
                         header: `MOM ${monthsShort[p.month - 1]?.toUpperCase()} '${yearShort} (%)`,
                         key: `percentage_${p.year}_${p.month}`,
                         width: 18,
                         uiId: "periods",
                     });
-                }
             });
+            allColumns.push({ header: "AVG MOM (%)", key: "averagePercentage", width: 15, uiId: "periods" });
         }
-
-        allColumns.push({ header: "TOTAL", key: "totalQuantity", width: 15, uiId: "total" });
 
         // Filter based on visibility
         const filteredColumns = allColumns.filter((col) => {
@@ -582,6 +587,19 @@ export class IssuanceService {
                         p.percentage == null ? "-" : Number(p.percentage.toFixed(1));
                 }
             });
+            if (query.sales_analytics) {
+                const percentages = row.quantity
+                    .map((p) => p.percentage)
+                    .filter((percentage): percentage is number => percentage != null);
+                formattedRow.averagePercentage = percentages.length
+                    ? Number(
+                          (
+                              percentages.reduce((sum, percentage) => sum + percentage, 0) /
+                              percentages.length
+                          ).toFixed(1),
+                      )
+                    : "-";
+            }
 
             sheet.addRow(formattedRow);
         });
