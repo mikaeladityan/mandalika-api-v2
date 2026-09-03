@@ -131,4 +131,19 @@ describe("ForecastService.applyOpeningStockToForecastBatch", () => {
         expect(result.map((row) => row.net_forecast)).toEqual([0, 0, 50]);
         expect(ForecastService.calculateNeedProduce(100, 250)).toBe(0);
     });
+
+    it("menghabiskan sisa stok sebelum menghasilkan kebutuhan bulan berikutnya", () => {
+        const rows = [
+            { product_id: 1, month: 2, year: 2026, base_forecast: 500, final_forecast: 500, trend: "STABLE", forecast_percentage_id: 1, status: "DRAFT" },
+            { product_id: 1, month: 3, year: 2026, base_forecast: 300, final_forecast: 300, trend: "STABLE", forecast_percentage_id: 1, status: "DRAFT" },
+            { product_id: 1, month: 4, year: 2026, base_forecast: 300, final_forecast: 300, trend: "STABLE", forecast_percentage_id: 1, status: "DRAFT" },
+        ] as const;
+
+        const result = ForecastService.applyOpeningStockToForecastBatch(
+            rows.map((row) => ({ ...row })),
+            new Map([[1, 1000]]),
+        );
+
+        expect(result.map((row) => row.net_forecast)).toEqual([0, 0, 100]);
+    });
 });

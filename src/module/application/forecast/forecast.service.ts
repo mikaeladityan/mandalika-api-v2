@@ -617,18 +617,27 @@ export class ForecastService {
             distField: "distribution_percentage",
         });
 
-        const inventoryRows = await prisma.productInventory.groupBy({
-            by: ["product_id"],
-            where: {
-                product_id: { in: products.map((p) => p.id) },
-                month: start_month,
-                year: start_year,
-                warehouse: { type: "FINISH_GOODS", deleted_at: null },
-            },
-            _sum: { quantity: true },
-        });
+        const inventoryRows = await prisma.$queryRaw<
+            Array<{ product_id: number; quantity: Prisma.Decimal | number }>
+        >(Prisma.sql`
+            SELECT latest.product_id, SUM(latest.quantity) AS quantity
+            FROM (
+                SELECT DISTINCT ON (pi.product_id, pi.warehouse_id)
+                    pi.product_id,
+                    pi.warehouse_id,
+                    pi.quantity
+                FROM product_inventories pi
+                JOIN warehouses w ON w.id = pi.warehouse_id
+                WHERE pi.product_id IN (${Prisma.join(products.map((p) => p.id))})
+                  AND (pi.year * 12 + pi.month) <= ${start_year * 12 + start_month}
+                  AND w.type = 'FINISH_GOODS'
+                  AND w.deleted_at IS NULL
+                ORDER BY pi.product_id, pi.warehouse_id, pi.year DESC, pi.month DESC
+            ) latest
+            GROUP BY latest.product_id
+        `);
         const openingStockByProduct = new Map(
-            inventoryRows.map((row) => [row.product_id, Number(row._sum.quantity ?? 0)]),
+            inventoryRows.map((row) => [row.product_id, Number(row.quantity ?? 0)]),
         );
         const batch = ForecastService.applyOpeningStockToForecastBatch(
             grossBatch,
@@ -1294,13 +1303,15 @@ export class ForecastService {
                         ) ORDER BY w.name ASC
                     ), '[]'::json)
                     FROM "warehouses" w
-                    LEFT JOIN (
-                        SELECT warehouse_id, SUM(quantity)::float8 AS qty
-                        FROM product_inventories
-                        WHERE product_id = p.id
-                          AND month = ${startMonth} AND year = ${startYear}
-                        GROUP BY warehouse_id
-                    ) stk ON stk.warehouse_id = w.id
+                    LEFT JOIN LATERAL (
+                        SELECT pi.quantity::float8 AS qty
+                        FROM product_inventories pi
+                        WHERE pi.product_id = p.id
+                          AND pi.warehouse_id = w.id
+                          AND (pi.year * 12 + pi.month) <= ${startYear * 12 + startMonth}
+                        ORDER BY pi.year DESC, pi.month DESC
+                        LIMIT 1
+                    ) stk ON true
                     WHERE w.type = 'FINISH_GOODS' AND w.deleted_at IS NULL
                 ) AS "stock_by_warehouse_data"
 
@@ -1312,14 +1323,20 @@ export class ForecastService {
             LEFT JOIN "forecasts" f_m1 ON f_m1.product_id = p.id AND f_m1.month = ${startMonth} AND f_m1.year = ${startYear}
             -- Join Current Stock for M1 from all FINISH_GOODS Warehouses
             LEFT JOIN (
-                SELECT pi.product_id, SUM(pi.quantity) as quantity
-                FROM product_inventories pi
-                JOIN warehouses w ON w.id = pi.warehouse_id
-                WHERE pi.month = ${startMonth} 
-                  AND pi.year = ${startYear}
-                  AND w.type = 'FINISH_GOODS'
-                  AND w.deleted_at IS NULL
-                GROUP BY pi.product_id
+                SELECT latest.product_id, SUM(latest.quantity) AS quantity
+                FROM (
+                    SELECT DISTINCT ON (pi.product_id, pi.warehouse_id)
+                        pi.product_id,
+                        pi.warehouse_id,
+                        pi.quantity
+                    FROM product_inventories pi
+                    JOIN warehouses w ON w.id = pi.warehouse_id
+                    WHERE (pi.year * 12 + pi.month) <= ${startYear * 12 + startMonth}
+                      AND w.type = 'FINISH_GOODS'
+                      AND w.deleted_at IS NULL
+                    ORDER BY pi.product_id, pi.warehouse_id, pi.year DESC, pi.month DESC
+                ) latest
+                GROUP BY latest.product_id
             ) pi ON p.id = pi.product_id
             WHERE p.status IN ('ACTIVE', 'PENDING')
               AND p.deleted_at IS NULL
