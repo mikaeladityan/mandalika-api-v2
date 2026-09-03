@@ -157,7 +157,7 @@ export class IssuanceService {
 
         if (sales_analytics) {
             conditions.push(
-                Prisma.sql`p.code !~* '^(KEM-|KTP-|KTL-|KTB-|DW|BUK-|DP|GB|KA)'`,
+                Prisma.sql`p.code !~* '^(KEM-|KTP-|KTL-|KTB-|DW|DU|GS|BUK-|DP|GB|KA)'`,
             );
         }
 
