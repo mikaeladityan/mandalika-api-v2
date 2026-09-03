@@ -46,7 +46,7 @@ export type DistField = "distribution_percentage" | "reference_distribution_perc
 
 export class ForecastService {
     static calculateNeedProduce(grossForecast: number, currentStock: number): number {
-        return grossForecast - currentStock;
+        return Math.max(0, grossForecast - currentStock);
     }
 
     static applyOpeningStockToForecastBatch(
