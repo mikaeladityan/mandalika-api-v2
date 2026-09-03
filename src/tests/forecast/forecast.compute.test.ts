@@ -22,8 +22,8 @@ describe("ForecastService.computeForecastBatch", () => {
         const products: any[] = [
             {
                 id: 1,
-                name: "AROMA X EDP 110ML",
-                product_type: { slug: "edp" },
+                name: "AROMA X EXT 110ML",
+                product_type: { slug: "ext" },
                 size: { size: 110 },
                 distribution_percentage: "0",
                 reference_distribution_percentage: "0.6",
@@ -45,8 +45,8 @@ describe("ForecastService.computeForecastBatch", () => {
         const products: any[] = [
             {
                 id: 10,
-                name: "HAMPERS AROMA Y EDP 110ML",
-                product_type: { slug: "hampers-edp" },
+                name: "HAMPERS AROMA Y EXT 110ML",
+                product_type: { slug: "hampers-ext" },
                 size: { size: 110 },
                 distribution_percentage: "0.4",
                 reference_distribution_percentage: "0.8",
@@ -54,8 +54,8 @@ describe("ForecastService.computeForecastBatch", () => {
             },
             {
                 id: 11,
-                name: "AROMA Y EDP 110ML",
-                product_type: { slug: "edp" },
+                name: "AROMA Y EXT 110ML",
+                product_type: { slug: "ext" },
                 size: { size: 110 },
                 distribution_percentage: "0.3",
                 reference_distribution_percentage: "0.2",
@@ -87,8 +87,8 @@ describe("ForecastService.computeForecastBatch", () => {
         const products: any[] = [
             {
                 id: 1,
-                name: "AROMA Z EDP 110ML",
-                product_type: { slug: "edp" },
+                name: "AROMA Z EXT 110ML",
+                product_type: { slug: "ext" },
                 size: { size: 110 },
                 distribution_percentage: "0.5",
                 reference_distribution_percentage: "0.5",

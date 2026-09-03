@@ -23,8 +23,8 @@ describe("ForecastService.compare", () => {
             {
                 id: 1,
                 code: "P001",
-                name: "AROMA X EDP 110ML",
-                product_type: { slug: "edp" },
+                name: "AROMA X EXT 110ML",
+                product_type: { slug: "ext" },
                 size: { size: 110 },
                 distribution_percentage: "0",
                 reference_distribution_percentage: "0.6",

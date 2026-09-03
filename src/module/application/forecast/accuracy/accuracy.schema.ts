@@ -85,6 +85,7 @@ export const ResponseForecastAccuracyTrendItemSchema = z.object({
     under_count: z.number().int(),
     over_count: z.number().int(),
     excluded_count: z.number().int(),
+    wmape_accuracy: z.number(),
     pct_accurate: z.number(),
     pct_under: z.number(),
     pct_over: z.number(),

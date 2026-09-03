@@ -353,13 +353,13 @@ export class ForecastAccuracyService {
                 ORDER BY
                     p.name ASC,
                     CASE
-                        WHEN pt.name ILIKE '%EDP%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
+                        WHEN pt.name ILIKE '%EXT%' OR pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 1
                         WHEN pt.name ILIKE '%Atomizer%' THEN 2
                         ELSE 3
                     END ASC,
                     ps.size DESC NULLS LAST,
                     CASE
-                        WHEN pt.name ILIKE '%EDP%' THEN 1
+                        WHEN pt.name ILIKE '%EXT%' THEN 1
                         WHEN pt.name ILIKE '%Parfum%' OR pt.name ILIKE '%Perfume%' THEN 2
                         ELSE 3
                     END ASC,
@@ -422,13 +422,13 @@ export class ForecastAccuracyService {
             ORDER BY
                 pp.name ASC,
                 CASE
-                    WHEN pp.type_name ILIKE '%EDP%' OR pp.type_name ILIKE '%Parfum%' OR pp.type_name ILIKE '%Perfume%' THEN 1
+                    WHEN pp.type_name ILIKE '%EXT%' OR pp.type_name ILIKE '%Parfum%' OR pp.type_name ILIKE '%Perfume%' THEN 1
                     WHEN pp.type_name ILIKE '%Atomizer%' THEN 2
                     ELSE 3
                 END ASC,
                 pp.size DESC NULLS LAST,
                 CASE
-                    WHEN pp.type_name ILIKE '%EDP%' THEN 1
+                    WHEN pp.type_name ILIKE '%EXT%' THEN 1
                     WHEN pp.type_name ILIKE '%Parfum%' OR pp.type_name ILIKE '%Perfume%' THEN 2
                     ELSE 3
                 END ASC,
@@ -624,6 +624,7 @@ export class ForecastAccuracyService {
             under_count: number | string;
             over_count: number | string;
             excluded_count: number | string;
+            wmape_accuracy: number | string | null;
         };
 
         const rows = await prisma.$queryRaw<TrendRow[]>(Prisma.sql`
@@ -675,7 +676,9 @@ export class ForecastAccuracyService {
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 BETWEEN ${threshold} AND ${upper})::int AS accurate_count,
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 < ${threshold})::int                    AS under_count,
                 COUNT(*) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL AND (ROUND(forecast)::float8 / NULLIF(ROUND(sales)::float8, 0)) * 100 > ${upper})::int                        AS over_count,
-                COUNT(*) FILTER (WHERE ROUND(sales) <= 0 OR forecast IS NULL)::int                                                                                                              AS excluded_count
+                COUNT(*) FILTER (WHERE ROUND(sales) <= 0 OR forecast IS NULL)::int                                                                                                              AS excluded_count,
+                GREATEST(0, (1 - SUM(ABS(ROUND(forecast) - ROUND(sales))) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL)
+                    / NULLIF(SUM(ROUND(sales)) FILTER (WHERE ROUND(sales) > 0 AND forecast IS NOT NULL), 0)) * 100)::float8                                                                    AS wmape_accuracy
             FROM matched
             GROUP BY year, month
             ORDER BY year ASC, month ASC
@@ -697,6 +700,7 @@ export class ForecastAccuracyService {
                 under_count,
                 over_count,
                 excluded_count,
+                wmape_accuracy: r.wmape_accuracy != null ? Number(r.wmape_accuracy) : 0,
                 pct_accurate: base > 0 ? parseFloat(((accurate_count / base) * 100).toFixed(1)) : 0,
                 pct_under: base > 0 ? parseFloat(((under_count / base) * 100).toFixed(1)) : 0,
                 pct_over: base > 0 ? parseFloat(((over_count / base) * 100).toFixed(1)) : 0,

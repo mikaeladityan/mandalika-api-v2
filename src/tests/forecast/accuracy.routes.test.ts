@@ -59,9 +59,9 @@ describe("GET /api/app/forecasts/accuracy", () => {
             .mockResolvedValueOnce([
                 {
                     product_id: 1,
-                    product_code: "EDP-AZUR-100",
+                    product_code: "EXT-AZUR-100",
                     product_name: "AZURE",
-                    product_type_name: "EDP",
+                    product_type_name: "EXT",
                     size: 100,
                     unit_name: "pcs",
                     forecast: 300,

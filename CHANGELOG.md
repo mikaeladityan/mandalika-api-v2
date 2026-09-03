@@ -2,6 +2,18 @@
 
 Semua perubahan utama pada sisi server dicatat di sini.
 
+## [2026-08-05]
+
+### Changed
+
+- **BOM Service (`list` & `detail`)**: Kolom Forecast bulan berjalan (M1) sekarang pakai **Need Produce** (`Final Forecast - Stok FG berjalan`, clamp ke 0) alih-alih Final Forecast mentah. Bulan M2 dst tetap pakai Final Forecast. Berdampak ke:
+  - `ResponseGroupedBOMDTO.forecast[0]` dan eksplosi `items[].needs_to_buy[0]` (BOM list)
+  - `ResponseMaterialBOMDetailDTO.details[].monthly_data` periode pertama, `summary.total_requirement`, `summary.stock_gap` (BOM detail)
+  - Tujuan: BOM tidak overstate kebutuhan produksi/material bulan berjalan kalau stok FG masih menutupi sebagian demand.
+- **Recomendation-v2 Service (`list`)**: Kolom **NEED BUY**, **TOTAL NEED** (export), dan **REKOMENDASI** (`recommendation_quantity`) bulan berjalan (M1) sekarang ikut pakai Need Produce (netted terhadap stok FG produk, clamp ke 0) alih-alih Final Forecast mentah — konsisten dengan BOM Detail. Bulan M2 dst tetap raw. Ditambah CTE `product_stock_agg` (dipakai ulang di `rm_stock_ss_agg` juga, gantiin subquery `pi_agg` yang duplikat, dan di `h_fc` lateral join buat netting M1 di total horizon).
+  - **Dampak**: Angka rekomendasi pembelian (qty beli final) sekarang lebih kecil kalau stok FG bulan ini masih menutupi sebagian demand — jangan overbuy raw material buat kebutuhan yang sebenernya udah ke-cover stok jadi.
+  - **Belum diubah**: `forecast_needed` (m1_forecast_needed) — field gak dipakai di UI, dead. `total_needed_horizon_max` — sengaja tetap raw sebagai upper-bound reference.
+
 ## [2026-03-18] — Patch 4
 
 ### Refactor
