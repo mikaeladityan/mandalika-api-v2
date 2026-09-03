@@ -37,6 +37,7 @@ export type ForecastBatchRow = {
     year: number;
     base_forecast: number;
     final_forecast: number;
+    net_forecast?: number;
     trend: "UP" | "DOWN" | "STABLE";
     forecast_percentage_id: number;
     status: "ADJUSTED" | "DRAFT";
@@ -44,6 +45,10 @@ export type ForecastBatchRow = {
 export type DistField = "distribution_percentage" | "reference_distribution_percentage";
 
 export class ForecastService {
+    static calculateNeedProduce(grossForecast: number, currentStock: number): number {
+        return grossForecast - currentStock;
+    }
+
     static applyOpeningStockToForecastBatch(
         batch: ForecastBatchRow[],
         openingStockByProduct: Map<number, number>,
@@ -58,7 +63,7 @@ export class ForecastService {
                 const consumedStock = Math.min(stock, grossForecast);
                 remainingStock.set(row.product_id, stock - consumedStock);
 
-                return { ...row, final_forecast: grossForecast - consumedStock };
+                return { ...row, net_forecast: grossForecast - consumedStock };
             });
     }
 
@@ -646,14 +651,14 @@ export class ForecastService {
                             const valuesSql = chunk
                                 .map(
                                     (f) =>
-                                        `(${f.product_id}, ${f.month}, ${f.year}, '${f.trend}', '${f.status}', ${f.base_forecast}, ${f.final_forecast}, ${f.forecast_percentage_id}, '${nowIso}', '${nowIso}')`,
+                                        `(${f.product_id}, ${f.month}, ${f.year}, '${f.trend}', '${f.status}', ${f.base_forecast}, ${f.final_forecast}, ${f.net_forecast ?? f.final_forecast}, ${f.forecast_percentage_id}, '${nowIso}', '${nowIso}')`,
                                 )
                                 .join(", ");
 
                             await tx.$executeRawUnsafe(`
                             INSERT INTO forecasts (
                                 product_id, month, year, trend, status, 
-                                base_forecast, final_forecast, forecast_percentage_id, 
+                                base_forecast, final_forecast, net_forecast, forecast_percentage_id,
                                 created_at, updated_at
                             )
                             VALUES ${valuesSql}
@@ -663,6 +668,7 @@ export class ForecastService {
                                 status = EXCLUDED.status,
                                 base_forecast = EXCLUDED.base_forecast,
                                 final_forecast = EXCLUDED.final_forecast,
+                                net_forecast = EXCLUDED.net_forecast,
                                 forecast_percentage_id = EXCLUDED.forecast_percentage_id,
                                 updated_at = EXCLUDED.updated_at;
                         `);
@@ -869,6 +875,7 @@ export class ForecastService {
                         year,
                         base_forecast: resolvedBase,
                         final_forecast: resolvedFinal,
+                        net_forecast: resolvedFinal,
                         ratio: resolvedRatio,
                         trend: ForecastService.trend(resolvedFinal, resolvedBase),
                         status: "ADJUSTED",
@@ -881,6 +888,7 @@ export class ForecastService {
                     data: {
                         base_forecast: resolvedBase,
                         final_forecast: resolvedFinal,
+                        net_forecast: resolvedFinal,
                         ratio: resolvedRatio,
                         trend: ForecastService.trend(resolvedFinal, resolvedBase),
                         status: "ADJUSTED",
@@ -979,14 +987,14 @@ export class ForecastService {
                     const valuesSql = forecastBatch
                         .map(
                             (f) =>
-                                `(${f.product_id}, ${f.month}, ${f.year}, '${f.trend}', '${f.status}', ${f.base_forecast}, ${f.final_forecast}, ${f.ratio}, ${f.forecast_percentage_id}, '${nowIso}', '${nowIso}')`,
+                                `(${f.product_id}, ${f.month}, ${f.year}, '${f.trend}', '${f.status}', ${f.base_forecast}, ${f.final_forecast}, ${f.final_forecast}, ${f.ratio}, ${f.forecast_percentage_id}, '${nowIso}', '${nowIso}')`,
                         )
                         .join(", ");
 
                     await tx.$executeRawUnsafe(`
                     INSERT INTO forecasts (
                         product_id, month, year, trend, status, 
-                        base_forecast, final_forecast, ratio, forecast_percentage_id, 
+                        base_forecast, final_forecast, net_forecast, ratio, forecast_percentage_id,
                         created_at, updated_at
                     )
                     VALUES ${valuesSql}
@@ -996,6 +1004,7 @@ export class ForecastService {
                         status = EXCLUDED.status,
                         base_forecast = EXCLUDED.base_forecast,
                         final_forecast = EXCLUDED.final_forecast,
+                        net_forecast = EXCLUDED.net_forecast,
                         ratio = EXCLUDED.ratio,
                         forecast_percentage_id = EXCLUDED.forecast_percentage_id,
                         updated_at = EXCLUDED.updated_at;
@@ -1221,7 +1230,8 @@ export class ForecastService {
                             'month',          f.month,
                             'year',           f.year,
                             'base_forecast',  f.base_forecast,
-                            'final_forecast', f.final_forecast,
+                            'final_forecast', COALESCE(f.net_forecast, f.final_forecast),
+                            'gross_forecast', f.final_forecast,
                             'trend',          f.trend,
                             'status',         f.status,
                             'ratio',          f.ratio
@@ -1466,6 +1476,7 @@ export class ForecastService {
                 year: number;
                 base_forecast: string;
                 final_forecast: string | null;
+                gross_forecast: string | null;
                 trend: string;
                 status: string;
                 ratio: string | null;
@@ -1517,6 +1528,8 @@ export class ForecastService {
                     base_forecast: Number(forecast?.base_forecast ?? 0),
                     final_forecast:
                         forecast?.final_forecast != null ? Number(forecast.final_forecast) : null,
+                    gross_forecast:
+                        forecast?.gross_forecast != null ? Number(forecast.gross_forecast) : null,
                     trend: forecast?.trend ?? "STABLE",
                     status: forecast?.status ?? null,
                     is_current_month: m.is_current_month,
@@ -1572,9 +1585,9 @@ export class ForecastService {
             const m1MonthData = monthly_data.find(
                 (m) => m.month === startMonth && m.year === startYear,
             );
-            const m1Forecast = m1MonthData?.final_forecast ?? 0;
+            const m1Forecast = m1MonthData?.gross_forecast ?? 0;
             const currentStock = Number(p.current_stock ?? 0);
-            const needProduce = m1Forecast;
+            const needProduce = ForecastService.calculateNeedProduce(m1Forecast, currentStock);
 
             const edar_sales_share: ResponseForecastDTO["edar_sales_share"] = (() => {
                 if (Number(p.distribution_percentage ?? 0) <= 0) return null;
