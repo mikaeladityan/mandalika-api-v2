@@ -71,6 +71,7 @@ export const QueryIssuanceSchema = z.object({
     visibleColumns: z.string().optional(),
     columnOrder: z.string().optional(),
     selectedIds: z.string().optional(),
+    sales_analytics: z.boolean().optional(),
 });
 
 export type ResponseIssuanceDTO = z.infer<typeof ResponseIssuanceSchema>;

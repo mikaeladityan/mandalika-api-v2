@@ -27,6 +27,7 @@ export class IssuanceController {
             page,
             take,
             type,
+            sales_analytics,
         } = c.req.query();
 
         const params: QueryIssuanceDTO = {
@@ -45,6 +46,7 @@ export class IssuanceController {
             page: page ? Number(page) : 1,
             take: take ? Number(take) : 10,
             type: (type as QueryIssuanceDTO["type"]) || undefined,
+            sales_analytics: sales_analytics === "true",
         };
 
         const result = await IssuanceService.list(params);
@@ -111,6 +113,7 @@ export class IssuanceController {
             visibleColumns,
             columnOrder,
             selectedIds,
+            sales_analytics,
         } = c.req.query();
 
         const params: QueryIssuanceDTO = {
@@ -132,6 +135,7 @@ export class IssuanceController {
             visibleColumns,
             columnOrder,
             selectedIds,
+            sales_analytics: sales_analytics === "true",
         };
 
         const buffer = await IssuanceService.export(params);
