@@ -303,7 +303,9 @@ export class IssuanceService {
                         row.pt_id && row.pt_name && row.pt_slug
                             ? { id: row.pt_id, name: row.pt_name, slug: row.pt_slug }
                             : null,
-                    size: `${row.size_val ?? ""} ${row.unit_name ?? ""}`.trim(),
+                    size: sales_analytics
+                        ? `${row.size_val ?? ""} ML`.trim()
+                        : `${row.size_val ?? ""} ${row.unit_name ?? ""}`.trim(),
                 },
                 quantity: quantitySeries,
                 totalQuantity,
@@ -529,6 +531,14 @@ export class IssuanceService {
                     width: 12,
                     uiId: "periods",
                 });
+                if (query.sales_analytics) {
+                    allColumns.push({
+                        header: `MOM ${monthsShort[p.month - 1]?.toUpperCase()} '${yearShort} (%)`,
+                        key: `percentage_${p.year}_${p.month}`,
+                        width: 18,
+                        uiId: "periods",
+                    });
+                }
             });
         }
 
@@ -567,6 +577,10 @@ export class IssuanceService {
 
             row.quantity.forEach((p) => {
                 formattedRow[`period_${p.year}_${p.month}`] = p.quantity;
+                if (query.sales_analytics) {
+                    formattedRow[`percentage_${p.year}_${p.month}`] =
+                        p.percentage == null ? "-" : Number(p.percentage.toFixed(1));
+                }
             });
 
             sheet.addRow(formattedRow);
