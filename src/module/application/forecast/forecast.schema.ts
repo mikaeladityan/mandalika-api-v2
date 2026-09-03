@@ -149,3 +149,41 @@ export const CompareForecastSchema = z.object({
     horizon: z.coerce.number().int().min(1).max(12).default(12),
 });
 export type CompareForecastDTO = z.infer<typeof CompareForecastSchema>;
+
+export const INVENTORY_TURNOVER_STATUSES = [
+    "KOSONG",
+    "KRITIS",
+    "TIPIS",
+    "SEHAT",
+    "BERLEBIH",
+    "TIDAK_BERGERAK",
+] as const;
+
+export const QueryInventoryTurnoverSchema = z.object({
+    search: z.string().trim().optional(),
+    status: z.enum(INVENTORY_TURNOVER_STATUSES).optional(),
+    month: z.coerce.number().int().min(1).max(12).optional(),
+    year: z.coerce.number().int().min(2000).max(2100).optional(),
+    page: z.coerce.number().int().positive().default(1).optional(),
+    take: z.coerce.number().int().positive().max(1000).default(50).optional(),
+});
+
+export type QueryInventoryTurnoverDTO = z.infer<typeof QueryInventoryTurnoverSchema>;
+export type InventoryTurnoverStatus = (typeof INVENTORY_TURNOVER_STATUSES)[number];
+
+export type ResponseInventoryTurnoverDTO = {
+    product_id: number;
+    product_code: string;
+    product_name: string;
+    stock: number;
+    average_monthly_usage: number;
+    forecast: number;
+    historical_coverage: number | null;
+    forecast_coverage: number | null;
+    days_inventory: number | null;
+    annual_turnover: number | null;
+    lead_time_months: number;
+    target_coverage: number;
+    status: InventoryTurnoverStatus;
+    excess_stock: number;
+};
