@@ -342,6 +342,8 @@ export class ForecastService {
         const year = query.year ?? now.getUTCFullYear();
         const period = year * 12 + month;
         const periods = Array.from({ length: 4 }, (_, index) => period - 3 + index);
+        // Forecast RM = average of 4 forward months (M0..M+3), matching the requested "rata-rata 4 bulan" demand basis.
+        const forecastPeriods = Array.from({ length: 4 }, (_, index) => period + index);
         const search = query.search ? `%${escapeIlike(query.search)}%` : null;
 
         const rows = await prisma.$queryRaw<Array<{
@@ -386,22 +388,29 @@ export class ForecastService {
                 ) monthly
             ) stock ON true
             LEFT JOIN LATERAL (
-                -- Match BOM/Recommendation: floor each recipe contribution before summing.
-                SELECT SUM(FLOOR(COALESCE(f.net_forecast, f.final_forecast) * r.quantity *
-                    CASE WHEN r.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
-                ))::numeric AS demand_rm
-                FROM recipes r
-                JOIN products p ON p.id = r.product_id
-                    AND p.status = 'ACTIVE'::"STATUS" AND p.deleted_at IS NULL
-                JOIN forecasts f ON f.product_id = r.product_id
-                    AND f.month = ${month} AND f.year = ${year}
-                LEFT JOIN product_size ps ON ps.id = p.size_id
-                WHERE r.raw_mat_id = rm.id AND r.is_active = true
-                  AND r.version = (
-                      SELECT MAX(current.version)
-                      FROM recipes current
-                      WHERE current.product_id = r.product_id AND current.is_active = true
-                  )
+                -- Forecast RM = AVG over 4 forward months (M0..M+3); missing months contribute 0 so the divisor stays 4.
+                SELECT AVG(monthly.quantity)::numeric AS demand_rm
+                FROM (
+                    SELECT forecast_period.period, COALESCE((
+                        -- Match BOM/Recommendation: floor each recipe contribution before summing.
+                        SELECT SUM(FLOOR(COALESCE(f.net_forecast, f.final_forecast) * r.quantity *
+                            CASE WHEN r.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
+                        ))
+                        FROM recipes r
+                        JOIN products p ON p.id = r.product_id
+                            AND p.status = 'ACTIVE'::"STATUS" AND p.deleted_at IS NULL
+                        LEFT JOIN product_size ps ON ps.id = p.size_id
+                        JOIN forecasts f ON f.product_id = r.product_id
+                            AND (f.year * 12 + f.month) = forecast_period.period::integer
+                        WHERE r.raw_mat_id = rm.id AND r.is_active = true
+                          AND r.version = (
+                              SELECT MAX(current.version)
+                              FROM recipes current
+                              WHERE current.product_id = r.product_id AND current.is_active = true
+                          )
+                    ), 0) AS quantity
+                    FROM (VALUES ${Prisma.join(forecastPeriods.map((value) => Prisma.sql`(${value}::integer)`))}) AS forecast_period(period)
+                ) monthly
             ) demand ON true
             LEFT JOIN LATERAL (
                 SELECT sm.lead_time
@@ -477,8 +486,41 @@ export class ForecastService {
             return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
         };
         const decimal = (value: number | null) => value == null ? "-" : Number(value.toFixed(2));
-        const headers = ["BARCODE RM", "NAMA RM", "UNIT", "STOK RATA2 4 BULAN", "PEMAKAIAN RM RATA2/BULAN", "DEMAND RM", "CAKUPAN HISTORIS", "CAKUPAN FORECAST", "HARI PERSEDIAAN", "PERPUTARAN (KALI/TAHUN)", "LEAD TIME (HARI)", "LEAD TIME (BULAN)", "TARGET CAKUPAN", "STATUS", "STOK BERLEBIH"];
-        const rows = result.data.map((row) => [row.barcode, row.name, row.unit, row.stock_rm, row.average_monthly_usage_rm, row.demand_rm, decimal(row.historical_coverage), decimal(row.forecast_coverage), decimal(row.days_inventory), decimal(row.annual_turnover), row.lead_time_days ?? "-", decimal(row.lead_time_months), decimal(row.target_coverage), row.status.replaceAll("_", " "), row.excess_stock].map(escape).join(","));
+        // Header/order mirrors FG Inventory Turnover CSV so both reports read the same way.
+        const headers = [
+            "KODE RM",
+            "NAMA RM",
+            "STOK RATA2 4 BULAN",
+            "PEMAKAIAN RATA2 4 BULAN",
+            "FORECAST RATA2 4 BULAN",
+            "CAKUPAN HISTORIS",
+            "CAKUPAN VS FORECAST",
+            "HARI PERSEDIAAN",
+            "PERPUTARAN (KALI/TAHUN)",
+            "LEAD TIME (BULAN)",
+            "TARGET CAKUPAN",
+            "STATUS",
+            "STOK BERLEBIH",
+        ];
+        const rows = result.data.map((row) =>
+            [
+                row.barcode,
+                `${row.name} (${row.unit})`,
+                Math.round(row.stock_rm),
+                Math.round(row.average_monthly_usage_rm),
+                Math.round(row.demand_rm),
+                decimal(row.historical_coverage),
+                decimal(row.forecast_coverage),
+                row.days_inventory == null ? "" : Math.round(row.days_inventory),
+                decimal(row.annual_turnover),
+                decimal(row.lead_time_months),
+                decimal(row.target_coverage),
+                row.status.replaceAll("_", " "),
+                Math.round(row.excess_stock),
+            ]
+                .map(escape)
+                .join(","),
+        );
         return Buffer.from(`\uFEFF${[headers.join(","), ...rows].join("\n")}`, "utf-8");
     }
 

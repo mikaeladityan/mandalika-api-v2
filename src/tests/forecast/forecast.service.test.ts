@@ -247,6 +247,16 @@ describe("ForecastService", () => {
             expect(source).toContain("sm.lead_time IS NOT NULL");
             expect(source).not.toContain("COALESCE(policy.lead_time, 0)");
             expect(source).toContain("COALESCE(issuance.quantity");
+            // Forecast RM must average 4 forward months (M0..M+3), not a single selected-month value.
+            expect(source).toContain("forecast_period");
+            expect(source).toContain("AVG(monthly.quantity)::numeric AS demand_rm");
+
+            // period for month=9,year=2026 is 2026*12+9; forecast periods must cover M0..M+3.
+            const serialized = JSON.stringify((prisma.$queryRaw as any).mock.calls[0]?.[0]);
+            const period = 2026 * 12 + 9;
+            for (const forward of [period, period + 1, period + 2, period + 3]) {
+                expect(serialized).toContain(String(forward));
+            }
         });
 
         it("passes a missing RM lead time through to workbook calculations", async () => {
@@ -286,7 +296,7 @@ describe("ForecastService", () => {
 
             const csv = (await ForecastService.exportInventoryTurnoverRM({ month: 9, year: 2026 })).toString("utf-8");
 
-            expect(csv).toContain("RM-1,Material,kg,100,20,40,5,2.5,75,4.8,-,-,-,TIDAK TERSEDIA,0");
+            expect(csv).toContain("RM-1,Material (kg),100,20,40,5,2.5,75,4.8,-,-,TIDAK TERSEDIA,0");
         });
     });
 
