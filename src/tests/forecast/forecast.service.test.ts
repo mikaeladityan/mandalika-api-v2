@@ -5,6 +5,7 @@ import {
     QueryInventoryTurnoverRMSchema,
     QueryInventoryTurnoverSchema,
 } from "../../module/application/forecast/forecast.schema.js";
+import { sortInventoryTurnoverRows } from "../../module/application/forecast/forecast.service.js";
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 
@@ -39,6 +40,16 @@ describe("ForecastService", () => {
     });
 
     describe("calculateInventoryTurnover", () => {
+        it("validates safe sort parameters and sorts stably with nulls last", () => {
+            expect(QueryInventoryTurnoverSchema.parse({ sortBy: "days_inventory", order: "desc" })).toMatchObject({ sortBy: "days_inventory", order: "desc" });
+            expect(() => QueryInventoryTurnoverSchema.parse({ sortBy: "stock; DROP TABLE products" })).toThrow();
+            expect(sortInventoryTurnoverRows([
+                { value: null, id: "null" },
+                { value: 2, id: "a" },
+                { value: 2, id: "b" },
+                { value: 1, id: "c" },
+            ], "value").map((row) => row.id)).toEqual(["c", "a", "b", "null"]);
+        });
         it("matches the PERPUTARAN STOK workbook example", () => {
             const result = ForecastService.calculateInventoryTurnover({
                 stock: 107_612,

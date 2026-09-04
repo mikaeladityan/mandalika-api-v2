@@ -20,6 +20,24 @@ import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 
 export const escapeIlike = (value: string) => value.replace(/[\\%_]/g, "\\$&");
 
+type SortableValue = string | number | null;
+const compareNullable = (a: SortableValue, b: SortableValue, order: "asc" | "desc") => {
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    const result = typeof a === "string" && typeof b === "string"
+        ? a.localeCompare(b, undefined, { sensitivity: "base" })
+        : Number(a) - Number(b);
+    return order === "desc" ? -result : result;
+};
+
+export function sortInventoryTurnoverRows<T extends Record<string, SortableValue>>(
+    rows: T[], sortBy: string | undefined, order: "asc" | "desc" = "asc",
+): T[] {
+    if (!sortBy) return rows;
+    return rows.map((row, index) => ({ row, index })).sort((a, b) => compareNullable(a.row[sortBy] ?? null, b.row[sortBy] ?? null, order) || a.index - b.index).map(({ row }) => row);
+}
+
 const PRODUCT_SELECT = {
     id: true,
     name: true,
@@ -261,9 +279,10 @@ export class ForecastService {
         const filtered = query.status
             ? calculated.filter((row) => row.status === query.status)
             : calculated;
-        const totalStock = filtered.reduce((sum, row) => sum + row.stock, 0);
-        const totalUsage = filtered.reduce((sum, row) => sum + row.average_monthly_usage, 0);
-        const totalForecast = filtered.reduce((sum, row) => sum + row.forecast, 0);
+        const sorted = sortInventoryTurnoverRows(filtered.map((row) => ({ ...row, usage: row.average_monthly_usage, lead_time: row.lead_time_months })), query.sortBy, query.order);
+         const totalStock = sorted.reduce((sum, row) => sum + row.stock, 0);
+         const totalUsage = sorted.reduce((sum, row) => sum + row.average_monthly_usage, 0);
+         const totalForecast = sorted.reduce((sum, row) => sum + row.forecast, 0);
         const historicalCoverage = totalUsage > 0 ? totalStock / totalUsage : null;
         const forecastCoverage = totalForecast > 0 ? totalStock / totalForecast : null;
         const page = query.page ?? 1;
@@ -280,10 +299,10 @@ export class ForecastService {
                 forecast_coverage: forecastCoverage,
                 days_inventory: forecastCoverage == null ? null : forecastCoverage * 30,
                 annual_turnover: historicalCoverage && historicalCoverage > 0 ? 12 / historicalCoverage : null,
-                excess_stock: filtered.reduce((sum, row) => sum + row.excess_stock, 0),
-            },
-            len: filtered.length,
-            data: filtered.slice((page - 1) * take, page * take),
+                 excess_stock: sorted.reduce((sum, row) => sum + row.excess_stock, 0),
+             },
+             len: sorted.length,
+             data: sorted.slice((page - 1) * take, page * take),
         };
     }
 
@@ -468,14 +487,15 @@ export class ForecastService {
                  lead_time_days: leadTimeDays,
             };
         });
-        const filtered = query.status ? data.filter((row) => row.status === query.status) : data;
+         const filtered = query.status ? data.filter((row) => row.status === query.status) : data;
+         const sorted = sortInventoryTurnoverRows(filtered.map((row) => ({ ...row, lead_time: row.lead_time_months })), query.sortBy, query.order);
         const page = query.page ?? 1;
         const take = query.take ?? 50;
         return {
             period: { month, year },
-            summary: ForecastService.calculateInventoryTurnoverRMSummaryParity(filtered),
-            len: filtered.length,
-            data: filtered.slice((page - 1) * take, page * take),
+             summary: ForecastService.calculateInventoryTurnoverRMSummaryParity(sorted),
+             len: sorted.length,
+             data: sorted.slice((page - 1) * take, page * take),
         };
     }
 
