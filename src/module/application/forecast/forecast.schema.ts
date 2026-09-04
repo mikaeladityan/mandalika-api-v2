@@ -167,6 +167,8 @@ export const QueryInventoryTurnoverSchema = z.object({
     year: z.coerce.number().int().min(2000).max(2100).optional(),
     page: z.coerce.number().int().positive().default(1).optional(),
     take: z.coerce.number().int().positive().max(1000).default(50).optional(),
+    sortBy: z.enum(["product_code", "product_name", "stock", "usage", "forecast", "historical_coverage", "forecast_coverage", "days_inventory", "annual_turnover", "lead_time", "target_coverage", "status", "excess_stock"]).optional(),
+    order: z.enum(["asc", "desc"]).optional(),
 });
 
 export type QueryInventoryTurnoverDTO = z.infer<typeof QueryInventoryTurnoverSchema>;
@@ -196,6 +198,8 @@ export const QueryInventoryTurnoverRMSchema = z.object({
     year: z.coerce.number().int().min(2000).max(2100).optional(),
     page: z.coerce.number().int().positive().default(1).optional(),
     take: z.coerce.number().int().positive().max(1000).default(50).optional(),
+    sortBy: z.enum(["barcode", "name", "stock_rm", "average_monthly_usage_rm", "demand_rm", "historical_coverage", "forecast_coverage", "days_inventory", "annual_turnover", "lead_time", "lead_time_months", "target_coverage", "status", "excess_stock"]).optional(),
+    order: z.enum(["asc", "desc"]).optional(),
 });
 
 export type QueryInventoryTurnoverRMDTO = z.infer<typeof QueryInventoryTurnoverRMSchema>;
