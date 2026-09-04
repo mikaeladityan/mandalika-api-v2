@@ -13,8 +13,12 @@ import {
     InventoryTurnoverStatus,
     QueryInventoryTurnoverDTO,
     ResponseInventoryTurnoverDTO,
+    QueryInventoryTurnoverRMDTO,
+    ResponseInventoryTurnoverRMDTO,
 } from "./forecast.schema.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
+
+export const escapeIlike = (value: string) => value.replace(/[\\%_]/g, "\\$&");
 
 const PRODUCT_SELECT = {
     id: true,
@@ -48,6 +52,27 @@ export type ForecastBatchRow = {
 export type DistField = "distribution_percentage" | "reference_distribution_percentage";
 
 export class ForecastService {
+    static calculateInventoryTurnoverRM(stock: number, demand: number) {
+        const safeStock = Math.max(0, stock);
+        const safeDemand = Math.max(0, demand);
+        const coverage_months = safeDemand > 0 ? safeStock / safeDemand : null;
+        return {
+            coverage_months,
+            annual_turnover: safeStock > 0 && safeDemand > 0 ? (safeDemand * 12) / safeStock : null,
+            days_inventory: coverage_months == null ? null : coverage_months * 30,
+        };
+    }
+
+    static calculateInventoryTurnoverRMSummary(rows: Pick<ResponseInventoryTurnoverRMDTO, "stock_rm" | "demand_rm">[]) {
+        const total_stock_rm = rows.reduce((sum, row) => sum + row.stock_rm, 0);
+        const total_demand_rm = rows.reduce((sum, row) => sum + row.demand_rm, 0);
+        const { coverage_months, annual_turnover, days_inventory } = ForecastService.calculateInventoryTurnoverRM(
+            total_stock_rm,
+            total_demand_rm,
+        );
+        return { total_stock_rm, total_demand_rm, coverage_months, annual_turnover, days_inventory };
+    }
+
     static calculateInventoryTurnover(input: {
         stock: number;
         averageMonthlyUsage: number;
@@ -99,7 +124,7 @@ export class ForecastService {
         const year = query.year ?? now.getUTCFullYear();
         const period = year * 12 + month;
         const averagePeriods = Array.from({ length: 4 }, (_, index) => period - (3 - index));
-        const search = query.search ? `%${query.search}%` : null;
+        const search = query.search ? `%${escapeIlike(query.search)}%` : null;
 
         const rows = await prisma.$queryRaw<
             Array<{
@@ -280,6 +305,109 @@ export class ForecastService {
                 .map(escape)
                 .join(","),
         );
+        return Buffer.from(`\uFEFF${[headers.join(","), ...rows].join("\n")}`, "utf-8");
+    }
+
+    static async inventoryTurnoverRM(query: QueryInventoryTurnoverRMDTO) {
+        const now = new Date();
+        const month = query.month ?? now.getUTCMonth() + 1;
+        const year = query.year ?? now.getUTCFullYear();
+        const period = year * 12 + month;
+        const periods = Array.from({ length: 4 }, (_, index) => period - 3 + index);
+        const search = query.search ? `%${query.search}%` : null;
+
+        const rows = await prisma.$queryRaw<Array<{
+            raw_material_id: number;
+            barcode: string | null;
+            name: string;
+            unit: string;
+            stock_rm: number | string | null;
+            demand_rm: number | string | null;
+        }>>(Prisma.sql`
+            SELECT
+                rm.id AS raw_material_id,
+                rm.barcode,
+                rm.name,
+                urm.name AS unit,
+                COALESCE(stock.average_stock, 0)::float8 AS stock_rm,
+                COALESCE(demand.demand_rm, 0)::float8 AS demand_rm
+            FROM raw_materials rm
+            JOIN unit_raw_materials urm ON urm.id = rm.unit_id
+            LEFT JOIN LATERAL (
+                SELECT AVG(monthly.quantity)::numeric AS average_stock
+                FROM (
+                    SELECT snapshot.period, COALESCE((
+                        SELECT SUM(latest.quantity)
+                        FROM (
+                            SELECT DISTINCT ON (rmi.warehouse_id)
+                                rmi.warehouse_id, rmi.quantity
+                            FROM raw_material_inventories rmi
+                            JOIN warehouses w ON w.id = rmi.warehouse_id
+                            WHERE rmi.raw_material_id = rm.id
+                              AND (rmi.year * 12 + rmi.month) <= snapshot.period
+                              AND w.type = 'RAW_MATERIAL'::"WarehouseType"
+                              AND w.deleted_at IS NULL
+                            ORDER BY rmi.warehouse_id, rmi.year DESC, rmi.month DESC, rmi.date DESC
+                        ) latest
+                    ), 0) AS quantity
+                    FROM (VALUES ${Prisma.join(periods.map((value) => Prisma.sql`(${value})`))}) AS snapshot(period)
+                ) monthly
+            ) stock ON true
+            LEFT JOIN LATERAL (
+                -- Match BOM/Recommendation: floor each recipe contribution before summing.
+                SELECT SUM(FLOOR(COALESCE(f.net_forecast, f.final_forecast) * r.quantity *
+                    CASE WHEN r.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
+                ))::numeric AS demand_rm
+                FROM recipes r
+                JOIN products p ON p.id = r.product_id
+                    AND p.status = 'ACTIVE'::"STATUS" AND p.deleted_at IS NULL
+                JOIN forecasts f ON f.product_id = r.product_id
+                    AND f.month = ${month} AND f.year = ${year}
+                LEFT JOIN product_size ps ON ps.id = p.size_id
+                WHERE r.raw_mat_id = rm.id AND r.is_active = true
+                  AND r.version = (
+                      SELECT MAX(current.version)
+                      FROM recipes current
+                      WHERE current.product_id = r.product_id AND current.is_active = true
+                  )
+            ) demand ON true
+            WHERE rm.deleted_at IS NULL
+              ${search ? Prisma.sql`AND (rm.name ILIKE ${search} ESCAPE '\\' OR rm.barcode ILIKE ${search} ESCAPE '\\')` : Prisma.empty}
+            ORDER BY rm.name ASC, rm.id ASC
+        `);
+
+        const data = rows.map<ResponseInventoryTurnoverRMDTO>((row) => {
+            const stock = Math.max(0, Number(row.stock_rm ?? 0));
+            const demand = Math.max(0, Number(row.demand_rm ?? 0));
+            return {
+                raw_material_id: row.raw_material_id,
+                barcode: row.barcode,
+                name: row.name,
+                unit: row.unit,
+                stock_rm: stock,
+                demand_rm: demand,
+                ...ForecastService.calculateInventoryTurnoverRM(stock, demand),
+            };
+        });
+        const page = query.page ?? 1;
+        const take = query.take ?? 50;
+        return {
+            period: { month, year },
+            summary: ForecastService.calculateInventoryTurnoverRMSummary(data),
+            len: data.length,
+            data: data.slice((page - 1) * take, page * take),
+        };
+    }
+
+    static async exportInventoryTurnoverRM(query: QueryInventoryTurnoverRMDTO) {
+        const result = await ForecastService.inventoryTurnoverRM({ ...query, page: 1, take: 1_000_000 });
+        const escape = (value: string | number | null) => {
+            const text = String(value ?? "");
+            return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+        };
+        const decimal = (value: number | null) => value == null ? "" : Number(value.toFixed(2));
+        const headers = ["RAW MATERIAL ID", "BARCODE", "NAMA", "UNIT", "STOK RM", "DEMAND RM", "COVERAGE (BULAN)", "PERPUTARAN (KALI/TAHUN)", "HARI PERSEDIAAN"];
+        const rows = result.data.map((row) => [row.raw_material_id, row.barcode, row.name, row.unit, row.stock_rm, row.demand_rm, decimal(row.coverage_months), decimal(row.annual_turnover), decimal(row.days_inventory)].map(escape).join(","));
         return Buffer.from(`\uFEFF${[headers.join(","), ...rows].join("\n")}`, "utf-8");
     }
 

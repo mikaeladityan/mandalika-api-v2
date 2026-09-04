@@ -35,7 +35,7 @@ export class RecipeImportService {
     private static async findMaterial(barcode: string) {
         return prisma.rawMaterial.findUnique({
             where: { barcode },
-            select: { id: true, name: true, barcode: true },
+                select: { id: true, name: true, barcode: true, type: true, unit_raw_material: { select: { slug: true } } },
         });
     }
 
@@ -83,6 +83,10 @@ export class RecipeImportService {
                 const rowErrors: string[] = [];
                 if (!product) rowErrors.push(`Product code "${data["PRODUCT CODE"]}" not found`);
                 if (!material) rowErrors.push(`Material code "${data["MATERIAL CODE"]}" not found`);
+                const sizeCompatible = material && (material.type !== "PCKG" || ["ml", "l", "liter", "litre"].includes(material.unit_raw_material?.slug.toLowerCase() ?? ""));
+                if (material && Number(data.QUANTITY) < 1 && !sizeCompatible) {
+                    rowErrors.push("Fractional recipe quantities require an FO raw material");
+                }
 
                 return {
                     product_id: product?.id ?? null,
@@ -173,10 +177,21 @@ export class RecipeImportService {
         const productIds = Array.from(groupedByProduct.keys());
         console.log(`[Import] Products to update: ${productIds.length}`);
 
+        const materials = await prisma.rawMaterial.findMany({ where: { id: { in: data.map((r) => r.raw_mat_id).filter((id): id is number => Boolean(id)) } }, select: { id: true, type: true, unit_raw_material: { select: { slug: true } } } });
+        const materialType = new Map(materials.map((m) => [m.id, m.type]));
+        const materialSizeCompatible = new Map(materials.map((m) => [m.id, m.type === "FO" || ["ml", "l", "liter", "litre"].includes(m.unit_raw_material?.slug.toLowerCase() ?? "")]));
+        const incompatible = Array.from(groupedByProduct.values()).flat().find((item) => item.quantity < 1 && materialType.get(item.raw_mat_id) === "PCKG" && !materialSizeCompatible.get(item.raw_mat_id));
+        if (incompatible) throw new Error("Fractional recipe quantities require an FO raw material");
+
         await prisma.$transaction(
             async (tx) => {
                 // Delete existing recipes for all affected products (version 1)
                 if (productIds.length > 0) {
+                    // Import replaces the current BOM with version 1; older versions remain history only.
+                    await tx.recipes.updateMany({
+                        where: { product_id: { in: productIds } },
+                        data: { is_active: false },
+                    });
                     await tx.$executeRaw(
                         Prisma.sql`DELETE FROM recipes WHERE product_id IN (${Prisma.join(productIds)}) AND version = 1`,
                     );
@@ -200,7 +215,7 @@ export class RecipeImportService {
                     const chunk = allRows.slice(i, i + CHUNK_SIZE);
                     const values = chunk.map(
                         (v) => {
-                            const useSizeCalc = Number(v.quantity) < 1.0;
+                            const useSizeCalc = Number(v.quantity) < 1.0 && materialSizeCompatible.get(v.raw_mat_id) === true;
                             return Prisma.sql`(${v.product_id}, ${v.raw_mat_id}, ${v.quantity}, 1, true, ${useSizeCalc})`;
                         }
                     );

@@ -44,7 +44,7 @@ export class RecipeService {
         const rawMatIds = body.raw_material.map((i) => i.raw_material_id);
         const rawMaterials = await prisma.rawMaterial.findMany({
             where: { id: { in: rawMatIds } },
-            select: { id: true },
+            select: { id: true, type: true, unit_raw_material: { select: { slug: true } } },
         });
         if (rawMaterials.length !== new Set(rawMatIds).size) {
             throw new ApiError(404, "Satu atau lebih raw material tidak ditemukan");
@@ -56,9 +56,12 @@ export class RecipeService {
             quantity: item.quantity,
             version: body.version,
             is_active: body.is_active,
-            use_size_calc: Number(item.quantity) < 1.0,
+            use_size_calc: item.use_size_calc ?? (Number(item.quantity) < 1.0 && rawMaterials.find((m) => m.id === item.raw_material_id)?.type === "FO"),
             description: body.description || null,
         }));
+
+        const incompatible = data.find((item) => item.use_size_calc && rawMaterials.find((m) => m.id === item.raw_mat_id)?.type === "PCKG");
+        if (incompatible) throw new ApiError(400, "use_size_calc hanya boleh digunakan untuk raw material FO");
 
         return await prisma.$transaction(async (tx) => {
             if (body.is_active) {

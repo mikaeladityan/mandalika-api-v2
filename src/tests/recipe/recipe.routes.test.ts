@@ -2,11 +2,39 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import app from "../../app.js";
 import prisma from "../../config/prisma.js";
 
+const { mockRawRecipeRow } = vi.hoisted(() => ({
+    mockRawRecipeRow: {
+        id: 1,
+        quantity: "2.50",
+        product_id: 1,
+        product_name: "T-Shirt",
+        product_code: "TSHIRT",
+        pt_id: 1,
+        pt_name: "Apparel",
+        pt_slug: "apparel",
+        unit_id: 1,
+        unit_name: "pcs",
+        unit_slug: "pcs",
+        size_id: 1,
+        size_val: 40,
+        rm_name: "Kain Katun",
+        rm_barcode: "RM-001",
+        rm_price: "50000",
+        urm_id: 1,
+        urm_name: "meter",
+        current_stock: "100",
+    },
+}));
+
 // ── Mocks required by every routes test ──────────────────────────────────────
 
 vi.mock("../../config/redis.js", () => {
     const mockRedis = {
-        get: vi.fn().mockResolvedValue(null),
+        get: vi.fn().mockResolvedValue(JSON.stringify({
+            user: { email: "test@example.com" },
+            role: "SUPER_ADMIN",
+            employee: { permissions: [] },
+        })),
         set: vi.fn().mockResolvedValue("OK"),
         setex: vi.fn().mockResolvedValue("OK"),
         del: vi.fn().mockResolvedValue(1),
@@ -55,13 +83,22 @@ vi.mock("../../config/prisma.js", () => {
             findFirst: vi.fn().mockResolvedValue({}) 
         },
         rawMaterialInventory: { findFirst: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]) },
-        recipe: { 
+        recipe: {
             findUnique: vi.fn().mockResolvedValue({ id: 1 }), 
             findMany: vi.fn().mockResolvedValue([]), 
             count: vi.fn().mockResolvedValue(0), 
             update: vi.fn().mockResolvedValue({}), 
             create: vi.fn().mockResolvedValue({}), 
             deleteMany: vi.fn().mockResolvedValue({ count: 0 }) 
+        },
+        recipes: {
+            findUnique: vi.fn().mockResolvedValue({ id: 1, product_id: 1, version: 1 }),
+            findFirst: vi.fn().mockResolvedValue({ id: 1, product_id: 1, version: 1 }),
+            findMany: vi.fn().mockResolvedValue([]),
+            count: vi.fn().mockResolvedValue(0),
+            updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+            deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         $queryRaw: vi.fn().mockResolvedValue([mockRawRecipeRow]), // Return a valid row by default
     };
@@ -73,28 +110,6 @@ vi.mock("../../config/prisma.js", () => {
 });
 
 // ── Shared mock data ──────────────────────────────────────────────────────────
-
-const mockRawRecipeRow = {
-    id: 1,
-    quantity: "2.50",
-    product_id: 1,
-    product_name: "T-Shirt",
-    product_code: "TSHIRT",
-    pt_id: 1,
-    pt_name: "Apparel",
-    pt_slug: "apparel",
-    unit_id: 1,
-    unit_name: "pcs",
-    unit_slug: "pcs",
-    size_id: 1,
-    size_val: 40,
-    rm_name: "Kain Katun",
-    rm_barcode: "RM-001",
-    rm_price: "50000",
-    urm_id: 1,
-    urm_name: "meter",
-    current_stock: "100",
-};
 
 const mockRawDetailRows = [
     {
@@ -207,7 +222,14 @@ describe("RecipeRoutes", () => {
     describe("GET /api/app/recipes/:id", () => {
         it("should return 200 with recipe detail", async () => {
             // @ts-ignore
-            (prisma.$queryRaw as any).mockResolvedValueOnce(mockRawDetailRows);
+            prisma.recipes.findUnique.mockResolvedValueOnce({ id: 1, product_id: 1, version: 1 });
+            (prisma.recipes.findMany as any).mockResolvedValueOnce([{
+                id: 1, product_id: 1, raw_mat_id: 1, quantity: "2.50", version: 1,
+                is_active: true, description: null, use_size_calc: false,
+                products: { id: 1, code: "TSHIRT", name: "T-Shirt", product_type: { name: "Apparel" }, unit: { name: "pcs" }, size: { size: 40 } },
+                raw_materials: { id: 1, barcode: "RM-001", name: "Kain Katun", unit_raw_material: { name: "meter" }, supplier_materials: [{ unit_price: "50000" }] },
+            }]);
+            (prisma.$queryRaw as any).mockResolvedValueOnce([]);
 
             const res = await app.request("/api/app/recipes/1", { method: "GET" });
             const body = await res.json();
@@ -220,7 +242,7 @@ describe("RecipeRoutes", () => {
 
         it("should return 404 if recipe not found", async () => {
             // @ts-ignore
-            (prisma.$queryRaw as any).mockResolvedValueOnce([]);
+            prisma.recipes.findUnique.mockResolvedValueOnce(null);
 
             const res = await app.request("/api/app/recipes/999", { method: "GET" });
             const body = await res.json();
@@ -276,9 +298,12 @@ describe("RecipeRoutes", () => {
             expect(res.status).toBe(400);
         });
 
-        it("should return 400 if raw_material has duplicate ids", async () => {
+        it("should allow duplicate raw_material ids for Hampers", async () => {
             // @ts-ignore
             prisma.product.findUnique.mockResolvedValue({ id: 1 });
+            // Duplicate raw material rows are valid for the Hampers use case.
+            // @ts-ignore
+            prisma.rawMaterial.findMany.mockResolvedValue([{ id: 1 }]);
 
             const res = await app.request("/api/app/recipes", {
                 method: "POST",
@@ -292,7 +317,7 @@ describe("RecipeRoutes", () => {
                 }),
             });
 
-            expect(res.status).toBe(400);
+            expect(res.status).toBe(201);
         });
 
         it("should return 404 if product not found", async () => {

@@ -26,6 +26,8 @@ ForecastRoutes.delete("/reset/:product_id", ForecastController.resetByProduct);
 ForecastRoutes.get("/compare", ForecastController.compare);
 ForecastRoutes.get("/inventory-turnover/export", ForecastController.exportInventoryTurnover);
 ForecastRoutes.get("/inventory-turnover", ForecastController.inventoryTurnover);
+ForecastRoutes.get("/inventory-turnover-rm/export", ForecastController.exportInventoryTurnoverRM);
+ForecastRoutes.get("/inventory-turnover-rm", ForecastController.inventoryTurnoverRM);
 ForecastRoutes.get("/export", ForecastController.export);
 ForecastRoutes.get("/", ForecastController.list);
 ForecastRoutes.post("/", validateBody(RunForecastSchema), ForecastController.run);
