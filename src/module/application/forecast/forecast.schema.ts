@@ -190,6 +190,7 @@ export type ResponseInventoryTurnoverDTO = {
 
 export const QueryInventoryTurnoverRMSchema = z.object({
     search: z.string().trim().optional(),
+    status: z.enum(INVENTORY_TURNOVER_STATUSES).optional(),
     month: z.coerce.number().int().min(1).max(12).optional(),
     year: z.coerce.number().int().min(2000).max(2100).optional(),
     page: z.coerce.number().int().positive().default(1).optional(),
@@ -204,16 +205,26 @@ export type ResponseInventoryTurnoverRMDTO = {
     name: string;
     unit: string;
     stock_rm: number;
+    average_monthly_usage_rm: number;
     demand_rm: number;
-    coverage_months: number | null;
+    historical_coverage: number | null;
+    forecast_coverage: number | null;
     annual_turnover: number | null;
     days_inventory: number | null;
+    lead_time_days: number | null;
+    lead_time_months: number;
+    target_coverage: number;
+    status: InventoryTurnoverStatus;
+    excess_stock: number;
 };
 
 export type SummaryInventoryTurnoverRMDTO = {
     total_stock_rm: number;
     total_demand_rm: number;
-    coverage_months: number | null;
+    average_monthly_usage_rm: number;
+    historical_coverage: number | null;
+    forecast_coverage: number | null;
     annual_turnover: number | null;
     days_inventory: number | null;
+    excess_stock: number;
 };

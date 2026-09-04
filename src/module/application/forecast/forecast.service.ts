@@ -73,6 +73,28 @@ export class ForecastService {
         return { total_stock_rm, total_demand_rm, coverage_months, annual_turnover, days_inventory };
     }
 
+    static calculateInventoryTurnoverRMSummaryParity(rows: ResponseInventoryTurnoverRMDTO[]) {
+        const total_stock_rm = rows.reduce((sum, row) => sum + row.stock_rm, 0);
+        const total_demand_rm = rows.reduce((sum, row) => sum + row.demand_rm, 0);
+        const average_monthly_usage_rm = rows.reduce((sum, row) => sum + row.average_monthly_usage_rm, 0);
+        const turnover = ForecastService.calculateInventoryTurnover({
+            stock: total_stock_rm,
+            averageMonthlyUsage: average_monthly_usage_rm,
+            forecast: total_demand_rm,
+            leadTimeDays: 0,
+        });
+        return {
+            total_stock_rm,
+            average_monthly_usage_rm,
+            total_demand_rm,
+            historical_coverage: turnover.historical_coverage,
+            forecast_coverage: turnover.forecast_coverage,
+            days_inventory: turnover.days_inventory,
+            annual_turnover: turnover.annual_turnover,
+            excess_stock: rows.reduce((sum, row) => sum + row.excess_stock, 0),
+        };
+    }
+
     static calculateInventoryTurnover(input: {
         stock: number;
         averageMonthlyUsage: number;
@@ -322,7 +344,9 @@ export class ForecastService {
             name: string;
             unit: string;
             stock_rm: number | string | null;
-            demand_rm: number | string | null;
+                 average_monthly_usage_rm: number | string | null;
+                 demand_rm: number | string | null;
+                 lead_time_days: number | null;
         }>>(Prisma.sql`
             SELECT
                 rm.id AS raw_material_id,
@@ -330,7 +354,9 @@ export class ForecastService {
                 rm.name,
                 urm.name AS unit,
                 COALESCE(stock.average_stock, 0)::float8 AS stock_rm,
-                COALESCE(demand.demand_rm, 0)::float8 AS demand_rm
+                 COALESCE(usage.average_monthly_usage_rm, 0)::float8 AS average_monthly_usage_rm,
+                 COALESCE(demand.demand_rm, 0)::float8 AS demand_rm,
+                 policy.lead_time::integer AS lead_time_days
             FROM raw_materials rm
             JOIN unit_raw_materials urm ON urm.id = rm.unit_id
             LEFT JOIN LATERAL (
@@ -371,6 +397,39 @@ export class ForecastService {
                       WHERE current.product_id = r.product_id AND current.is_active = true
                   )
             ) demand ON true
+            LEFT JOIN LATERAL (
+                SELECT sm.lead_time
+                FROM supplier_materials sm
+                WHERE sm.raw_material_id = rm.id AND sm.status = 'ACTIVE'::"STATUS"
+                 ORDER BY
+                     (sm.lead_time IS NOT NULL AND sm.lead_time >= 0) DESC,
+                     sm.is_preferred DESC,
+                     sm.lead_time ASC NULLS LAST,
+                     sm.id ASC
+                LIMIT 1
+            ) policy ON true
+            LEFT JOIN LATERAL (
+                SELECT AVG(monthly.quantity)::numeric AS average_monthly_usage_rm
+                FROM (
+                    SELECT usage_period.period, COALESCE((
+                        SELECT SUM(FLOOR(COALESCE(issuance.quantity, 0) * r.quantity * CASE WHEN r.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END))
+                        FROM recipes r
+                        JOIN products p ON p.id = r.product_id AND p.status = 'ACTIVE'::"STATUS" AND p.deleted_at IS NULL
+                        LEFT JOIN product_size ps ON ps.id = p.size_id
+                        LEFT JOIN LATERAL (
+                            SELECT COALESCE(
+                                NULLIF(SUM(CASE WHEN (pi.year * 12 + pi.month) > ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type != 'ALL'::"IssuanceType" THEN pi.quantity ELSE 0 END), 0),
+                                SUM(CASE WHEN (pi.year * 12 + pi.month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND pi.type = 'ALL'::"IssuanceType" THEN pi.quantity ELSE 0 END)
+                            ) AS quantity
+                            FROM product_issuances pi
+                            WHERE pi.product_id = p.id AND (pi.year * 12 + pi.month) = usage_period.period::integer
+                        ) issuance ON true
+                        WHERE r.raw_mat_id = rm.id AND r.is_active = true
+                          AND r.version = (SELECT MAX(current.version) FROM recipes current WHERE current.product_id = r.product_id AND current.is_active = true)
+                    ), 0) AS quantity
+                    FROM (VALUES ${Prisma.join(periods.map((value) => Prisma.sql`(${value}::integer)`))}) AS usage_period(period)
+                ) monthly
+            ) usage ON true
             WHERE rm.deleted_at IS NULL
               ${search ? Prisma.sql`AND (rm.name ILIKE ${search} ESCAPE '\\' OR rm.barcode ILIKE ${search} ESCAPE '\\')` : Prisma.empty}
             ORDER BY rm.name ASC, rm.id ASC
@@ -379,23 +438,29 @@ export class ForecastService {
         const data = rows.map<ResponseInventoryTurnoverRMDTO>((row) => {
             const stock = Math.max(0, Number(row.stock_rm ?? 0));
             const demand = Math.max(0, Number(row.demand_rm ?? 0));
+            const averageMonthlyUsage = Math.max(0, Number(row.average_monthly_usage_rm ?? 0));
+             const parsedLeadTime = row.lead_time_days == null ? null : Number(row.lead_time_days);
+             const leadTimeDays = parsedLeadTime != null && Number.isFinite(parsedLeadTime) && parsedLeadTime >= 0 ? parsedLeadTime : null;
             return {
                 raw_material_id: row.raw_material_id,
                 barcode: row.barcode,
                 name: row.name,
                 unit: row.unit,
                 stock_rm: stock,
+                average_monthly_usage_rm: averageMonthlyUsage,
                 demand_rm: demand,
-                ...ForecastService.calculateInventoryTurnoverRM(stock, demand),
+                 ...ForecastService.calculateInventoryTurnover({ stock, averageMonthlyUsage, forecast: demand, leadTimeDays: leadTimeDays ?? 0 }),
+                 lead_time_days: leadTimeDays,
             };
         });
+        const filtered = query.status ? data.filter((row) => row.status === query.status) : data;
         const page = query.page ?? 1;
         const take = query.take ?? 50;
         return {
             period: { month, year },
-            summary: ForecastService.calculateInventoryTurnoverRMSummary(data),
-            len: data.length,
-            data: data.slice((page - 1) * take, page * take),
+            summary: ForecastService.calculateInventoryTurnoverRMSummaryParity(filtered),
+            len: filtered.length,
+            data: filtered.slice((page - 1) * take, page * take),
         };
     }
 
@@ -406,8 +471,8 @@ export class ForecastService {
             return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
         };
         const decimal = (value: number | null) => value == null ? "" : Number(value.toFixed(2));
-        const headers = ["RAW MATERIAL ID", "BARCODE", "NAMA", "UNIT", "STOK RM", "DEMAND RM", "COVERAGE (BULAN)", "PERPUTARAN (KALI/TAHUN)", "HARI PERSEDIAAN"];
-        const rows = result.data.map((row) => [row.raw_material_id, row.barcode, row.name, row.unit, row.stock_rm, row.demand_rm, decimal(row.coverage_months), decimal(row.annual_turnover), decimal(row.days_inventory)].map(escape).join(","));
+        const headers = ["BARCODE RM", "NAMA RM", "UNIT", "STOK RATA2 4 BULAN", "PEMAKAIAN RM RATA2/BULAN", "DEMAND RM", "CAKUPAN HISTORIS", "CAKUPAN FORECAST", "HARI PERSEDIAAN", "PERPUTARAN (KALI/TAHUN)", "LEAD TIME (HARI)", "LEAD TIME (BULAN)", "TARGET CAKUPAN", "STATUS", "STOK BERLEBIH"];
+        const rows = result.data.map((row) => [row.barcode, row.name, row.unit, row.stock_rm, row.average_monthly_usage_rm, row.demand_rm, decimal(row.historical_coverage), decimal(row.forecast_coverage), decimal(row.days_inventory), decimal(row.annual_turnover), row.lead_time_days, decimal(row.lead_time_months), decimal(row.target_coverage), row.status.replaceAll("_", " "), row.excess_stock].map(escape).join(","));
         return Buffer.from(`\uFEFF${[headers.join(","), ...rows].join("\n")}`, "utf-8");
     }
 

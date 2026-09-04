@@ -103,13 +103,35 @@ describe("ForecastService", () => {
     });
 
     describe("inventoryTurnoverRM", () => {
+        it("calculates RM parity metrics with lead time and status", () => {
+            const result = ForecastService.calculateInventoryTurnover({
+                stock: 120,
+                averageMonthlyUsage: 30,
+                forecast: 40,
+                leadTimeDays: 60,
+            });
+            expect(result.historical_coverage).toBe(4);
+            expect(result.forecast_coverage).toBe(3);
+            expect(result.lead_time_months).toBe(2);
+            expect(result.target_coverage).toBe(3);
+            expect(result.status).toBe("SEHAT");
+            expect(result.excess_stock).toBe(0);
+        });
+
         it("casts snapshot periods to integers for PostgreSQL comparisons", async () => {
             (prisma.$queryRaw as any).mockResolvedValueOnce([]);
 
             await ForecastService.inventoryTurnoverRM({ month: 9, year: 2026, page: 1, take: 50 });
 
             const sql = (prisma.$queryRaw as any).mock.calls[0]?.[0] as { strings?: readonly string[] };
-            expect(sql.strings?.join(" ")).toContain("::integer");
+            const source = sql.strings?.join(" ");
+            expect(source).toContain("::integer");
+            expect(source).toContain("product_issuances");
+            expect(source).toContain("use_size_calc");
+            expect(source).toContain("is_preferred DESC");
+            expect(source).toContain("sm.lead_time IS NOT NULL");
+            expect(source).not.toContain("COALESCE(policy.lead_time, 0)");
+            expect(source).toContain("COALESCE(issuance.quantity");
         });
     });
 
