@@ -157,6 +157,7 @@ export const INVENTORY_TURNOVER_STATUSES = [
     "SEHAT",
     "BERLEBIH",
     "TIDAK_BERGERAK",
+    "TIDAK_TERSEDIA",
 ] as const;
 
 export const QueryInventoryTurnoverSchema = z.object({
@@ -182,8 +183,8 @@ export type ResponseInventoryTurnoverDTO = {
     forecast_coverage: number | null;
     days_inventory: number | null;
     annual_turnover: number | null;
-    lead_time_months: number;
-    target_coverage: number;
+    lead_time_months: number | null;
+    target_coverage: number | null;
     status: InventoryTurnoverStatus;
     excess_stock: number;
 };
@@ -212,8 +213,8 @@ export type ResponseInventoryTurnoverRMDTO = {
     annual_turnover: number | null;
     days_inventory: number | null;
     lead_time_days: number | null;
-    lead_time_months: number;
-    target_coverage: number;
+    lead_time_months: number | null;
+    target_coverage: number | null;
     status: InventoryTurnoverStatus;
     excess_stock: number;
 };

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import prisma from "../../config/prisma.js";
 import { escapeIlike, ForecastService } from "../../module/application/forecast/forecast.service.js";
+import {
+    QueryInventoryTurnoverRMSchema,
+    QueryInventoryTurnoverSchema,
+} from "../../module/application/forecast/forecast.schema.js";
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 
@@ -22,6 +26,11 @@ const mockProducts = [
 ];
 
 describe("ForecastService", () => {
+    it("accepts unavailable status in FG and RM filters", () => {
+        expect(QueryInventoryTurnoverSchema.parse({ status: "TIDAK_TERSEDIA" }).status).toBe("TIDAK_TERSEDIA");
+        expect(QueryInventoryTurnoverRMSchema.parse({ status: "TIDAK_TERSEDIA" }).status).toBe("TIDAK_TERSEDIA");
+    });
+
     it("escapes PostgreSQL ILIKE wildcards and backslashes", () => {
         expect(escapeIlike("a%b_c\\d")).toBe("a\\%b\\_c\\\\d");
     });
@@ -30,6 +39,24 @@ describe("ForecastService", () => {
     });
 
     describe("calculateInventoryTurnover", () => {
+        it("matches the PERPUTARAN STOK workbook example", () => {
+            const result = ForecastService.calculateInventoryTurnover({
+                stock: 107_612,
+                averageMonthlyUsage: 95_466,
+                forecast: 104_900,
+                leadTimeDays: 15,
+            });
+
+            expect(result.historical_coverage).toBeCloseTo(1.1272285, 7);
+            expect(result.forecast_coverage).toBeCloseTo(1.0258532, 7);
+            expect(result.days_inventory).toBeCloseTo(30.7756, 4);
+            expect(result.annual_turnover).toBeCloseTo(11.69758, 5);
+            expect(result.lead_time_months).toBe(0.5);
+            expect(result.target_coverage).toBe(1.5);
+            expect(result.status).toBe("TIPIS");
+            expect(result.excess_stock).toBe(0);
+        });
+
         it("calculates coverage, turnover, status, and excess stock", () => {
             const result = ForecastService.calculateInventoryTurnover({
                 stock: 185_815,
@@ -46,7 +73,7 @@ describe("ForecastService", () => {
             expect(result.excess_stock).toBe(45_815);
         });
 
-        it("handles empty and non-moving stock without division by zero", () => {
+        it("classifies empty and non-moving stock from stock and forecast", () => {
             expect(
                 ForecastService.calculateInventoryTurnover({
                     stock: 0,
@@ -57,13 +84,83 @@ describe("ForecastService", () => {
             ).toBe("KOSONG");
             const stopped = ForecastService.calculateInventoryTurnover({
                 stock: 25_000,
-                averageMonthlyUsage: 0,
-                forecast: 500,
+                averageMonthlyUsage: 500,
+                forecast: 0,
                 leadTimeDays: 30,
             });
             expect(stopped.status).toBe("TIDAK_BERGERAK");
-            expect(stopped.forecast_coverage).toBe(50);
-            expect(stopped.annual_turnover).toBeCloseTo(0.24);
+            expect(stopped.forecast_coverage).toBeNull();
+            expect(stopped.annual_turnover).toBeNull();
+
+            const noHistoricalUsage = ForecastService.calculateInventoryTurnover({
+                stock: 100,
+                averageMonthlyUsage: 0,
+                forecast: 100,
+                leadTimeDays: 30,
+            });
+            expect(noHistoricalUsage.historical_coverage).toBeNull();
+            expect(noHistoricalUsage.status).toBe("TIPIS");
+        });
+
+        it("marks unavailable coverage explicitly when stock and forecast are non-positive", () => {
+            expect(ForecastService.calculateInventoryTurnover({
+                stock: 0,
+                averageMonthlyUsage: 0,
+                forecast: 0,
+                leadTimeDays: 15,
+            }).status).toBe("TIDAK_TERSEDIA");
+            expect(ForecastService.calculateInventoryTurnover({
+                stock: -10,
+                averageMonthlyUsage: 0,
+                forecast: -20,
+                leadTimeDays: 15,
+            }).status).toBe("TIDAK_TERSEDIA");
+        });
+
+        it("keeps workbook empty and non-moving classifications ahead of unavailable", () => {
+            expect(ForecastService.calculateInventoryTurnover({
+                stock: 0,
+                averageMonthlyUsage: 0,
+                forecast: 10,
+                leadTimeDays: 15,
+            }).status).toBe("KOSONG");
+            expect(ForecastService.calculateInventoryTurnover({
+                stock: 10,
+                averageMonthlyUsage: 0,
+                forecast: 0,
+                leadTimeDays: 15,
+            }).status).toBe("TIDAK_BERGERAK");
+        });
+
+        it("keeps ratios but marks a missing lead time unavailable", () => {
+            const result = ForecastService.calculateInventoryTurnover({
+                stock: 100,
+                averageMonthlyUsage: 20,
+                forecast: 40,
+                leadTimeDays: null,
+            });
+
+            expect(result.historical_coverage).toBe(5);
+            expect(result.forecast_coverage).toBe(2.5);
+            expect(result.lead_time_months).toBeNull();
+            expect(result.target_coverage).toBeNull();
+            expect(result.status).toBe("TIDAK_TERSEDIA");
+            expect(result.excess_stock).toBe(0);
+        });
+
+        it("keeps empty and non-moving precedence when lead time is missing", () => {
+            expect(ForecastService.calculateInventoryTurnover({
+                stock: 0,
+                averageMonthlyUsage: 10,
+                forecast: 10,
+                leadTimeDays: null,
+            }).status).toBe("KOSONG");
+            expect(ForecastService.calculateInventoryTurnover({
+                stock: 10,
+                averageMonthlyUsage: 10,
+                forecast: 0,
+                leadTimeDays: null,
+            }).status).toBe("TIDAK_BERGERAK");
         });
     });
 
@@ -103,6 +200,24 @@ describe("ForecastService", () => {
     });
 
     describe("inventoryTurnoverRM", () => {
+        it("uses historical usage for RM summary turnover while rows remain forecast based", () => {
+            const row = ForecastService.calculateInventoryTurnover({
+                stock: 100,
+                averageMonthlyUsage: 20,
+                forecast: 40,
+                leadTimeDays: 30,
+            });
+            const summary = ForecastService.calculateInventoryTurnoverRMSummaryParity([
+                { stock_rm: 100, average_monthly_usage_rm: 20, demand_rm: 40, excess_stock: row.excess_stock },
+                { stock_rm: 50, average_monthly_usage_rm: 10, demand_rm: 10, excess_stock: 0 },
+            ]);
+
+            expect(row.annual_turnover).toBe(4.8);
+            expect(summary.historical_coverage).toBe(5);
+            expect(summary.forecast_coverage).toBe(3);
+            expect(summary.annual_turnover).toBe(2.4);
+        });
+
         it("calculates RM parity metrics with lead time and status", () => {
             const result = ForecastService.calculateInventoryTurnover({
                 stock: 120,
@@ -133,9 +248,69 @@ describe("ForecastService", () => {
             expect(source).not.toContain("COALESCE(policy.lead_time, 0)");
             expect(source).toContain("COALESCE(issuance.quantity");
         });
+
+        it("passes a missing RM lead time through to workbook calculations", async () => {
+            (prisma.$queryRaw as any).mockResolvedValueOnce([{
+                raw_material_id: 1,
+                barcode: "RM-1",
+                name: "Material",
+                unit: "kg",
+                stock_rm: 100,
+                average_monthly_usage_rm: 20,
+                demand_rm: 40,
+                lead_time_days: null,
+            }]);
+
+            const result = await ForecastService.inventoryTurnoverRM({ month: 9, year: 2026, page: 1, take: 50 });
+
+            expect(result.data[0]).toMatchObject({
+                lead_time_days: null,
+                lead_time_months: null,
+                target_coverage: null,
+                status: "TIDAK_TERSEDIA",
+                excess_stock: 0,
+            });
+        });
+
+        it("exports unavailable RM lead-time values as dashes", async () => {
+            (prisma.$queryRaw as any).mockResolvedValueOnce([{
+                raw_material_id: 1,
+                barcode: "RM-1",
+                name: "Material",
+                unit: "kg",
+                stock_rm: 100,
+                average_monthly_usage_rm: 20,
+                demand_rm: 40,
+                lead_time_days: null,
+            }]);
+
+            const csv = (await ForecastService.exportInventoryTurnoverRM({ month: 9, year: 2026 })).toString("utf-8");
+
+            expect(csv).toContain("RM-1,Material,kg,100,20,40,5,2.5,75,4.8,-,-,-,TIDAK TERSEDIA,0");
+        });
     });
 
     describe("inventoryTurnover", () => {
+        it("uses forecast coverage for summary days and historical coverage for summary turnover", async () => {
+            (prisma.$queryRaw as any).mockResolvedValueOnce([{
+                product_id: 1,
+                product_code: "FG-1",
+                product_name: "FG 1",
+                lead_time: 30,
+                stock: 100,
+                average_monthly_usage: 20,
+                forecast: 40,
+            }]);
+
+            const result = await ForecastService.inventoryTurnover({ month: 9, year: 2026, page: 1, take: 50 });
+
+            expect(result.data[0]!.annual_turnover).toBe(4.8);
+            expect(result.summary.historical_coverage).toBe(5);
+            expect(result.summary.forecast_coverage).toBe(2.5);
+            expect(result.summary.days_inventory).toBe(75);
+            expect(result.summary.annual_turnover).toBe(2.4);
+        });
+
         it("casts inventory snapshot and issuance periods to integers", async () => {
             (prisma.$queryRaw as any).mockResolvedValueOnce([]);
 
