@@ -158,13 +158,13 @@ export class ForecastService {
                             FROM product_inventories pi
                             JOIN warehouses w ON w.id = pi.warehouse_id
                             WHERE pi.product_id = p.id
-                              AND (pi.year * 12 + pi.month) <= snapshot.period
+                              AND (pi.year * 12 + pi.month) <= snapshot.period::integer
                               AND w.type = 'FINISH_GOODS'
                               AND w.deleted_at IS NULL
                             ORDER BY pi.warehouse_id, pi.year DESC, pi.month DESC, pi.date DESC
                         ) latest
                     ), 0) AS quantity
-                    FROM (VALUES ${Prisma.join(averagePeriods.map((value) => Prisma.sql`(${value})`))}) AS snapshot(period)
+                    FROM (VALUES ${Prisma.join(averagePeriods.map((value) => Prisma.sql`(${value}::integer)`))}) AS snapshot(period)
                 ) monthly
             ) stock ON true
             LEFT JOIN LATERAL (
@@ -177,9 +177,9 @@ export class ForecastService {
                         )
                         FROM product_issuances pi
                         WHERE pi.product_id = p.id
-                          AND (pi.year * 12 + pi.month) = usage_period.period
+                          AND (pi.year * 12 + pi.month) = usage_period.period::integer
                     ), 0) AS quantity
-                    FROM (VALUES ${Prisma.join(averagePeriods.map((value) => Prisma.sql`(${value})`))}) AS usage_period(period)
+                    FROM (VALUES ${Prisma.join(averagePeriods.map((value) => Prisma.sql`(${value}::integer)`))}) AS usage_period(period)
                 ) monthly
             ) usage ON true
             LEFT JOIN forecasts fc
