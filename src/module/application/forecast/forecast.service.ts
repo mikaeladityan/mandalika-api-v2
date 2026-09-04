@@ -314,7 +314,7 @@ export class ForecastService {
         const year = query.year ?? now.getUTCFullYear();
         const period = year * 12 + month;
         const periods = Array.from({ length: 4 }, (_, index) => period - 3 + index);
-        const search = query.search ? `%${query.search}%` : null;
+        const search = query.search ? `%${escapeIlike(query.search)}%` : null;
 
         const rows = await prisma.$queryRaw<Array<{
             raw_material_id: number;
@@ -344,13 +344,13 @@ export class ForecastService {
                             FROM raw_material_inventories rmi
                             JOIN warehouses w ON w.id = rmi.warehouse_id
                             WHERE rmi.raw_material_id = rm.id
-                              AND (rmi.year * 12 + rmi.month) <= snapshot.period
+                              AND (rmi.year * 12 + rmi.month) <= snapshot.period::integer
                               AND w.type = 'RAW_MATERIAL'::"WarehouseType"
                               AND w.deleted_at IS NULL
                             ORDER BY rmi.warehouse_id, rmi.year DESC, rmi.month DESC, rmi.date DESC
                         ) latest
                     ), 0) AS quantity
-                    FROM (VALUES ${Prisma.join(periods.map((value) => Prisma.sql`(${value})`))}) AS snapshot(period)
+                    FROM (VALUES ${Prisma.join(periods.map((value) => Prisma.sql`(${value}::integer)`))}) AS snapshot(period)
                 ) monthly
             ) stock ON true
             LEFT JOIN LATERAL (
