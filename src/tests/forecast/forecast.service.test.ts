@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import prisma from "../../config/prisma.js";
-import { ForecastService } from "../../module/application/forecast/forecast.service.js";
+import { escapeIlike, ForecastService } from "../../module/application/forecast/forecast.service.js";
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 
@@ -22,6 +22,9 @@ const mockProducts = [
 ];
 
 describe("ForecastService", () => {
+    it("escapes PostgreSQL ILIKE wildcards and backslashes", () => {
+        expect(escapeIlike("a%b_c\\d")).toBe("a\\%b\\_c\\\\d");
+    });
     beforeEach(() => {
         vi.clearAllMocks();
     });
@@ -61,6 +64,41 @@ describe("ForecastService", () => {
             expect(stopped.status).toBe("TIDAK_BERGERAK");
             expect(stopped.forecast_coverage).toBe(50);
             expect(stopped.annual_turnover).toBeCloseTo(0.24);
+        });
+    });
+
+    describe("calculateInventoryTurnoverRM", () => {
+        it("keeps RM ratios null when demand or stock is zero", () => {
+            expect(ForecastService.calculateInventoryTurnoverRM(100, 0)).toEqual({
+                coverage_months: null,
+                annual_turnover: null,
+                days_inventory: null,
+            });
+            expect(ForecastService.calculateInventoryTurnoverRM(0, 10)).toEqual({
+                coverage_months: 0,
+                annual_turnover: null,
+                days_inventory: 0,
+            });
+        });
+
+        it("aggregates RM summary independently of pagination", () => {
+            expect(ForecastService.calculateInventoryTurnoverRMSummary([
+                { stock_rm: 100, demand_rm: 20 },
+                { stock_rm: 50, demand_rm: 10 },
+            ])).toEqual({
+                total_stock_rm: 150,
+                total_demand_rm: 30,
+                coverage_months: 5,
+                annual_turnover: 2.4,
+                days_inventory: 150,
+            });
+            expect(ForecastService.calculateInventoryTurnoverRMSummary([])).toEqual({
+                total_stock_rm: 0,
+                total_demand_rm: 0,
+                coverage_months: null,
+                annual_turnover: null,
+                days_inventory: null,
+            });
         });
     });
 

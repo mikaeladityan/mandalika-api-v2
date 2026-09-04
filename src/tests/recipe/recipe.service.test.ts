@@ -45,6 +45,32 @@ const mockRawDetailRows = [
     },
 ];
 
+const mockRecipeItem = {
+    id: 1,
+    product_id: 1,
+    raw_mat_id: 1,
+    quantity: "2.50",
+    version: 1,
+    is_active: true,
+    description: null,
+    use_size_calc: false,
+    products: {
+        id: 1,
+        code: "TSHIRT",
+        name: "T-Shirt",
+        product_type: { name: "Apparel" },
+        unit: { name: "pcs" },
+        size: { size: 40 },
+    },
+    raw_materials: {
+        id: 1,
+        barcode: "RM-001",
+        name: "Kain Katun",
+        unit_raw_material: { name: "meter" },
+        supplier_materials: [{ unit_price: "50000" }],
+    },
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("RecipeService", () => {
@@ -268,7 +294,9 @@ describe("RecipeService", () => {
     describe("detail", () => {
         it("should return recipe detail for a product", async () => {
             // @ts-ignore
-            (prisma.$queryRaw as any).mockResolvedValueOnce(mockRawDetailRows);
+            prisma.recipes.findUnique.mockResolvedValueOnce({ id: 1, product_id: 1, version: 1 });
+            (prisma.recipes.findMany as any).mockResolvedValueOnce([mockRecipeItem]);
+            (prisma.$queryRaw as any).mockResolvedValueOnce([]);
 
             const result = await RecipeService.detail(1);
 
@@ -300,7 +328,12 @@ describe("RecipeService", () => {
                 },
             ];
             // @ts-ignore
-            (prisma.$queryRaw as any).mockResolvedValueOnce(rowNoRecipe);
+            prisma.recipes.findUnique.mockResolvedValueOnce({ id: 1, product_id: 1, version: 1 });
+            (prisma.recipes.findMany as any).mockResolvedValueOnce([{
+                ...mockRecipeItem,
+                raw_materials: null,
+            }]);
+            (prisma.$queryRaw as any).mockResolvedValueOnce([]);
 
             const result = await RecipeService.detail(1);
             expect(result.recipes).toHaveLength(0);
@@ -316,9 +349,14 @@ describe("RecipeService", () => {
         });
 
         it("should use empty string for missing type/unit", async () => {
-            const rowNoType = [{ ...mockRawDetailRows[0], type_name: null, unit_name: null }];
+            const recipeItemNoType = {
+                ...mockRecipeItem,
+                products: { ...mockRecipeItem.products, product_type: null, unit: null },
+            };
             // @ts-ignore
-            (prisma.$queryRaw as any).mockResolvedValueOnce(rowNoType);
+            prisma.recipes.findUnique.mockResolvedValueOnce({ id: 1, product_id: 1, version: 1 });
+            (prisma.recipes.findMany as any).mockResolvedValueOnce([recipeItemNoType]);
+            (prisma.$queryRaw as any).mockResolvedValueOnce([]);
 
             const result = await RecipeService.detail(1);
             expect(result.type).toBe("");

@@ -26,6 +26,7 @@ export const RequestRecipeSchema = z.object({
             z.object({
                 raw_material_id: z.number(),
                 quantity: z.number(),
+                use_size_calc: z.boolean().optional(),
             }),
             "Raw material tidak boleh kosong",
         )

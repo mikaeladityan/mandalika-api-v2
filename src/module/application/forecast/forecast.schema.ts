@@ -187,3 +187,33 @@ export type ResponseInventoryTurnoverDTO = {
     status: InventoryTurnoverStatus;
     excess_stock: number;
 };
+
+export const QueryInventoryTurnoverRMSchema = z.object({
+    search: z.string().trim().optional(),
+    month: z.coerce.number().int().min(1).max(12).optional(),
+    year: z.coerce.number().int().min(2000).max(2100).optional(),
+    page: z.coerce.number().int().positive().default(1).optional(),
+    take: z.coerce.number().int().positive().max(1000).default(50).optional(),
+});
+
+export type QueryInventoryTurnoverRMDTO = z.infer<typeof QueryInventoryTurnoverRMSchema>;
+
+export type ResponseInventoryTurnoverRMDTO = {
+    raw_material_id: number;
+    barcode: string | null;
+    name: string;
+    unit: string;
+    stock_rm: number;
+    demand_rm: number;
+    coverage_months: number | null;
+    annual_turnover: number | null;
+    days_inventory: number | null;
+};
+
+export type SummaryInventoryTurnoverRMDTO = {
+    total_stock_rm: number;
+    total_demand_rm: number;
+    coverage_months: number | null;
+    annual_turnover: number | null;
+    days_inventory: number | null;
+};
