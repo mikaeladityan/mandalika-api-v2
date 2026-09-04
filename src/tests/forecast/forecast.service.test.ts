@@ -102,6 +102,17 @@ describe("ForecastService", () => {
         });
     });
 
+    describe("inventoryTurnoverRM", () => {
+        it("casts snapshot periods to integers for PostgreSQL comparisons", async () => {
+            (prisma.$queryRaw as any).mockResolvedValueOnce([]);
+
+            await ForecastService.inventoryTurnoverRM({ month: 9, year: 2026, page: 1, take: 50 });
+
+            const sql = (prisma.$queryRaw as any).mock.calls[0]?.[0] as { strings?: readonly string[] };
+            expect(sql.strings?.join(" ")).toContain("::integer");
+        });
+    });
+
     describe("get", () => {
         it("should return forecast list with correct len", async () => {
             (prisma.product.count as any).mockResolvedValue(1);
