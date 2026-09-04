@@ -205,8 +205,11 @@ export type ResponseInventoryTurnoverRMDTO = {
     barcode: string | null;
     name: string;
     unit: string;
+    /** Average RM stock snapshot over M-3..M0. */
     stock_rm: number;
+    /** Average RM usage over M-3..M0, derived from actual FG issuance converted through active BOM. */
     average_monthly_usage_rm: number;
+    /** Average RM forecast over M0..M+3, derived from COALESCE(net_forecast, final_forecast) converted through active BOM. */
     demand_rm: number;
     historical_coverage: number | null;
     forecast_coverage: number | null;
