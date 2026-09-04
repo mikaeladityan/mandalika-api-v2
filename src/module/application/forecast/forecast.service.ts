@@ -73,7 +73,7 @@ export class ForecastService {
         return { total_stock_rm, total_demand_rm, coverage_months, annual_turnover, days_inventory };
     }
 
-    static calculateInventoryTurnoverRMSummaryParity(rows: ResponseInventoryTurnoverRMDTO[]) {
+    static calculateInventoryTurnoverRMSummaryParity(rows: Pick<ResponseInventoryTurnoverRMDTO, "stock_rm" | "average_monthly_usage_rm" | "demand_rm" | "excess_stock">[]) {
         const total_stock_rm = rows.reduce((sum, row) => sum + row.stock_rm, 0);
         const total_demand_rm = rows.reduce((sum, row) => sum + row.demand_rm, 0);
         const average_monthly_usage_rm = rows.reduce((sum, row) => sum + row.average_monthly_usage_rm, 0);
@@ -90,7 +90,10 @@ export class ForecastService {
             historical_coverage: turnover.historical_coverage,
             forecast_coverage: turnover.forecast_coverage,
             days_inventory: turnover.days_inventory,
-            annual_turnover: turnover.annual_turnover,
+            annual_turnover:
+                turnover.historical_coverage != null && turnover.historical_coverage > 0
+                    ? 12 / turnover.historical_coverage
+                    : null,
             excess_stock: rows.reduce((sum, row) => sum + row.excess_stock, 0),
         };
     }
@@ -99,7 +102,7 @@ export class ForecastService {
         stock: number;
         averageMonthlyUsage: number;
         forecast: number;
-        leadTimeDays: number;
+        leadTimeDays: number | null;
     }): Omit<
         ResponseInventoryTurnoverDTO,
         | "product_id"
@@ -112,17 +115,18 @@ export class ForecastService {
         const stock = Math.max(0, input.stock);
         const averageMonthlyUsage = Math.max(0, input.averageMonthlyUsage);
         const forecast = Math.max(0, input.forecast);
-        const leadTimeMonths = Math.max(0, input.leadTimeDays) / 30;
-        const targetCoverage = leadTimeMonths + 1;
+        const leadTimeMonths = input.leadTimeDays == null ? null : Math.max(0, input.leadTimeDays) / 30;
+        const targetCoverage = leadTimeMonths == null ? null : leadTimeMonths + 1;
         const historicalCoverage = averageMonthlyUsage > 0 ? stock / averageMonthlyUsage : null;
         const forecastCoverage = forecast > 0 ? stock / forecast : null;
         const daysInventory = forecastCoverage == null ? null : forecastCoverage * 30;
         const annualTurnover = stock > 0 && forecast > 0 ? (forecast * 12) / stock : null;
 
         let status: InventoryTurnoverStatus;
-        if (stock === 0) status = "KOSONG";
-        else if (averageMonthlyUsage === 0) status = "TIDAK_BERGERAK";
-        else if (forecastCoverage == null || forecastCoverage < leadTimeMonths) status = "KRITIS";
+        if (stock === 0 && forecast > 0) status = "KOSONG";
+        else if (forecast === 0 && stock > 0) status = "TIDAK_BERGERAK";
+        else if (forecastCoverage == null || targetCoverage == null || leadTimeMonths == null || !Number.isFinite(targetCoverage)) status = "TIDAK_TERSEDIA";
+        else if (forecastCoverage < leadTimeMonths) status = "KRITIS";
         else if (forecastCoverage < targetCoverage) status = "TIPIS";
         else if (forecastCoverage <= targetCoverage * 2) status = "SEHAT";
         else status = "BERLEBIH";
@@ -136,7 +140,9 @@ export class ForecastService {
             target_coverage: targetCoverage,
             status,
             excess_stock:
-                status === "BERLEBIH" ? Math.max(0, stock - targetCoverage * 2 * forecast) : 0,
+                forecastCoverage != null && targetCoverage != null && Number.isFinite(targetCoverage)
+                    ? Math.max(0, stock - forecast * targetCoverage * 2)
+                    : 0,
         };
     }
 
@@ -272,7 +278,7 @@ export class ForecastService {
                 forecast: totalForecast,
                 historical_coverage: historicalCoverage,
                 forecast_coverage: forecastCoverage,
-                days_inventory: historicalCoverage == null ? null : historicalCoverage * 30,
+                days_inventory: forecastCoverage == null ? null : forecastCoverage * 30,
                 annual_turnover: historicalCoverage && historicalCoverage > 0 ? 12 / historicalCoverage : null,
                 excess_stock: filtered.reduce((sum, row) => sum + row.excess_stock, 0),
             },
@@ -292,7 +298,7 @@ export class ForecastService {
             return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
         };
         const decimal = (value: number | null) =>
-            value == null ? "" : Number(value.toFixed(2));
+            value == null ? "-" : Number(value.toFixed(2));
         const headers = [
             "KODE FG",
             "NAMA FG",
@@ -449,7 +455,7 @@ export class ForecastService {
                 stock_rm: stock,
                 average_monthly_usage_rm: averageMonthlyUsage,
                 demand_rm: demand,
-                 ...ForecastService.calculateInventoryTurnover({ stock, averageMonthlyUsage, forecast: demand, leadTimeDays: leadTimeDays ?? 0 }),
+                 ...ForecastService.calculateInventoryTurnover({ stock, averageMonthlyUsage, forecast: demand, leadTimeDays }),
                  lead_time_days: leadTimeDays,
             };
         });
@@ -470,9 +476,9 @@ export class ForecastService {
             const text = String(value ?? "");
             return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
         };
-        const decimal = (value: number | null) => value == null ? "" : Number(value.toFixed(2));
+        const decimal = (value: number | null) => value == null ? "-" : Number(value.toFixed(2));
         const headers = ["BARCODE RM", "NAMA RM", "UNIT", "STOK RATA2 4 BULAN", "PEMAKAIAN RM RATA2/BULAN", "DEMAND RM", "CAKUPAN HISTORIS", "CAKUPAN FORECAST", "HARI PERSEDIAAN", "PERPUTARAN (KALI/TAHUN)", "LEAD TIME (HARI)", "LEAD TIME (BULAN)", "TARGET CAKUPAN", "STATUS", "STOK BERLEBIH"];
-        const rows = result.data.map((row) => [row.barcode, row.name, row.unit, row.stock_rm, row.average_monthly_usage_rm, row.demand_rm, decimal(row.historical_coverage), decimal(row.forecast_coverage), decimal(row.days_inventory), decimal(row.annual_turnover), row.lead_time_days, decimal(row.lead_time_months), decimal(row.target_coverage), row.status.replaceAll("_", " "), row.excess_stock].map(escape).join(","));
+        const rows = result.data.map((row) => [row.barcode, row.name, row.unit, row.stock_rm, row.average_monthly_usage_rm, row.demand_rm, decimal(row.historical_coverage), decimal(row.forecast_coverage), decimal(row.days_inventory), decimal(row.annual_turnover), row.lead_time_days ?? "-", decimal(row.lead_time_months), decimal(row.target_coverage), row.status.replaceAll("_", " "), row.excess_stock].map(escape).join(","));
         return Buffer.from(`\uFEFF${[headers.join(","), ...rows].join("\n")}`, "utf-8");
     }
 
