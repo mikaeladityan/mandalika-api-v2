@@ -916,6 +916,11 @@ export class ForecastService {
 
         type ColDef = { uiId: string; header: string; value: (item: ResponseForecastDTO) => string | number };
 
+        const isPure = query.export_mode === "pure";
+        const forecastValue = (item: ResponseForecastDTO, p: { month: number; year: number }) => {
+            const m = item.monthly_data.find((md) => md.month === p.month && md.year === p.year);
+            return m ? Math.round(Number(isPure ? m.gross_forecast : m.final_forecast ?? m.base_forecast)) : 0;
+        };
         const allColDefs: ColDef[] = [
             { uiId: "code", header: "CODE", value: (item) => item.product_code ?? "" },
             { uiId: "product", header: "PRODUCT NAME", value: (item) => item.product_name.toUpperCase() },
@@ -927,15 +932,15 @@ export class ForecastService {
                 header: `FC ${monthsShort[p.month - 1]}'${String(p.year).slice(-2)}`,
                 value: (item: ResponseForecastDTO) => {
                     const m = item.monthly_data.find((md) => md.month === p.month && md.year === p.year);
-                    return m ? Math.round(Number(m.final_forecast ?? m.base_forecast)) : 0;
+                    return forecastValue(item, p);
                 },
             })),
-            { uiId: "total-forecast", header: "TOTAL FORECAST", value: (item) => Math.round(Number(item.safety_stock_summary?.total_forecast ?? 0)) },
-            { uiId: "total-demand", header: "JUMLAH FORECAST", value: (item) => Math.round(Number(item.safety_stock_summary?.total_demand ?? 0)) },
+            { uiId: "total-forecast", header: "TOTAL FORECAST", value: (item) => isPure ? Math.round(item.monthly_data.slice(0, 4).reduce((sum, m) => sum + Number(m.gross_forecast ?? 0), 0)) : Math.round(Number(item.safety_stock_summary?.total_forecast ?? 0)) },
+            { uiId: "total-demand", header: "JUMLAH FORECAST", value: (item) => isPure ? Math.round(item.monthly_data.slice(0, 4).reduce((sum, m) => sum + Number(m.gross_forecast ?? 0), 0)) : Math.round(Number(item.safety_stock_summary?.total_demand ?? 0)) },
             { uiId: "safety_percentage", header: "% SAFETY", value: (item) => item.safety_percentage ?? 0 },
             { uiId: "safety-stock", header: "SAFETY STOCK", value: (item) => Math.round(Number(item.safety_stock_summary?.safety_stock_quantity ?? 0)) },
             { uiId: "current_stock", header: "STOCK", value: (item) => Math.round(item.current_stock) },
-            { uiId: "need_produce", header: "NEED PRODUCE", value: (item) => Math.round(item.need_produce) },
+            ...(isPure ? [] : [{ uiId: "need_produce", header: "NEED PRODUCE", value: (item: ResponseForecastDTO) => Math.round(item.need_produce) }]),
         ];
 
         let orderedColDefs = [...allColDefs];

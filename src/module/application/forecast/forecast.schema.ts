@@ -26,6 +26,7 @@ export const QueryForecastSchema = z.object({
     start_year: z.coerce.number().int().min(2000).max(2100).optional(),
     visibleColumns: z.string().optional(),
     columnOrder: z.string().optional(),
+    export_mode: z.enum(["affected", "pure"]).default("affected").optional(),
 });
 
 // ─── Finalize ──────────────────────────────────────────────────────────────────
