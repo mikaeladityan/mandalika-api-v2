@@ -34,7 +34,7 @@ type StockExportRow = {
     gender: GENDER;
     uom: string;
     amount: number | string | Prisma.Decimal;
-    warehouse_name: string | null;
+    stocks: Record<string, number | string | Prisma.Decimal>;
 };
 
 export class StockService {
@@ -208,15 +208,14 @@ export class StockService {
             year = year ?? latest.year;
         }
 
+        const warehouses = (await this.listWarehouses()).filter(
+            (warehouse) => !warehouse_id || warehouse.id === warehouse_id,
+        );
         const conditions = this.buildConditions(query);
         const whereClause =
             conditions.length > 0
                 ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`
                 : Prisma.empty;
-
-        const warehouseFilter = warehouse_id
-            ? Prisma.sql`AND pi_sub.warehouse_id = ${warehouse_id}`
-            : Prisma.empty;
 
         const rows = await prisma.$queryRaw<StockExportRow[]>`
             SELECT
@@ -227,7 +226,10 @@ export class StockService {
                 p.gender::text                AS gender,
                 COALESCE(u.name, 'Unknown')   AS uom,
                 COALESCE(SUM(pi.quantity), 0) AS amount,
-                w.name                        AS warehouse_name
+                COALESCE(
+                    JSONB_OBJECT_AGG(w.name, pi.quantity) FILTER (WHERE w.name IS NOT NULL),
+                    '{}'::JSONB
+                ) AS stocks
             FROM products p
             LEFT JOIN product_types pt ON p.type_id = pt.id
             LEFT JOIN unit_of_materials u  ON p.unit_id = u.id
@@ -235,16 +237,19 @@ export class StockService {
             LEFT JOIN (
                 SELECT product_id, warehouse_id, SUM(quantity) AS quantity
                 FROM product_inventories pi_sub
-                WHERE pi_sub.month = ${month} AND pi_sub.year = ${year} ${warehouseFilter}
+                WHERE pi_sub.month = ${month} AND pi_sub.year = ${year}
+                    ${warehouse_id ? Prisma.sql`AND pi_sub.warehouse_id = ${warehouse_id}` : Prisma.empty}
                 GROUP BY product_id, warehouse_id
             ) pi ON p.id = pi.product_id
             LEFT JOIN warehouses w ON pi.warehouse_id = w.id
             ${whereClause}
-            GROUP BY p.id, pt.name, u.name, ps.size, w.name
+            GROUP BY p.id, pt.name, u.name, ps.size
             ORDER BY p.name ASC
         `;
 
-        const warehouseLabel = rows[0]?.warehouse_name ?? "Semua Gudang";
+        const warehouseLabel = warehouse_id
+            ? warehouses[0]?.name ?? "Gudang"
+            : "Semua Gudang";
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet(`Stok ${warehouseLabel}`);
 
@@ -256,6 +261,11 @@ export class StockService {
             { header: "Ukuran",       key: "size",   width: 10 },
             { header: "Gender",       key: "gender", width: 12 },
             { header: "UOM",          key: "uom",    width: 10 },
+            ...warehouses.map((warehouse) => ({
+                header: warehouse.name,
+                key: `warehouse_${warehouse.id}`,
+                width: 15,
+            })),
             { header: "Stok",         key: "amount", width: 12 },
         ];
 
@@ -268,6 +278,12 @@ export class StockService {
                 size:   Number(row.size),
                 gender: row.gender,
                 uom:    row.uom,
+                ...Object.fromEntries(
+                    warehouses.map((warehouse) => [
+                        `warehouse_${warehouse.id}`,
+                        Number(row.stocks?.[warehouse.name] ?? 0),
+                    ]),
+                ),
                 amount: Number(row.amount),
             });
         });
