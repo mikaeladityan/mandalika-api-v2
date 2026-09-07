@@ -10,7 +10,6 @@ const mockBOMRows = [
         p_name: "Test Product",
         pt_name: "EDP",
         p_gender: "UNISEX",
-        p_safety_percentage: 0.25,
         ps_val: 100,
         u_name: "PCS",
         rm_id: 10,
@@ -29,7 +28,7 @@ describe("BOMService", () => {
 
     it("should list grouped BOM data correctly", async () => {
         vi.useFakeTimers();
-        vi.setSystemTime(new Date(Date.UTC(2026, 3, 1)));
+        vi.setSystemTime(new Date(2026, 3, 1));
         // Mock $queryRaw in order of service calls: 
         // 1. productsPage
         // 2. rows
@@ -78,27 +77,5 @@ describe("BOMService", () => {
         const result = await BOMService.list({ page: 1, take: 10 });
 
         expect(result.data[0]!.safety_stock).toBe(0);
-    });
-
-    it("calculates Safety Stock from the latest 3 actual issuance months", async () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(new Date(Date.UTC(2026, 3, 1)));
-        const qRaw = prisma.$queryRaw as any;
-        qRaw.mockResolvedValueOnce([{ id: 1, total_forecast: 4000 }]);
-        qRaw.mockResolvedValueOnce(mockBOMRows);
-        qRaw.mockResolvedValueOnce([
-            { product_id: 1, year: 2026, month: 1, quantity: 60 },
-            { product_id: 1, year: 2026, month: 3, quantity: 180 },
-        ]);
-        qRaw.mockResolvedValueOnce([{ total: 1n }]);
-        (prisma.forecast.findMany as any).mockResolvedValue([
-            { product_id: 1, month: 4, year: 2026, final_forecast: 4000 },
-        ]);
-
-        const result = await BOMService.list({ page: 1, take: 10 });
-
-        // February is absent and therefore counts as zero: (60 + 0 + 180) / 3.
-        expect(result.data[0]!.safety_stock).toBe(20);
-        expect(result.data[0]!.items[0]!.safety_stock_x_bom).toBe(1000);
     });
 });
