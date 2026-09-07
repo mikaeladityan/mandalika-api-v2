@@ -70,6 +70,17 @@ export type ForecastBatchRow = {
 export type DistField = "distribution_percentage" | "reference_distribution_percentage";
 
 export class ForecastService {
+    static calculateSafetyStock(averageActualIssuance: number, safetyPercentage: number) {
+        const horizon = 3;
+        const average = Math.max(0, averageActualIssuance);
+        return {
+            horizon,
+            average,
+            total: average * horizon,
+            quantity: average * Math.max(0, safetyPercentage),
+        };
+    }
+
     static calculateInventoryTurnoverRM(stock: number, demand: number) {
         const safeStock = Math.max(0, stock);
         const safeDemand = Math.max(0, demand);
@@ -1204,49 +1215,29 @@ export class ForecastService {
             }
         }
 
-        // 6. Safety Stock Calculation (Rolling 4-Month Forecast Average)
+        // 6. Safety Stock = average actual issuance M-3..M-1 x safety percentage.
         const safetyStockBatch: any[] = [];
-
-        // Group forecasts by product for faster sliding window calculation
-        const productForecasts = new Map<number, typeof batch>();
-        for (const b of batch) {
-            if (!productForecasts.has(b.product_id)) productForecasts.set(b.product_id, []);
-            productForecasts.get(b.product_id)!.push(b);
+        const nowIso = new Date().toISOString();
+        const forecastsByProduct = new Map<number, ForecastBatchRow[]>();
+        for (const forecast of batch) {
+            const productForecasts = forecastsByProduct.get(forecast.product_id) ?? [];
+            productForecasts.push(forecast);
+            forecastsByProduct.set(forecast.product_id, productForecasts);
         }
 
-        const windowSize = 4;
-        const nowIso = new Date().toISOString();
-
         for (const p of products) {
-            const pBatch = productForecasts.get(p.id) || [];
-            if (pBatch.length < windowSize) continue;
-
-            const safetyPct = Number(p.safety_percentage ?? 0);
-
-            // Initial window sum
-            let currentSum = 0;
-            for (let j = 0; j < windowSize; j++) {
-                currentSum += pBatch[j]!.final_forecast;
-            }
-
-            // Slide the window
-            for (let i = 0; i <= pBatch.length - windowSize; i++) {
-                if (i > 0) {
-                    currentSum =
-                        currentSum -
-                        pBatch[i - 1]!.final_forecast +
-                        pBatch[i + windowSize - 1]!.final_forecast;
-                }
-
-                const avg = currentSum / windowSize;
+            const safetyPct = Number(p.safety_percentage ?? 0) || (body.is_others ? 0.25 : 0);
+            const actualAverage = inputMap.get(p.id) ?? 0;
+            const safety = ForecastService.calculateSafetyStock(actualAverage, safetyPct);
+            for (const forecast of forecastsByProduct.get(p.id) ?? []) {
                 safetyStockBatch.push({
                     product_id: p.id,
-                    month: pBatch[i]!.month,
-                    year: pBatch[i]!.year,
-                    horizon: windowSize,
-                    avg_forecast: avg,
-                    total_forecast: currentSum,
-                    safety_stock_quantity: avg * safetyPct,
+                    month: forecast.month,
+                    year: forecast.year,
+                    horizon: safety.horizon,
+                    avg_forecast: safety.average,
+                    total_forecast: safety.total,
+                    safety_stock_quantity: safety.quantity,
                     safety_stock_ratio: safetyPct,
                 });
             }
@@ -1415,8 +1406,7 @@ export class ForecastService {
                 });
             }
 
-            // Recalculate Safety Stock for this month
-            const windowSize = 4;
+            // Recalculate Safety Stock from actual issuance M-3..M-1.
             const safetyPct =
                 product.safety_percentage && Number(product.safety_percentage) > 0
                     ? Number(product.safety_percentage)
@@ -1424,7 +1414,11 @@ export class ForecastService {
                       ? 0.25
                       : 0;
 
-            const avg = resolvedFinal; // Simplified for single update; usually requires window lookup but Display is manual-first
+            const actualAverage = await ForecastService.loadBaseSalesInput([product_id], month, year);
+            const safety = ForecastService.calculateSafetyStock(
+                actualAverage.get(product_id) ?? 0,
+                safetyPct,
+            );
 
             await prisma.safetyStock.upsert({
                 where: { product_id_month_year: { product_id, month, year } },
@@ -1432,16 +1426,17 @@ export class ForecastService {
                     product_id,
                     month,
                     year,
-                    horizon: windowSize,
-                    avg_forecast: avg,
-                    total_forecast: avg * windowSize,
-                    safety_stock_quantity: avg * safetyPct,
+                    horizon: safety.horizon,
+                    avg_forecast: safety.average,
+                    total_forecast: safety.total,
+                    safety_stock_quantity: safety.quantity,
                     safety_stock_ratio: safetyPct,
                 },
                 update: {
-                    avg_forecast: avg,
-                    total_forecast: avg * windowSize,
-                    safety_stock_quantity: avg * safetyPct,
+                    horizon: safety.horizon,
+                    avg_forecast: safety.average,
+                    total_forecast: safety.total,
+                    safety_stock_quantity: safety.quantity,
                     safety_stock_ratio: safetyPct,
                 },
             });
@@ -1501,6 +1496,18 @@ export class ForecastService {
                 })
                 .filter((f): f is Exclude<typeof f, null> => f !== null);
 
+            const actualAverage = await ForecastService.loadBaseSalesInput(
+                [product_id],
+                month,
+                year,
+            );
+            const safety = ForecastService.calculateSafetyStock(
+                actualAverage.get(product_id) ?? 0,
+                product.safety_percentage && Number(product.safety_percentage) > 0
+                    ? Number(product.safety_percentage)
+                    : 0.25,
+            );
+
             await prisma.$transaction(
                 async (tx) => {
                     const valuesSql = forecastBatch
@@ -1529,28 +1536,20 @@ export class ForecastService {
                         updated_at = EXCLUDED.updated_at;
                 `);
 
-                    const windowSize = 4;
                     const safetyStockBatch: any[] = [];
-                    const safetyPct =
-                        product.safety_percentage && Number(product.safety_percentage) > 0
-                            ? Number(product.safety_percentage)
-                            : isOthersProduct
-                              ? 0.25
-                              : 0;
-
                     for (const f of forecastBatch) {
-                        const mFinal = f.final_forecast;
-                        const avg = mFinal;
-                        const totalDemand = mFinal * windowSize;
                         safetyStockBatch.push({
                             product_id,
                             month: f.month,
                             year: f.year,
-                            horizon: windowSize,
-                            avg_forecast: avg,
-                            total_forecast: totalDemand,
-                            safety_stock_quantity: avg * safetyPct,
-                            safety_stock_ratio: safetyPct,
+                            horizon: safety.horizon,
+                            avg_forecast: safety.average,
+                            total_forecast: safety.total,
+                            safety_stock_quantity: safety.quantity,
+                            safety_stock_ratio:
+                                product.safety_percentage && Number(product.safety_percentage) > 0
+                                    ? Number(product.safety_percentage)
+                                    : 0.25,
                         });
                     }
 
@@ -2082,13 +2081,12 @@ export class ForecastService {
                     ? JSON.parse(p.safety_stock_data)
                     : p.safety_stock_data;
 
-            const FIXED_SS_MONTHS = 4;
             let safety_stock_summary = null;
-
-            // Safety Stock always uses fixed 4-month average (M+0..M+3), independent of horizon
-            const ssMonths = monthly_data.slice(0, FIXED_SS_MONTHS);
-            const total = ssMonths.reduce((acc, m) => acc + (m.final_forecast ?? 0), 0);
-            const avg = total / FIXED_SS_MONTHS;
+            const actualTotal = historical_sales.reduce((total, sale) => total + sale.quantity, 0);
+            const avgActual = actualTotal / AVG_MONTHS;
+            const totalForecast = monthly_data
+                .slice(0, 4)
+                .reduce((total, forecast) => total + (forecast.gross_forecast ?? 0), 0);
 
             // If safety_percentage is missing and it's an "others" product, use 25% (0.25)
             const ratio =
@@ -2098,14 +2096,14 @@ export class ForecastService {
                       ? 0.25
                       : 0;
 
-            const safetyQ = avg * ratio;
+            const safetyQ = avgActual * ratio;
 
             safety_stock_summary = {
                 safety_stock_quantity: safetyQ,
                 safety_stock_ratio: Number((ratio * 100).toFixed(2)),
-                avg_forecast: avg,
-                total_forecast: total,
-                total_demand: total + safetyQ,
+                avg_forecast: avgActual,
+                total_forecast: totalForecast,
+                total_demand: totalForecast + safetyQ,
                 last_updated: ss?.created_at ? new Date(ss.created_at) : null,
             };
 
