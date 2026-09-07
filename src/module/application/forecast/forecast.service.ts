@@ -1136,7 +1136,8 @@ export class ForecastService {
                   AND (pi.year * 12 + pi.month) <= ${start_year * 12 + start_month}
                   AND w.type = 'FINISH_GOODS'
                   AND w.deleted_at IS NULL
-                ORDER BY pi.product_id, pi.warehouse_id, pi.year DESC, pi.month DESC
+                ORDER BY pi.product_id, pi.warehouse_id,
+                    pi.year DESC, pi.month DESC, pi.date DESC, pi.updated_at DESC, pi.id DESC
             ) latest
             GROUP BY latest.product_id
         `);
@@ -1813,7 +1814,7 @@ export class ForecastService {
                         WHERE pi.product_id = p.id
                           AND pi.warehouse_id = w.id
                           AND (pi.year * 12 + pi.month) <= ${startYear * 12 + startMonth}
-                        ORDER BY pi.year DESC, pi.month DESC
+                        ORDER BY pi.year DESC, pi.month DESC, pi.date DESC, pi.updated_at DESC, pi.id DESC
                         LIMIT 1
                     ) stk ON true
                     WHERE w.type = 'FINISH_GOODS' AND w.deleted_at IS NULL
@@ -1838,7 +1839,8 @@ export class ForecastService {
                     WHERE (pi.year * 12 + pi.month) <= ${startYear * 12 + startMonth}
                       AND w.type = 'FINISH_GOODS'
                       AND w.deleted_at IS NULL
-                    ORDER BY pi.product_id, pi.warehouse_id, pi.year DESC, pi.month DESC
+                    ORDER BY pi.product_id, pi.warehouse_id,
+                        pi.year DESC, pi.month DESC, pi.date DESC, pi.updated_at DESC, pi.id DESC
                 ) latest
                 GROUP BY latest.product_id
             ) pi ON p.id = pi.product_id

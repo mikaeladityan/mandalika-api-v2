@@ -191,4 +191,19 @@ describe("ForecastService.applyOpeningStockToForecastBatch", () => {
 
         expect(result.map((row) => row.net_forecast)).toEqual([0, 0, 100]);
     });
+
+    it("membawa surplus stok Atomizer M1 ke M2", () => {
+        const rows = [
+            { product_id: 1, month: 9, year: 2026, base_forecast: 7203, final_forecast: 7203, trend: "DOWN", forecast_percentage_id: 1, status: "ADJUSTED" },
+            { product_id: 1, month: 10, year: 2026, base_forecast: 7419.09, final_forecast: 7419.09, trend: "UP", forecast_percentage_id: 2, status: "DRAFT" },
+        ] as const;
+
+        const result = ForecastService.applyOpeningStockToForecastBatch(
+            rows.map((row) => ({ ...row })),
+            new Map([[1, 8649]]),
+        );
+
+        expect(result[0]!.net_forecast).toBe(0);
+        expect(result[1]!.net_forecast).toBeCloseTo(5973.09, 5);
+    });
 });
