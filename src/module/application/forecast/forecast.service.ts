@@ -773,10 +773,7 @@ export class ForecastService {
                             slug === "perfume" ||
                             slug === "hampers-parfum");
 
-                    if (slug === "atomizer") {
-                        base_forecast = atomBase;
-                        final_forecast = atomFinal;
-                    } else if (isExtParfumAnchor) {
+                    if (isExtParfumAnchor) {
                         base_forecast = input * (1 + pctValue);
                         final_forecast = atomFinal * distPct;
                     } else if (isVial2ml) {

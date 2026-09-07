@@ -112,6 +112,51 @@ describe("ForecastService.computeForecastBatch", () => {
         expect(m1.status).toBe("ADJUSTED");
         expect(m2.status).toBe("DRAFT");
     });
+
+    it("forecast Atomizer memakai actual issuance sendiri", () => {
+        const atomizerPctMap = new Map([
+            ["2026-1", { id: 1, value: "-0.05" }],
+            ["2026-2", { id: 2, value: "0.03" }],
+        ]);
+        const products: any[] = [
+            {
+                id: 1,
+                name: "GORGEOUS TUBEROSE EXT 110ML",
+                product_type: { slug: "ext" },
+                size: { size: 110 },
+                distribution_percentage: "0.6",
+                reference_distribution_percentage: "0.6",
+                safety_percentage: "1",
+            },
+            {
+                id: 2,
+                name: "GORGEOUS TUBEROSE",
+                product_type: { slug: "atomizer" },
+                size: { size: 10 },
+                distribution_percentage: "0",
+                reference_distribution_percentage: "0",
+                safety_percentage: "1.25",
+            },
+        ];
+        const rows = ForecastService.computeForecastBatch({
+            products,
+            monthsRange: months2,
+            pctMap: atomizerPctMap,
+            inputMap: new Map([
+                [1, 4_000],
+                [2, 7_500],
+            ]),
+            is_others: false,
+            distField: "distribution_percentage",
+        });
+
+        const atomizerM1 = rows.find((row) => row.product_id === 2 && row.month === 1)!;
+        const atomizerM2 = rows.find((row) => row.product_id === 2 && row.month === 2)!;
+        expect(atomizerM1.base_forecast).toBeCloseTo(7_125, 5);
+        expect(atomizerM1.final_forecast).toBeCloseTo(7_125, 5);
+        expect(atomizerM2.base_forecast).toBeCloseTo(7_338.75, 5);
+        expect(atomizerM2.final_forecast).toBeCloseTo(7_338.75, 5);
+    });
 });
 
 describe("ForecastService.applyOpeningStockToForecastBatch", () => {
