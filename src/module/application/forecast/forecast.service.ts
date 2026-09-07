@@ -941,6 +941,7 @@ export class ForecastService {
             { uiId: "safety-stock", header: "SAFETY STOCK", value: (item) => Math.round(Number(item.safety_stock_summary?.safety_stock_quantity ?? 0)) },
             { uiId: "current_stock", header: "STOCK", value: (item) => Math.round(item.current_stock) },
             ...(isPure ? [] : [{ uiId: "need_produce", header: "NEED PRODUCE", value: (item: ResponseForecastDTO) => Math.round(item.need_produce) }]),
+            { uiId: "status", header: "STATUS", value: (item) => item.product_status === "PENDING" ? "DISCONTINUE" : "ACTIVE" },
         ];
 
         let orderedColDefs = [...allColDefs];
@@ -956,10 +957,12 @@ export class ForecastService {
             });
         }
 
-        const visibleColDefs = orderedColDefs.filter((col) => isVisible(col.uiId));
+        const visibleColDefs = orderedColDefs.filter((col) => col.uiId === "status" || isVisible(col.uiId));
 
         const headers = visibleColDefs.map((col) => col.header);
-        const rows = data.map((item) => visibleColDefs.map((col) => esc(col.value(item))).join(","));
+        const rows = [...data]
+            .sort((a, b) => Number(a.product_status === "PENDING") - Number(b.product_status === "PENDING"))
+            .map((item) => visibleColDefs.map((col) => esc(col.value(item))).join(","));
 
         const csv = [headers.map(esc).join(","), ...rows].join("\n");
         return Buffer.from("\uFEFF" + csv, "utf-8"); // BOM for Excel UTF-8 compatibility
