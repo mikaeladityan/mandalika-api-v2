@@ -708,9 +708,14 @@ export class ForecastService {
                         (size === 100 || size === 110 || size === 120)
                     );
                 });
+                const atomizer = group.find(
+                    (p) => p.product_type?.slug?.toLowerCase() === "atomizer",
+                );
 
                 let atomBase = 0;
-                if (i === 0) {
+                if (atomizer) {
+                    atomBase = currentInputMap.get(atomizer.id) ?? 0;
+                } else if (i === 0) {
                     atomBase =
                         extAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0) +
                         parfumAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0);
