@@ -19,15 +19,15 @@ export class BOMService {
         const currentYear = now.getUTCFullYear();
         const currentMonth = now.getUTCMonth() + 1;
 
-        // Sales: Last 4 months (excluding current month)
+        // Sales history remains 4 months for display; Safety Stock uses the latest 3.
         const salesRange = Array.from({ length: 4 }, (_, i) => {
             const d = new Date(Date.UTC(currentYear, currentMonth - 2 - i, 1));
             return { month: d.getUTCMonth() + 1, year: d.getUTCFullYear() };
         }).reverse();
 
-        // Forecast: Next n months starting from now (ensure at least 4 for Safety Stock)
-        const FIXED_SS_MONTHS = 4;
-        const effectiveForecastMonths = Math.max(forecast_months, FIXED_SS_MONTHS);
+        // Forecast: Next n months starting from now (ensure at least 4 for display parity)
+        const FIXED_FORECAST_MONTHS = 4;
+        const effectiveForecastMonths = Math.max(forecast_months, FIXED_FORECAST_MONTHS);
         const forecastRange = Array.from({ length: effectiveForecastMonths }, (_, i) => {
             const d = new Date(Date.UTC(currentYear, currentMonth - 1 + i, 1));
             return { month: d.getUTCMonth() + 1, year: d.getUTCFullYear() };
@@ -188,11 +188,9 @@ export class BOMService {
                     value: salesMap.get(`${r.p_id}-${s.year}-${s.month}`) ?? 0,
                 }));
 
-                // Safety Stock: Always use fixed 4-month average (M+0..M+3), independent of forecast_months
-                const FIXED_SS_MONTHS = 4;
-                const ssForecasts = fscRange.slice(0, FIXED_SS_MONTHS);
-                const totalForecastForSS = ssForecasts.reduce((acc, f) => acc + f.value, 0);
-                const avgForecastForSS = totalForecastForSS / FIXED_SS_MONTHS;
+                const avgActualForSS = slsRange
+                    .slice(-3)
+                    .reduce((total, sale) => total + sale.value, 0) / 3;
                 
                 const isOthers = r.pt_slug && (
                     r.pt_slug.includes("display") || 
@@ -208,7 +206,7 @@ export class BOMService {
                     ? Number(r.p_safety_percentage)
                     : (isOthers ? 0.25 : 0);
 
-                const calculatedSS = avgForecastForSS * safetyPct;
+                const calculatedSS = avgActualForSS * safetyPct;
 
                 // Forecast sudah berupa kebutuhan produksi bersih setelah stok FG.
                 const needProduceRange = fscRange.map((f) => {
@@ -352,9 +350,9 @@ export class BOMService {
             const bookedQty = Number(booked._sum.quantity_planned || 0);
             const currentStock = Math.max(0, onHand - bookedQty);
 
-            // Forecast Range (Next n months, ensure at least 4 for Safety Stock)
-            const FIXED_SS_MONTHS_DETAIL = 4;
-            const effectiveFcMonths = Math.max(forecast_months, FIXED_SS_MONTHS_DETAIL);
+            // Forecast Range (Next n months, ensure at least 4 for display parity)
+            const FIXED_FORECAST_MONTHS_DETAIL = 4;
+            const effectiveFcMonths = Math.max(forecast_months, FIXED_FORECAST_MONTHS_DETAIL);
             const forecastRange = Array.from({ length: effectiveFcMonths }, (_, i) => {
                 const d = new Date(Date.UTC(currentYear, currentMonth - 1 + i, 1));
                 return {
@@ -447,16 +445,10 @@ export class BOMService {
                     monthly_data[p.key] = req;
                     productTotal += req;
                 });
-                const FIXED_SS_MONTHS = 4;
-                // Safety Stock: Always use fixed 4-month average, independent of forecast_months
-                const ssProductForecasts = productForecasts
-                    .sort((a, b) => (a.year * 12 + a.month) - (b.year * 12 + b.month))
-                    .slice(0, FIXED_SS_MONTHS);
-                const totalProductForecast = ssProductForecasts.reduce(
-                    (sum, f) => sum + Number(f.final_forecast),
+                const avgActualIssuance = salesRange.slice(-3).reduce(
+                    (sum, sale) => sum + (salesMap.get(`${r.product_id}-${sale.year}-${sale.month}`) ?? 0),
                     0,
-                );
-                const avgProductForecast = totalProductForecast / FIXED_SS_MONTHS;
+                ) / 3;
                 
                 const ptSlug = r.products.product_type?.slug?.toLowerCase() || "";
                 const isOthers = ptSlug.includes("display") || 
@@ -472,7 +464,7 @@ export class BOMService {
                     ? Number(r.products.safety_percentage)
                     : (isOthers ? 0.25 : 0);
 
-                const productSS = Math.round(avgProductForecast * safetyPct);
+                const productSS = Math.round(avgActualIssuance * safetyPct);
 
                 // Forecast sudah berupa kebutuhan produksi bersih setelah stok FG.
                 const productNeedProduce = forecastRange.map((p) => {

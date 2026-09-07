@@ -229,3 +229,14 @@ describe("ForecastService.applyOpeningStockToForecastBatch", () => {
         expect(result[1]!.net_forecast).toBeCloseTo(5973.09, 5);
     });
 });
+
+describe("ForecastService.calculateSafetyStock", () => {
+    it("uses the 3-month actual issuance average instead of forecast", () => {
+        expect(ForecastService.calculateSafetyStock(120, 0.25)).toEqual({
+            horizon: 3,
+            average: 120,
+            total: 360,
+            quantity: 30,
+        });
+    });
+});

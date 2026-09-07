@@ -145,13 +145,9 @@ export class RecomendationV2Service {
         const fcStart = fcStartY * 12 + fcStartM;
         const fcEnd = fcEndY * 12 + fcEndM;
 
-        // Fixed 4-month range for Safety Stock (M+0..M+3), independent of horizon
-        const FIXED_SS_MONTHS = 4;
-        let ssEndM = currentMonth + FIXED_SS_MONTHS - 1;
-        let ssEndY = currentYear;
-        while (ssEndM > 12) { ssEndM -= 12; ssEndY += 1; }
-        const ssStart = currentYear * 12 + currentMonth;
-        const ssEnd = ssEndY * 12 + ssEndM;
+        const SAFETY_STOCK_MONTHS = 3;
+        const ssStart = currentYear * 12 + currentMonth - SAFETY_STOCK_MONTHS;
+        const ssEnd = currentYear * 12 + currentMonth - 1;
 
         const rows = await prisma.$queryRaw<any[]>`
             WITH
@@ -198,31 +194,39 @@ export class RecomendationV2Service {
                 ),
                 prod_stats AS (
                     SELECT
-                        f.product_id,
-                        SUM(f.final_forecast) as total_forecast_horizon,
+                        p.id AS product_id,
+                        COALESCE(SUM(actual.month_qty), 0) AS total_actual_issuance,
                         CASE
                             WHEN (pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%' OR pt.slug ILIKE '%box-uk%' OR pt.slug ILIKE '%others%')
                                  AND COALESCE(p.safety_percentage, 0) = 0
                             THEN 0.25
                             ELSE COALESCE(p.safety_percentage, 0)
                         END as safety_percentage
-                    FROM "forecasts" f
-                    JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                    FROM "products" p
                     LEFT JOIN "product_types" pt ON pt.id = p.type_id
-                    WHERE (f.year * 12 + f.month) >= ${ssStart}
-                      AND (f.year * 12 + f.month) <= ${ssEnd}
+                    LEFT JOIN (
+                        SELECT product_id, year, month,
+                            COALESCE(
+                                NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                                SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
+                            ) AS month_qty
+                        FROM "product_issuances"
+                        WHERE (year * 12 + month) BETWEEN ${ssStart} AND ${ssEnd}
+                        GROUP BY product_id, year, month
+                    ) actual ON actual.product_id = p.id
+                    WHERE p.status = 'ACTIVE' AND p.deleted_at IS NULL
                       AND EXISTS (
                           SELECT 1 FROM "recipes" rec 
-                          WHERE rec.product_id = f.product_id 
+                          WHERE rec.product_id = p.id
                           AND rec.is_active = true
                           AND EXISTS (SELECT 1 FROM filtered_materials fm WHERE fm.id = rec.raw_mat_id)
                       )
-                    GROUP BY f.product_id, p.safety_percentage, pt.slug
+                    GROUP BY p.id, p.safety_percentage, pt.slug
                 ),
                 prod_dynamic_ss AS (
                     SELECT 
                         product_id,
-                        ROUND(total_forecast_horizon / ${FIXED_SS_MONTHS}::numeric * safety_percentage) as dynamic_ss_qty
+                        ROUND(total_actual_issuance / ${SAFETY_STOCK_MONTHS}::numeric * safety_percentage) as dynamic_ss_qty
                     FROM prod_stats
                 ),
                 rm_forecast_agg AS (
@@ -1549,13 +1553,9 @@ export class RecomendationV2Service {
         const fcStart = fcStartY * 12 + fcStartM;
         const fcEnd = fcEndY * 12 + fcEndM;
 
-        // Fixed 4-month range for Safety Stock, independent of horizon
-        const FIXED_SS_MONTHS = 4;
-        let bssEndM = month + FIXED_SS_MONTHS - 1;
-        let bssEndY = year;
-        while (bssEndM > 12) { bssEndM -= 12; bssEndY += 1; }
-        const bssStart = year * 12 + month;
-        const bssEnd = bssEndY * 12 + bssEndM;
+        const SAFETY_STOCK_MONTHS = 3;
+        const ssStart = year * 12 + month - SAFETY_STOCK_MONTHS;
+        const ssEnd = year * 12 + month - 1;
 
         return await prisma.$executeRaw`
             WITH
@@ -1592,21 +1592,33 @@ export class RecomendationV2Service {
                 ss_agg AS (
                     SELECT
                         rec.raw_mat_id,
-                        SUM(
-                            (
-                                (SELECT COALESCE(SUM(f2.final_forecast), 0)
-                                 FROM "forecasts" f2
-                                 WHERE f2.product_id = p.id
-                                   AND (f2.year * 12 + f2.month) >= ${bssStart}
-                                   AND (f2.year * 12 + f2.month) <= ${bssEnd}
-                                ) / ${FIXED_SS_MONTHS}::numeric * p.safety_percentage
-                            ) * rec.quantity *
-                            CASE WHEN rm2.type = 'FO' OR urm2.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
-                        )::numeric AS total
+                        SUM(FLOOR(
+                            ROUND((
+                                (SELECT COALESCE(SUM(actual.month_qty), 0)
+                                 FROM (
+                                     SELECT year, month,
+                                         COALESCE(
+                                             NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                                             SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
+                                         ) AS month_qty
+                                     FROM "product_issuances"
+                                     WHERE product_id = p.id
+                                       AND (year * 12 + month) BETWEEN ${ssStart} AND ${ssEnd}
+                                     GROUP BY year, month
+                                 ) actual
+                                ) / ${SAFETY_STOCK_MONTHS}::numeric *
+                                CASE
+                                    WHEN (pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%' OR pt.slug ILIKE '%box-uk%' OR pt.slug ILIKE '%others%')
+                                         AND COALESCE(p.safety_percentage, 0) = 0
+                                    THEN 0.25
+                                    ELSE COALESCE(p.safety_percentage, 0)
+                                END
+                            )) * rec.quantity *
+                            CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
+                        ))::numeric AS total
                     FROM "recipes" rec
-                    JOIN "raw_materials" rm2 ON rm2.id = rec.raw_mat_id
-                    LEFT JOIN "unit_raw_materials" urm2 ON urm2.id = rm2.unit_id
                     JOIN "products" p ON p.id = rec.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                    LEFT JOIN "product_types" pt ON pt.id = p.type_id
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE rec.is_active = true
                     GROUP BY rec.raw_mat_id
