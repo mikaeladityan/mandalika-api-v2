@@ -113,7 +113,7 @@ describe("ForecastService.computeForecastBatch", () => {
         expect(m2.status).toBe("DRAFT");
     });
 
-    it("forecast Atomizer memakai actual issuance sendiri", () => {
+    it("membagi gross Forecast Atomizer ke EXT dan Parfum sesuai EDAR", () => {
         const atomizerPctMap = new Map([
             ["2026-1", { id: 1, value: "-0.05" }],
             ["2026-2", { id: 2, value: "0.03" }],
@@ -121,11 +121,20 @@ describe("ForecastService.computeForecastBatch", () => {
         const products: any[] = [
             {
                 id: 1,
-                name: "GORGEOUS TUBEROSE EXT 110ML",
+                name: "GORGEOUS TUBEROSE",
                 product_type: { slug: "ext" },
                 size: { size: 110 },
                 distribution_percentage: "0.6",
                 reference_distribution_percentage: "0.6",
+                safety_percentage: "1",
+            },
+            {
+                id: 3,
+                name: "GORGEOUS TUBEROSE",
+                product_type: { slug: "parfum" },
+                size: { size: 110 },
+                distribution_percentage: "0.4",
+                reference_distribution_percentage: "0.4",
                 safety_percentage: "1",
             },
             {
@@ -145,6 +154,7 @@ describe("ForecastService.computeForecastBatch", () => {
             inputMap: new Map([
                 [1, 4_000],
                 [2, 7_500],
+                [3, 3_000],
             ]),
             is_others: false,
             distField: "distribution_percentage",
@@ -152,10 +162,22 @@ describe("ForecastService.computeForecastBatch", () => {
 
         const atomizerM1 = rows.find((row) => row.product_id === 2 && row.month === 1)!;
         const atomizerM2 = rows.find((row) => row.product_id === 2 && row.month === 2)!;
+        const extM1 = rows.find((row) => row.product_id === 1 && row.month === 1)!;
+        const parfumM1 = rows.find((row) => row.product_id === 3 && row.month === 1)!;
+        const extM2 = rows.find((row) => row.product_id === 1 && row.month === 2)!;
+        const parfumM2 = rows.find((row) => row.product_id === 3 && row.month === 2)!;
         expect(atomizerM1.base_forecast).toBeCloseTo(7_125, 5);
         expect(atomizerM1.final_forecast).toBeCloseTo(7_125, 5);
+        expect(extM1.final_forecast).toBeCloseTo(4_275, 5);
+        expect(parfumM1.final_forecast).toBeCloseTo(2_850, 5);
         expect(atomizerM2.base_forecast).toBeCloseTo(7_338.75, 5);
         expect(atomizerM2.final_forecast).toBeCloseTo(7_338.75, 5);
+        expect(extM2.final_forecast).toBeCloseTo(4_403.25, 5);
+        expect(parfumM2.final_forecast).toBeCloseTo(2_935.5, 5);
+        expect(extM1.final_forecast + parfumM1.final_forecast).toBeCloseTo(
+            atomizerM1.final_forecast,
+            5,
+        );
     });
 });
 
