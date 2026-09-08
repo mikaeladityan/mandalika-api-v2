@@ -44,7 +44,7 @@ describe("BOMService", () => {
         // Mock findMany for sales, forecast, and safety stock
         (prisma.productIssuance.findMany as any).mockResolvedValue([]);
         (prisma.forecast.findMany as any).mockResolvedValue([
-            { product_id: 1, month: 4, year: 2026, final_forecast: 100 }
+            { product_id: 1, month: 4, year: 2026, final_forecast: 100, net_forecast: 40 }
         ]);
         (prisma.safetyStock.findMany as any).mockResolvedValue([
             { product_id: 1, month: 3, year: 2026, safety_stock_quantity: 50 }
@@ -57,9 +57,9 @@ describe("BOMService", () => {
         expect(result.data[0]!.product.name).toBe("Test Product");
         expect(result.data[0]!.items).toHaveLength(1);
         
-        // FO Logic check: 100 forecast * 100 size * 0.5 qty = 5000
+        // Operational BOM uses net forecast: 40 * 100 size * 0.5 qty = 2000.
         const needsBuyValue = result.data[0]!.items[0]!.needs_to_buy.find((n: any) => n.month === 4)?.value;
-        expect(needsBuyValue).toBe(5000);
+        expect(needsBuyValue).toBe(2000);
 
         expect(result.len).toBe(1);
     });
@@ -78,6 +78,22 @@ describe("BOMService", () => {
         const result = await BOMService.list({ page: 1, take: 10 });
 
         expect(result.data[0]!.safety_stock).toBe(0);
+    });
+
+    it("falls back to gross forecast when net forecast is null", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(Date.UTC(2026, 3, 1)));
+        const qRaw = prisma.$queryRaw as any;
+        qRaw.mockResolvedValueOnce([{ id: 1, total_forecast: 100 }]);
+        qRaw.mockResolvedValueOnce(mockBOMRows);
+        qRaw.mockResolvedValueOnce([]);
+        qRaw.mockResolvedValueOnce([{ total: 1n }]);
+        (prisma.forecast.findMany as any).mockResolvedValue([
+            { product_id: 1, month: 4, year: 2026, final_forecast: 100, net_forecast: null },
+        ]);
+
+        const result = await BOMService.list({ page: 1, take: 10 });
+        expect(result.data[0]!.items[0]!.needs_to_buy[0]!.value).toBe(5000);
     });
 
     it("calculates Safety Stock from the latest 3 actual issuance months", async () => {

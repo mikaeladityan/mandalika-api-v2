@@ -108,6 +108,12 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(target).toBeDefined();
             expect(target?.override_needs).toBe(1500);
             expect(target?.quantity).toBe(1000);
+            const sqlSource = (prisma.$queryRaw as any).mock.calls
+                .map(([sql]: [any]) =>
+                    (Array.isArray(sql) ? sql : sql.strings ?? []).join(" "),
+                )
+                .join(" ");
+            expect(sqlSource).toContain("COALESCE(f.net_forecast, f.final_forecast)");
         });
     });
 

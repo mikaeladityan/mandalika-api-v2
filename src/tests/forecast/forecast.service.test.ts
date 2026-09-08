@@ -337,11 +337,30 @@ describe("ForecastService", () => {
 
             await ForecastService.inventoryTurnover({ month: 9, year: 2026, page: 1, take: 50 });
 
-            const sql = (prisma.$queryRaw as any).mock.calls[0]?.[0] as { strings?: readonly string[] };
-            const source = sql.strings?.join(" ");
+            const sql = (prisma.$queryRaw as any).mock.calls[0]?.[0] as any;
+            const source = (Array.isArray(sql) ? sql : sql.strings ?? []).join(" ");
             expect(source).toContain("snapshot.period::integer");
             expect(source).toContain("usage_period.period::integer");
             expect(source).toContain("::integer)");
+        });
+    });
+
+    describe("loadOpeningFinishedGoodsStock", () => {
+        it("uses the latest non-deleted FG warehouse snapshot at or before M1", async () => {
+            (prisma.$queryRaw as any).mockResolvedValueOnce([
+                { product_id: 1, quantity: 250 },
+                { product_id: 2, quantity: -10 },
+            ]);
+
+            const stock = await ForecastService.loadOpeningFinishedGoodsStock([1, 2], 9, 2026);
+            const sql = (prisma.$queryRaw as any).mock.calls[0]?.[0] as { strings?: readonly string[] };
+            const source = sql.strings?.join(" ");
+
+            expect(stock).toEqual(new Map([[1, 250], [2, 0]]));
+            expect(source).toContain("DISTINCT ON (pi.product_id, pi.warehouse_id)");
+            expect(source).toContain("w.type = 'FINISH_GOODS'");
+            expect(source).toContain("w.deleted_at IS NULL");
+            expect(source).toContain("pi.date DESC, pi.updated_at DESC, pi.id DESC");
         });
     });
 
@@ -390,6 +409,11 @@ describe("ForecastService", () => {
                 stock: 250,
             });
             expect(wh[1]!.stock).toBe(0);
+
+            const sql = (prisma.$queryRaw as any).mock.calls[0]?.[0] as any;
+            const source = (Array.isArray(sql) ? sql : sql.strings ?? []).join(" ");
+            expect(source).toContain("'final_forecast', COALESCE(f.net_forecast, f.final_forecast)");
+            expect(source).toContain("'gross_forecast', f.final_forecast");
         });
 
         it("should default stock_by_warehouse to [] when raw is null", async () => {
