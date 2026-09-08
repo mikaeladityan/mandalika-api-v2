@@ -592,24 +592,6 @@ export class ForecastService {
         return Math.max(0, grossForecast - currentStock);
     }
 
-    static applyOpeningStockToForecastBatch(
-        batch: ForecastBatchRow[],
-        openingStockByProduct: Map<number, number>,
-    ): ForecastBatchRow[] {
-        const remainingStock = new Map(openingStockByProduct);
-
-        return [...batch]
-            .sort((a, b) => a.year * 12 + a.month - (b.year * 12 + b.month))
-            .map((row) => {
-                const stock = remainingStock.get(row.product_id) ?? 0;
-                const grossForecast = Math.max(0, row.final_forecast);
-                const consumedStock = Math.min(stock, grossForecast);
-                remainingStock.set(row.product_id, stock - consumedStock);
-
-                return { ...row, net_forecast: grossForecast - consumedStock };
-            });
-    }
-
     static async loadBaseSalesInput(
         productIds: number[],
         start_month: number,
@@ -1166,33 +1148,9 @@ export class ForecastService {
             distField: "distribution_percentage",
         });
 
-        const inventoryRows = await prisma.$queryRaw<
-            Array<{ product_id: number; quantity: Prisma.Decimal | number }>
-        >(Prisma.sql`
-            SELECT latest.product_id, SUM(latest.quantity) AS quantity
-            FROM (
-                SELECT DISTINCT ON (pi.product_id, pi.warehouse_id)
-                    pi.product_id,
-                    pi.warehouse_id,
-                    pi.quantity
-                FROM product_inventories pi
-                JOIN warehouses w ON w.id = pi.warehouse_id
-                WHERE pi.product_id IN (${Prisma.join(products.map((p) => p.id))})
-                  AND (pi.year * 12 + pi.month) <= ${start_year * 12 + start_month}
-                  AND w.type = 'FINISH_GOODS'
-                  AND w.deleted_at IS NULL
-                ORDER BY pi.product_id, pi.warehouse_id,
-                    pi.year DESC, pi.month DESC, pi.date DESC, pi.updated_at DESC, pi.id DESC
-            ) latest
-            GROUP BY latest.product_id
-        `);
-        const openingStockByProduct = new Map(
-            inventoryRows.map((row) => [row.product_id, Number(row.quantity ?? 0)]),
-        );
-        const batch = ForecastService.applyOpeningStockToForecastBatch(
-            grossBatch,
-            openingStockByProduct,
-        );
+        // Pure Forecast: nilai M1..Mn murni hasil engine, tanpa netting stok FG.
+        // Pengurangan stok hanya dilakukan di Need Produce (lihat ForecastService.get).
+        const batch = grossBatch.map((row) => ({ ...row, net_forecast: row.final_forecast }));
 
         // 5. Batch Save using Raw SQL Bulk Upsert (Optimization for large datasets)
         if (batch.length > 0) {
@@ -2136,7 +2094,7 @@ export class ForecastService {
                 last_updated: ss?.created_at ? new Date(ss.created_at) : null,
             };
 
-            // final_forecast sudah menjadi kebutuhan produksi bersih setelah stok FG.
+            // Forecast bersifat pure; stok FG hanya dipakai di sini untuk Need Produce.
             const m1MonthData = monthly_data.find(
                 (m) => m.month === startMonth && m.year === startYear,
             );
