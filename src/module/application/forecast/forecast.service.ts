@@ -72,14 +72,20 @@ export type DistField = "distribution_percentage" | "reference_distribution_perc
 export class ForecastService {
     /** Slug varian EXT/EDP reguler; DB memakai "edp", sebagian data lama memakai "ext". */
     private static readonly EXT_SLUGS = new Set(["ext", "edp"]);
-    /** Slug varian Parfum/Perfume reguler. */
-    private static readonly PARFUM_SLUGS = new Set(["parfum", "perfume"]);
-    /** Slug varian Hampers EXT/EDP. */
+    /** Slug varian Parfum/Perfume reguler; parfum/perfume dipertahankan sebagai alias legacy. */
+    private static readonly PARFUM_SLUGS = new Set([
+        "parfume-intense",
+        "perfume-intense",
+        "parfume",
+        "parfum",
+        "perfume",
+    ]);
+    /** Canonical Hampers EDP adalah "hampers-ext"; "hampers-edp" alias legacy. */
     private static readonly HAMPERS_EXT_SLUGS = new Set(["hampers-ext", "hampers-edp"]);
-    /** Slug varian Hampers Parfum/Perfume. */
+    /** Canonical Hampers Parfum adalah "hampers-perfume"; "hampers-parfum" alias legacy. */
     private static readonly HAMPERS_PARFUM_SLUGS = new Set([
-        "hampers-parfum",
         "hampers-perfume",
+        "hampers-parfum",
     ]);
 
     static isExtSlug(slug?: string | null) {
