@@ -1049,27 +1049,23 @@ export class ForecastService {
             { uiId: "safety_percentage", header: "% SAFETY", value: (item) => item.safety_percentage ?? 0 },
             { uiId: "safety-stock", header: "SAFETY STOCK", value: (item) => Math.round(Number(item.safety_stock_summary?.safety_stock_quantity ?? 0)) },
             { uiId: "current_stock", header: "STOCK", value: (item) => Math.round(item.current_stock) },
-            ...(isPure
-                ? []
-                : [
-                      {
-                          uiId: "need_produce",
-                          header: "NEED PRODUCE",
-                          value: (item: ResponseForecastDTO) => Math.round(item.need_produce),
-                      },
-                      {
-                          // Need Produce 0 = stok FG sudah menutup forecast M1 (kelebihan stok).
-                          uiId: "need_produce",
-                          header: "KETERANGAN PRODUKSI",
-                          value: (item: ResponseForecastDTO) => {
-                              if (Math.round(item.need_produce) > 0) return "PERLU PRODUKSI";
-                              const { surplus, durability } =
-                                  ForecastService.calculateStockSurplus(item);
-                              const sisa = `STOK CUKUP - SISA ${surplus.toLocaleString("id-ID")}`;
-                              return durability ? `${sisa} (${durability})` : sisa;
-                          },
-                      },
-                  ]),
+            {
+                uiId: "need_produce",
+                header: "NEED PRODUCE",
+                value: (item: ResponseForecastDTO) => Math.round(item.need_produce),
+            },
+            {
+                // Need Produce 0 = stok FG sudah menutup forecast M1 (kelebihan stok).
+                uiId: "need_produce",
+                header: "KETERANGAN PRODUKSI",
+                value: (item: ResponseForecastDTO) => {
+                    if (Math.round(item.need_produce) > 0) return "PERLU PRODUKSI";
+                    const { surplus, durability } =
+                        ForecastService.calculateStockSurplus(item);
+                    const sisa = `STOK CUKUP - SISA ${surplus.toLocaleString("id-ID")}`;
+                    return durability ? `${sisa} (${durability})` : sisa;
+                },
+            },
             { uiId: "status", header: "STATUS", value: (item) => item.product_status === "PENDING" ? "DISCONTINUE" : "ACTIVE" },
         ];
 
@@ -1086,7 +1082,7 @@ export class ForecastService {
             });
         }
 
-        const visibleColDefs = orderedColDefs.filter((col) => col.uiId === "status" || isVisible(col.uiId));
+        const visibleColDefs = orderedColDefs.filter((col) => col.uiId === "status" || col.uiId === "need_produce" || isVisible(col.uiId));
 
         const headers = visibleColDefs.map((col) => col.header);
         const rows = [...data]

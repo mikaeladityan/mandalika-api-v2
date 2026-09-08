@@ -489,8 +489,14 @@ describe("ForecastService", () => {
             const pureCsv = (await ForecastService.export({
                 ...exportQuery, export_mode: "pure",
             })).toString("utf-8");
-            expect(pureCsv).not.toContain("NEED PRODUCE");
-            expect(pureCsv.split("\n")[1]).toBe("100,100,100,100,ACTIVE");
+            expect(pureCsv).toContain("NEED PRODUCE");
+            expect(pureCsv.split("\n")[1]!.split(",").slice(0, 5)).toEqual(["100", "100", "100", "100", String(expected[0])]);
+            expect(pureCsv.split("\n")[1]).toContain(expected[0]! > 0 ? "PERLU PRODUKSI" : "STOK CUKUP");
+
+            const hiddenColumnsCsv = (await ForecastService.export({
+                ...exportQuery, export_mode: "pure", visibleColumns: "forecast-values",
+            })).toString("utf-8");
+            expect(hiddenColumnsCsv).toBe(pureCsv);
         });
 
         it("maps operational final, legacy gross, and Need Produce M1 without another stock deduction", async () => {
