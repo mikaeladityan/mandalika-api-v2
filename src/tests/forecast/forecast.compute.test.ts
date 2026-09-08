@@ -257,6 +257,30 @@ describe("ForecastService.computeForecastBatch", () => {
     });
 });
 
+describe("ForecastService.calculateStockSurplus", () => {
+    const item = {
+        current_stock: 8_649,
+        monthly_data: [
+            { month: 9, year: 2026, gross_forecast: 7_203 },
+            { month: 10, year: 2026, gross_forecast: 7_419 },
+        ],
+    };
+
+    it("menghitung sisa stok dan daya tahannya saat tidak perlu produksi", () => {
+        // 8.649 - 7.203 = 1.446, dan stok hanya cukup sampai September.
+        expect(ForecastService.calculateStockSurplus(item)).toEqual({
+            surplus: 1_446,
+            durability: "s/d Sep'26",
+        });
+    });
+
+    it("stok besar bertahan sampai bulan terakhir yang tercakup", () => {
+        expect(
+            ForecastService.calculateStockSurplus({ ...item, current_stock: 20_000 }).durability,
+        ).toBe("s/d Okt'26");
+    });
+});
+
 describe("ForecastService.calculateNeedProduce", () => {
     it("hanya Need Produce yang dikurangi stok, forecast tetap pure", () => {
         // Stok menutup seluruh forecast M1 -> Need Produce 0, tetapi FC tetap 7203.

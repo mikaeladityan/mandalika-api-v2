@@ -592,6 +592,35 @@ export class ForecastService {
         return Math.max(0, grossForecast - currentStock);
     }
 
+    /**
+     * Saat Need Produce 0, stok FG sudah menutup forecast M1 alias kelebihan stok.
+     * Kembalikan sisa stok setelah M1 dan sampai bulan mana stok itu bertahan.
+     */
+    static calculateStockSurplus(item: {
+        current_stock: number;
+        monthly_data: Array<{ month: number; year: number; gross_forecast: number | null }>;
+    }): { surplus: number; durability: string | null } {
+        const months = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+        const first = item.monthly_data[0];
+        const surplus = Math.round(item.current_stock - Number(first?.gross_forecast ?? 0));
+
+        let remaining = item.current_stock;
+        let lastSustained: { month: number; year: number } | null = null;
+        for (const m of item.monthly_data) {
+            const forecast = Number(m.gross_forecast ?? 0);
+            if (remaining < forecast) break;
+            remaining -= forecast;
+            lastSustained = m;
+        }
+
+        return {
+            surplus,
+            durability: lastSustained
+                ? `s/d ${months[lastSustained.month - 1]}'${String(lastSustained.year).slice(-2)}`
+                : null,
+        };
+    }
+
     static async loadBaseSalesInput(
         productIds: number[],
         start_month: number,
@@ -964,7 +993,27 @@ export class ForecastService {
             { uiId: "safety_percentage", header: "% SAFETY", value: (item) => item.safety_percentage ?? 0 },
             { uiId: "safety-stock", header: "SAFETY STOCK", value: (item) => Math.round(Number(item.safety_stock_summary?.safety_stock_quantity ?? 0)) },
             { uiId: "current_stock", header: "STOCK", value: (item) => Math.round(item.current_stock) },
-            ...(isPure ? [] : [{ uiId: "need_produce", header: "NEED PRODUCE", value: (item: ResponseForecastDTO) => Math.round(item.need_produce) }]),
+            ...(isPure
+                ? []
+                : [
+                      {
+                          uiId: "need_produce",
+                          header: "NEED PRODUCE",
+                          value: (item: ResponseForecastDTO) => Math.round(item.need_produce),
+                      },
+                      {
+                          // Need Produce 0 = stok FG sudah menutup forecast M1 (kelebihan stok).
+                          uiId: "need_produce",
+                          header: "KETERANGAN PRODUKSI",
+                          value: (item: ResponseForecastDTO) => {
+                              if (Math.round(item.need_produce) > 0) return "PERLU PRODUKSI";
+                              const { surplus, durability } =
+                                  ForecastService.calculateStockSurplus(item);
+                              const sisa = `STOK CUKUP - SISA ${surplus.toLocaleString("id-ID")}`;
+                              return durability ? `${sisa} (${durability})` : sisa;
+                          },
+                      },
+                  ]),
             { uiId: "status", header: "STATUS", value: (item) => item.product_status === "PENDING" ? "DISCONTINUE" : "ACTIVE" },
         ];
 
