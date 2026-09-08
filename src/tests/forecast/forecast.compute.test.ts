@@ -179,6 +179,82 @@ describe("ForecastService.computeForecastBatch", () => {
             5,
         );
     });
+
+    it("slug edp/hampers-edp ikut pool Atomizer dan vial menyalin induknya", () => {
+        // Data produksi memakai slug "edp", bukan "ext".
+        const products: any[] = [
+            {
+                id: 1,
+                name: "GORGEOUS TUBEROSE",
+                product_type: { slug: "atomizer" },
+                size: { size: 10 },
+                distribution_percentage: "0",
+                reference_distribution_percentage: "0",
+                safety_percentage: "1.25",
+            },
+            {
+                id: 2,
+                name: "GORGEOUS TUBEROSE",
+                product_type: { slug: "edp" },
+                size: { size: 110 },
+                distribution_percentage: "0.6",
+                reference_distribution_percentage: "0.6",
+                safety_percentage: "1",
+            },
+            {
+                id: 3,
+                name: "GORGEOUS TUBEROSE",
+                product_type: { slug: "parfum" },
+                size: { size: 110 },
+                distribution_percentage: "0.4",
+                reference_distribution_percentage: "0.4",
+                safety_percentage: "1",
+            },
+            {
+                id: 4,
+                name: "GORGEOUS TUBEROSE",
+                product_type: { slug: "edp" },
+                size: { size: 2 },
+                distribution_percentage: "0.6",
+                reference_distribution_percentage: "0.6",
+                safety_percentage: "1.25",
+            },
+            {
+                id: 5,
+                name: "GORGEOUS TUBEROSE",
+                product_type: { slug: "parfum" },
+                size: { size: 2 },
+                distribution_percentage: "0.4",
+                reference_distribution_percentage: "0.4",
+                safety_percentage: "1.25",
+            },
+        ];
+        const rows = ForecastService.computeForecastBatch({
+            products,
+            monthsRange: [months2[0]!],
+            pctMap,
+            inputMap: new Map([
+                [1, 1_000],
+                [2, 400],
+                [3, 300],
+                [4, 200],
+                [5, 100],
+            ]),
+            is_others: false,
+            distField: "distribution_percentage",
+        });
+
+        const pick = (id: number) => rows.find((row) => row.product_id === id)!;
+        // Pool Atomizer = 1.000 × 1,10 = 1.100
+        expect(pick(1).final_forecast).toBeCloseTo(1_100, 5);
+        expect(pick(2).final_forecast).toBeCloseTo(660, 5); // 1.100 × 60%
+        expect(pick(3).final_forecast).toBeCloseTo(440, 5); // 1.100 × 40%
+        // EXT + Parfum harus tepat sama dengan pool Atomizer.
+        expect(pick(2).final_forecast + pick(3).final_forecast).toBeCloseTo(1_100, 5);
+        // Vial 2ml menyalin penuh nilai induk 110ml.
+        expect(pick(4).final_forecast).toBeCloseTo(660, 5);
+        expect(pick(5).final_forecast).toBeCloseTo(440, 5);
+    });
 });
 
 describe("ForecastService.applyOpeningStockToForecastBatch", () => {
