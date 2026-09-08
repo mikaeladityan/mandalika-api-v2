@@ -456,7 +456,7 @@ export class ForecastService {
                 FROM (
                     SELECT forecast_period.period, COALESCE((
                         -- Match BOM/Recommendation: floor each recipe contribution before summing.
-                        SELECT SUM(FLOOR(COALESCE(f.net_forecast, f.final_forecast) * r.quantity *
+                        SELECT SUM(FLOOR(f.final_forecast * r.quantity *
                             CASE WHEN r.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                         ))
                         FROM recipes r
@@ -1150,7 +1150,8 @@ export class ForecastService {
 
         // Pure Forecast: nilai M1..Mn murni hasil engine, tanpa netting stok FG.
         // Pengurangan stok hanya dilakukan di Need Produce (lihat ForecastService.get).
-        const batch = grossBatch.map((row) => ({ ...row, net_forecast: row.final_forecast }));
+        // Kolom net_forecast tetap diisi = final_forecast demi kompatibilitas skema.
+        const batch = grossBatch;
 
         // 5. Batch Save using Raw SQL Bulk Upsert (Optimization for large datasets)
         if (batch.length > 0) {
@@ -1735,7 +1736,7 @@ export class ForecastService {
                             'month',          f.month,
                             'year',           f.year,
                             'base_forecast',  f.base_forecast,
-                            'final_forecast', COALESCE(f.net_forecast, f.final_forecast),
+                            'final_forecast', f.final_forecast,
                             'gross_forecast', f.final_forecast,
                             'trend',          f.trend,
                             'status',         f.status,
