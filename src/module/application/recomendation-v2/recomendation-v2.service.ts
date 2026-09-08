@@ -232,12 +232,12 @@ export class RecomendationV2Service {
                 rm_forecast_agg AS (
                     SELECT
                         fm.id AS raw_mat_id,
-                        COALESCE(SUM(FLOOR(COALESCE(f.net_forecast, f.final_forecast) * rec.quantity *
+                        COALESCE(SUM(FLOOR(f.final_forecast * rec.quantity *
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ), 0) AS total_forecast_needed,
                         COALESCE(SUM(
                             CASE WHEN f.month = ${currentMonth} AND f.year = ${currentYear}
-                            THEN FLOOR(COALESCE(f.net_forecast, f.final_forecast) * rec.quantity * CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
+                            THEN FLOOR(f.final_forecast * rec.quantity * CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                             ELSE 0 END
                         ), 0) AS m1_forecast_needed
                     FROM filtered_materials fm
@@ -423,7 +423,7 @@ export class RecomendationV2Service {
                         ), '[]'::json)
                         FROM (
                             SELECT f.month, f.year, SUM(FLOOR(
-                                COALESCE(f.net_forecast, f.final_forecast) * rec.quantity *
+                                f.final_forecast * rec.quantity *
                                 CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                             ) as total_needed
                             FROM "forecasts" f
@@ -466,7 +466,7 @@ export class RecomendationV2Service {
                     SELECT COALESCE(SUM(COALESCE(o.quantity, mr.calc_needed)), 0) AS total_needed
                     FROM (
                         SELECT f.month, f.year, SUM(FLOOR(
-                            COALESCE(f.net_forecast, f.final_forecast) * rec.quantity *
+                            f.final_forecast * rec.quantity *
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ) as calc_needed
                         FROM "recipes" rec
@@ -1204,7 +1204,7 @@ export class RecomendationV2Service {
                 ka_rec.quantity::numeric          AS ka_recipe_qty,
                 ktp_ov.override_qty::numeric      AS override_qty,
                 ktp_ov.ktp_recipe_qty::numeric    AS ktp_recipe_qty,
-                COALESCE(f.net_forecast, f.final_forecast)::numeric AS final_forecast
+                f.final_forecast::numeric AS final_forecast
             FROM recipes ka_rec
             JOIN products p
                 ON p.id = ka_rec.product_id
@@ -1577,7 +1577,7 @@ export class RecomendationV2Service {
                     GROUP BY rmi.raw_material_id
                 ),
                 fc_agg AS (
-                    SELECT rec.raw_mat_id, SUM(COALESCE(f.net_forecast, f.final_forecast) * rec.quantity *
+                    SELECT rec.raw_mat_id, SUM(f.final_forecast * rec.quantity *
                         CASE WHEN rm2.type = 'FO' OR urm2.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
                     )::numeric AS total
                     FROM "forecasts" f

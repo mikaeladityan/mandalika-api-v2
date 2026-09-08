@@ -257,52 +257,14 @@ describe("ForecastService.computeForecastBatch", () => {
     });
 });
 
-describe("ForecastService.applyOpeningStockToForecastBatch", () => {
-    it("membawa sisa stok dari M1 ke bulan berikutnya", () => {
-        const rows = [
-            { product_id: 1, month: 1, year: 2026, base_forecast: 100, final_forecast: 100, trend: "STABLE", forecast_percentage_id: 1, status: "ADJUSTED" },
-            { product_id: 1, month: 2, year: 2026, base_forecast: 100, final_forecast: 100, trend: "STABLE", forecast_percentage_id: 1, status: "DRAFT" },
-            { product_id: 1, month: 3, year: 2026, base_forecast: 100, final_forecast: 100, trend: "STABLE", forecast_percentage_id: 1, status: "DRAFT" },
-        ] as const;
-
-        const result = ForecastService.applyOpeningStockToForecastBatch(
-            rows.map((row) => ({ ...row })),
-            new Map([[1, 250]]),
-        );
-
-        expect(result.map((row) => row.final_forecast)).toEqual([100, 100, 100]);
-        expect(result.map((row) => row.net_forecast)).toEqual([0, 0, 50]);
-        expect(ForecastService.calculateNeedProduce(100, 250)).toBe(0);
-    });
-
-    it("menghabiskan sisa stok sebelum menghasilkan kebutuhan bulan berikutnya", () => {
-        const rows = [
-            { product_id: 1, month: 2, year: 2026, base_forecast: 500, final_forecast: 500, trend: "STABLE", forecast_percentage_id: 1, status: "DRAFT" },
-            { product_id: 1, month: 3, year: 2026, base_forecast: 300, final_forecast: 300, trend: "STABLE", forecast_percentage_id: 1, status: "DRAFT" },
-            { product_id: 1, month: 4, year: 2026, base_forecast: 300, final_forecast: 300, trend: "STABLE", forecast_percentage_id: 1, status: "DRAFT" },
-        ] as const;
-
-        const result = ForecastService.applyOpeningStockToForecastBatch(
-            rows.map((row) => ({ ...row })),
-            new Map([[1, 1000]]),
-        );
-
-        expect(result.map((row) => row.net_forecast)).toEqual([0, 0, 100]);
-    });
-
-    it("membawa surplus stok Atomizer M1 ke M2", () => {
-        const rows = [
-            { product_id: 1, month: 9, year: 2026, base_forecast: 7203, final_forecast: 7203, trend: "DOWN", forecast_percentage_id: 1, status: "ADJUSTED" },
-            { product_id: 1, month: 10, year: 2026, base_forecast: 7419.09, final_forecast: 7419.09, trend: "UP", forecast_percentage_id: 2, status: "DRAFT" },
-        ] as const;
-
-        const result = ForecastService.applyOpeningStockToForecastBatch(
-            rows.map((row) => ({ ...row })),
-            new Map([[1, 8649]]),
-        );
-
-        expect(result[0]!.net_forecast).toBe(0);
-        expect(result[1]!.net_forecast).toBeCloseTo(5973.09, 5);
+describe("ForecastService.calculateNeedProduce", () => {
+    it("hanya Need Produce yang dikurangi stok, forecast tetap pure", () => {
+        // Stok menutup seluruh forecast M1 -> Need Produce 0, tetapi FC tetap 7203.
+        expect(ForecastService.calculateNeedProduce(7203, 8649)).toBe(0);
+        // Stok sebagian -> sisa kebutuhan produksi.
+        expect(ForecastService.calculateNeedProduce(7203, 2249)).toBe(4954);
+        // Tanpa stok -> sama persis dengan gross forecast.
+        expect(ForecastService.calculateNeedProduce(7203, 0)).toBe(7203);
     });
 });
 

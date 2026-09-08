@@ -58,7 +58,7 @@ export class BOMService {
                 p.id,
                 -- Total Forecast (6 months sum) for grouping & sorting
                 COALESCE((
-                    SELECT SUM(COALESCE(f.net_forecast, f.final_forecast))
+                    SELECT SUM(f.final_forecast)
                     FROM forecasts f
                     WHERE f.product_id = p.id
                     AND (${forecastOrSql})
@@ -165,7 +165,7 @@ export class BOMService {
         forecastData.forEach((f) =>
             forecastMap.set(
                 `${f.product_id}-${f.year}-${f.month}`,
-                Math.round(Number(f.net_forecast ?? f.final_forecast)),
+                Math.round(Number(f.final_forecast)),
             ),
         );
 
@@ -404,7 +404,7 @@ export class BOMService {
             forecasts.forEach((f) =>
                 forecastMap.set(
                     `${f.product_id}-${f.month}-${f.year}`,
-                    Math.round(Number(f.net_forecast ?? f.final_forecast)),
+                    Math.round(Number(f.final_forecast)),
                 ),
             );
 
@@ -472,7 +472,7 @@ export class BOMService {
                         (f) => f.month === p.month && f.year === p.year,
                     );
                     const fValAtMonth = fMatch
-                        ? Math.round(Number(fMatch.net_forecast ?? fMatch.final_forecast))
+                        ? Math.round(Number(fMatch.final_forecast))
                         : 0;
                     const val = r.use_size_calc
                         ? fValAtMonth * pSize * Number(r.quantity)
