@@ -254,6 +254,21 @@ describe("ForecastAccuracyService.list", () => {
         over_count: 0,
     };
 
+    it("reads gross from legacy net_forecast with final_forecast fallback in list and aggregate", async () => {
+        (prisma.$queryRaw as ReturnType<typeof vi.fn>)
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([aggRow]);
+
+        await ForecastAccuracyService.list({
+            month: 5, year: 2026, is_others: false, tolerance: 25, page: 1, take: 25,
+        });
+
+        const sql = (prisma.$queryRaw as ReturnType<typeof vi.fn>).mock.calls
+            .map((call) => (call[0] as { strings?: readonly string[] }).strings?.join(" ") ?? "")
+            .join(" ");
+        expect(sql.match(/COALESCE\(f\.net_forecast, f\.final_forecast/g)).toHaveLength(2);
+    });
+
     it("returns per-product rows with ratio accuracy and 3-tier status", async () => {
         // First $queryRaw call = page rows, second = aggregate
         // @ts-ignore

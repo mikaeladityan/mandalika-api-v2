@@ -223,7 +223,8 @@ export class IssuanceService {
                 pt.name                          AS pt_name,
                 pt.slug                          AS pt_slug,
                 COALESCE((
-                    SELECT MAX(f.final_forecast)
+                    -- Legacy DB naming: net_forecast is gross demand, appropriate for issuance comparison.
+                    SELECT MAX(COALESCE(f.net_forecast, f.final_forecast))
                     FROM forecasts f
                     JOIN products grouped_product ON grouped_product.id = f.product_id
                     WHERE grouped_product.name = p.name

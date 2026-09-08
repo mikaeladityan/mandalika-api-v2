@@ -120,7 +120,8 @@ export class ForecastAccuracyService {
                 pt.name        AS product_type_name,
                 ps.size        AS size,
                 u.name         AS unit_name,
-                COALESCE(f.final_forecast, f.base_forecast, 0)::float8 AS forecast,
+                -- Legacy DB naming: net_forecast is gross/pure demand.
+                COALESCE(f.net_forecast, f.final_forecast, 0)::float8 AS forecast,
                 COALESCE(s.sales, 0)::float8                          AS sales,
                 p.accuracy_hidden_at,
                 COUNT(*) OVER()::int AS total_count
@@ -158,7 +159,7 @@ export class ForecastAccuracyService {
         const aggregateRows = await prisma.$queryRaw<Agg[]>(Prisma.sql`
             WITH matched AS (
                 SELECT
-                    COALESCE(f.final_forecast, f.base_forecast)::float8 AS forecast,
+                    COALESCE(f.net_forecast, f.final_forecast)::float8 AS forecast,
                     COALESCE(s.sales, 0)::float8 AS sales
                 FROM products p
                 LEFT JOIN product_types     pt ON pt.id = p.type_id
@@ -661,7 +662,7 @@ export class ForecastAccuracyService {
             matched AS (
                 SELECT
                     ms.year, ms.month,
-                    COALESCE(f.final_forecast, f.base_forecast)::float8 AS forecast,
+                    COALESCE(f.net_forecast, f.final_forecast)::float8 AS forecast,
                     COALESCE(sd.sales, 0)::float8 AS sales
                 FROM month_series ms
                 CROSS JOIN product_base pb

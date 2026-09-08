@@ -176,7 +176,7 @@ export class RecomendationV2Service {
                       )
                       ${searchFilter}
                 ),
-                -- Latest FG stock per product (dipakai buat netting Need Produce M1)
+                -- Latest FG stock per product is display metadata only; final_forecast is already netted.
                 product_stock_agg AS (
                     SELECT latest_periods.product_id, SUM(pi.quantity) as total_qty
                     FROM (
