@@ -1886,9 +1886,21 @@ export class ForecastService {
                 p.safety_percentage,
                 COALESCE(pi.quantity, 0)::float8 AS "current_stock",
 
-                -- Group Sorting Priority: Base on the max final_forecast of the group in M1
-                MAX(COALESCE(f_m1.final_forecast, 0)) OVER(PARTITION BY p.name) as group_sort_priority,
-                COALESCE(f_m1.final_forecast, 0) as m1_final_forecast,
+                -- Same-name Atomizer ACT for M1-1, independent of visible type/size/search filters.
+                COALESCE((
+                    SELECT COALESCE(
+                        NULLIF(SUM(CASE WHEN (iss.year * 12 + iss.month) > ${ISSUANCE_THRESHOLD_PERIOD} AND iss.type != 'ALL'::"IssuanceType" THEN iss.quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (iss.year * 12 + iss.month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND iss.type = 'ALL'::"IssuanceType" THEN iss.quantity ELSE 0 END)
+                    )
+                    FROM products atomizer
+                    JOIN product_types atomizer_type ON atomizer_type.id = atomizer.type_id
+                    JOIN product_issuances iss ON iss.product_id = atomizer.id
+                    WHERE atomizer.name = p.name
+                      AND atomizer.status IN ('ACTIVE', 'PENDING')
+                      AND atomizer.deleted_at IS NULL
+                      AND atomizer_type.name ILIKE '%Atomizer%'
+                      AND (iss.year * 12 + iss.month) = ${startYear * 12 + startMonth - 1}
+                ), 0) AS group_sort_priority,
 
                 (
                     SELECT COALESCE(json_agg(
@@ -1977,8 +1989,6 @@ export class ForecastService {
             LEFT JOIN "product_types"     pt ON pt.id = p.type_id
             LEFT JOIN "unit_of_materials" u  ON u.id  = p.unit_id
             LEFT JOIN "product_size"      ps ON ps.id = p.size_id
-            -- Join specific M1 forecast for sorting
-            LEFT JOIN "forecasts" f_m1 ON f_m1.product_id = p.id AND f_m1.month = ${startMonth} AND f_m1.year = ${startYear}
             -- Join Current Stock for M1 from all FINISH_GOODS Warehouses
             LEFT JOIN (
                 SELECT latest.product_id, SUM(latest.quantity) AS quantity
