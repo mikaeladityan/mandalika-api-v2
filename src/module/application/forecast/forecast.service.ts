@@ -70,6 +70,39 @@ export type ForecastBatchRow = {
 export type DistField = "distribution_percentage" | "reference_distribution_percentage";
 
 export class ForecastService {
+    /** Slug varian EXT/EDP reguler; DB memakai "edp", sebagian data lama memakai "ext". */
+    private static readonly EXT_SLUGS = new Set(["ext", "edp"]);
+    /** Slug varian Parfum/Perfume reguler. */
+    private static readonly PARFUM_SLUGS = new Set(["parfum", "perfume"]);
+    /** Slug varian Hampers EXT/EDP. */
+    private static readonly HAMPERS_EXT_SLUGS = new Set(["hampers-ext", "hampers-edp"]);
+    /** Slug varian Hampers Parfum/Perfume. */
+    private static readonly HAMPERS_PARFUM_SLUGS = new Set([
+        "hampers-parfum",
+        "hampers-perfume",
+    ]);
+
+    static isExtSlug(slug?: string | null) {
+        return ForecastService.EXT_SLUGS.has((slug ?? "").toLowerCase());
+    }
+
+    static isParfumSlug(slug?: string | null) {
+        return ForecastService.PARFUM_SLUGS.has((slug ?? "").toLowerCase());
+    }
+
+    static isHampersExtSlug(slug?: string | null) {
+        return ForecastService.HAMPERS_EXT_SLUGS.has((slug ?? "").toLowerCase());
+    }
+
+    static isHampersParfumSlug(slug?: string | null) {
+        return ForecastService.HAMPERS_PARFUM_SLUGS.has((slug ?? "").toLowerCase());
+    }
+
+    /** Ukuran botol utama yang menjadi anchor EDAR (100/110/120 ml). */
+    static isAnchorSize(size?: number | null) {
+        return size === 100 || size === 110 || size === 120;
+    }
+
     static calculateSafetyStock(averageActualIssuance: number, safetyPercentage: number) {
         const horizon = 3;
         const average = Math.max(0, averageActualIssuance);
@@ -654,16 +687,15 @@ export class ForecastService {
 
             const hasHampersExt = group.some(
                 (p) =>
-                    p.product_type?.slug?.toLowerCase() === "hampers-ext" &&
-                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+                    ForecastService.isHampersExtSlug(p.product_type?.slug) &&
+                    ForecastService.isAnchorSize(p.size?.size),
             );
             if (hasHampersExt) extMirrorAromas.add(aromaName);
 
             const hasHampersParf = group.some(
                 (p) =>
-                    (p.product_type?.slug?.toLowerCase() === "hampers-parfum" ||
-                        p.product_type?.slug?.toLowerCase() === "hampers-perfume") &&
-                    (p.size?.size === 100 || p.size?.size === 110 || p.size?.size === 120),
+                    ForecastService.isHampersParfumSlug(p.product_type?.slug) &&
+                    ForecastService.isAnchorSize(p.size?.size),
             );
             if (hasHampersParf) parfumMirrorAromas.add(aromaName);
         }
@@ -703,20 +735,20 @@ export class ForecastService {
                 };
 
                 const extAnchors = group.filter((p) => {
-                    const slug = p.product_type?.slug?.toLowerCase();
-                    const size = p.size?.size;
+                    const slug = p.product_type?.slug;
                     return (
-                        (slug === "ext" || slug === "hampers-ext") &&
-                        (size === 100 || size === 110 || size === 120)
+                        (ForecastService.isExtSlug(slug) ||
+                            ForecastService.isHampersExtSlug(slug)) &&
+                        ForecastService.isAnchorSize(p.size?.size)
                     );
                 });
 
                 const parfumAnchors = group.filter((p) => {
-                    const slug = p.product_type?.slug?.toLowerCase();
-                    const size = p.size?.size;
+                    const slug = p.product_type?.slug;
                     return (
-                        (slug === "parfum" || slug === "perfume" || slug === "hampers-parfum") &&
-                        (size === 100 || size === 110 || size === 120)
+                        (ForecastService.isParfumSlug(slug) ||
+                            ForecastService.isHampersParfumSlug(slug)) &&
+                        ForecastService.isAnchorSize(p.size?.size)
                     );
                 });
                 const atomizer = group.find(
@@ -749,14 +781,14 @@ export class ForecastService {
                     const input = currentInputMap.get(product.id) ?? 0;
 
                     const isRegularExtParfum =
-                        (slug === "ext" || slug === "parfum" || slug === "perfume") &&
-                        (size === 100 || size === 110 || size === 120 || size === 2);
+                        (ForecastService.isExtSlug(slug) || ForecastService.isParfumSlug(slug)) &&
+                        (ForecastService.isAnchorSize(size) || size === 2);
 
                     // In Pass 1, skip regular EXT/Parfum that need mirroring (defer to Pass 2)
                     const needsMirrorInPass1 =
                         isRegularExtParfum &&
-                        ((slug === "ext" && extMirrorAromas.has(aromaName)) ||
-                            ((slug === "parfum" || slug === "perfume") &&
+                        ((ForecastService.isExtSlug(slug) && extMirrorAromas.has(aromaName)) ||
+                            (ForecastService.isParfumSlug(slug) &&
                                 parfumMirrorAromas.has(aromaName)));
 
                     if (needsMirrorInPass1) {
@@ -774,20 +806,14 @@ export class ForecastService {
                     // If this is an others-run, it only processes others (already filtered by query)
                     // but we ensure non-regular items that skipped mirroring still happen here.
 
+                    const isExtParfumFamily =
+                        ForecastService.isExtSlug(slug) ||
+                        ForecastService.isHampersExtSlug(slug) ||
+                        ForecastService.isParfumSlug(slug) ||
+                        ForecastService.isHampersParfumSlug(slug);
                     const isExtParfumAnchor =
-                        (slug === "ext" ||
-                            slug === "hampers-ext" ||
-                            slug === "parfum" ||
-                            slug === "perfume" ||
-                            slug === "hampers-parfum") &&
-                        (size === 100 || size === 110 || size === 120);
-                    const isVial2ml =
-                        size === 2 &&
-                        (slug === "ext" ||
-                            slug === "hampers-ext" ||
-                            slug === "parfum" ||
-                            slug === "perfume" ||
-                            slug === "hampers-parfum");
+                        isExtParfumFamily && ForecastService.isAnchorSize(size);
+                    const isVial2ml = size === 2 && isExtParfumFamily;
 
                     if (isExtParfumAnchor) {
                         base_forecast = input * (1 + pctValue);
@@ -796,13 +822,24 @@ export class ForecastService {
                         // Pass 1: Handle only Hampers 2ML or Regular 2ML that doesn't need mirroring
                         // (Mirroring check is already done at the start of loop)
                         base_forecast = input * (1 + pctValue);
-                        // Copy from its corresponding 100-120ml variant in this group
+                        // Copy from its corresponding 100-120ml variant in this group.
+                        // Slug dicocokkan per keluarga (EXT/EDP vs Parfum), bukan string persis.
+                        const isSameFamily = (candidate?: string | null) => {
+                            if (ForecastService.isExtSlug(slug)) {
+                                return ForecastService.isExtSlug(candidate);
+                            }
+                            if (ForecastService.isHampersExtSlug(slug)) {
+                                return ForecastService.isHampersExtSlug(candidate);
+                            }
+                            if (ForecastService.isParfumSlug(slug)) {
+                                return ForecastService.isParfumSlug(candidate);
+                            }
+                            return ForecastService.isHampersParfumSlug(candidate);
+                        };
                         const parent = group.find(
                             (p) =>
-                                p.product_type?.slug?.toLowerCase() === slug &&
-                                (p.size?.size === 100 ||
-                                    p.size?.size === 110 ||
-                                    p.size?.size === 120),
+                                isSameFamily(p.product_type?.slug) &&
+                                ForecastService.isAnchorSize(p.size?.size),
                         );
                         if (parent) {
                             final_forecast =
@@ -836,13 +873,11 @@ export class ForecastService {
                     if (!is_others && isOthersSlug(slug)) continue;
 
                     const isRegularExt =
-                        slug === "ext" && (size === 100 || size === 110 || size === 120);
-                    const isRegularExt2ml = slug === "ext" && size === 2;
+                        ForecastService.isExtSlug(slug) && ForecastService.isAnchorSize(size);
+                    const isRegularExt2ml = ForecastService.isExtSlug(slug) && size === 2;
                     const isRegularParfum =
-                        (slug === "parfum" || slug === "perfume") &&
-                        (size === 100 || size === 110 || size === 120);
-                    const isRegularParfum2ml =
-                        (slug === "parfum" || slug === "perfume") && size === 2;
+                        ForecastService.isParfumSlug(slug) && ForecastService.isAnchorSize(size);
+                    const isRegularParfum2ml = ForecastService.isParfumSlug(slug) && size === 2;
 
                     const needsExtMirror =
                         (isRegularExt || isRegularExt2ml) && extMirrorAromas.has(aromaName);
@@ -859,10 +894,8 @@ export class ForecastService {
                     if (needsExtMirror) {
                         const hExt = group.find(
                             (p) =>
-                                p.product_type?.slug?.toLowerCase() === "hampers-ext" &&
-                                (p.size?.size === 100 ||
-                                    p.size?.size === 110 ||
-                                    p.size?.size === 120),
+                                ForecastService.isHampersExtSlug(p.product_type?.slug) &&
+                                ForecastService.isAnchorSize(p.size?.size),
                         );
                         if (hExt) {
                             // Direct copy of hampers' final_forecast value for both 100ml and 2ml
@@ -871,15 +904,11 @@ export class ForecastService {
                                 atomFinal * Number(hExt[distField] ?? 0);
                         }
                     } else if (needsParfumMirror) {
-                        const hParf = group.find((p) => {
-                            const s = p.product_type?.slug?.toLowerCase();
-                            return (
-                                (s === "hampers-parfum" || s === "hampers-perfume") &&
-                                (p.size?.size === 100 ||
-                                    p.size?.size === 110 ||
-                                    p.size?.size === 120)
-                            );
-                        });
+                        const hParf = group.find(
+                            (p) =>
+                                ForecastService.isHampersParfumSlug(p.product_type?.slug) &&
+                                ForecastService.isAnchorSize(p.size?.size),
+                        );
                         if (hParf) {
                             // Direct copy of hampers' final_forecast value for both 100ml and 2ml
                             final_forecast =
