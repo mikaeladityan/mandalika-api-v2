@@ -62,10 +62,11 @@ export type ForecastBatchRow = {
     year: number;
     base_forecast: number;
     final_forecast: number;
+    /** Legacy DB name: net_forecast stores gross/pure demand. */
     net_forecast?: number;
     trend: "UP" | "DOWN" | "STABLE";
     forecast_percentage_id: number;
-    status: "ADJUSTED" | "DRAFT";
+    status: "ADJUSTED" | "DRAFT" | "FINALIZED";
 };
 export type DistField = "distribution_percentage" | "reference_distribution_percentage";
 
@@ -240,7 +241,7 @@ export class ForecastService {
                 p.lead_time,
                 COALESCE(stock.average_quantity, 0)::float8 AS stock,
                 COALESCE(usage.average_monthly_usage, 0)::float8 AS average_monthly_usage,
-                COALESCE(fc.final_forecast, 0)::float8 AS forecast
+                COALESCE(fc.net_forecast, fc.final_forecast, 0)::float8 AS forecast
             FROM products p
             LEFT JOIN product_types pt ON pt.id = p.type_id
             LEFT JOIN product_size ps ON ps.id = p.size_id
@@ -285,7 +286,7 @@ export class ForecastService {
               ${search ? Prisma.sql`AND (p.name ILIKE ${search} OR p.code ILIKE ${search})` : Prisma.empty}
             ORDER BY
                 COALESCE((
-                    SELECT MAX(grouped_forecast.final_forecast)
+                    SELECT MAX(COALESCE(grouped_forecast.net_forecast, grouped_forecast.final_forecast))
                     FROM forecasts grouped_forecast
                     JOIN products grouped_product ON grouped_product.id = grouped_forecast.product_id
                     WHERE grouped_product.name = p.name
@@ -594,8 +595,57 @@ export class ForecastService {
         return Buffer.from(`\uFEFF${[headers.join(","), ...rows].join("\n")}`, "utf-8");
     }
 
-    static calculateNeedProduce(grossForecast: number, currentStock: number): number {
-        return Math.max(0, grossForecast - currentStock);
+    static applyOpeningStockToForecastBatch(
+        batch: ForecastBatchRow[],
+        openingStockByProduct: Map<number, number>,
+    ): ForecastBatchRow[] {
+        const result = batch.map((row) => ({ ...row }));
+        const remainingStock = new Map(
+            [...openingStockByProduct].map(([productId, stock]) => [productId, Math.max(0, stock)]),
+        );
+
+        for (const row of [...result].sort(
+            (a, b) => a.year - b.year || a.month - b.month || a.product_id - b.product_id,
+        )) {
+            // Legacy DB naming is counterintuitive: net_forecast is gross/pure demand.
+            const gross = Math.max(0, Number(row.net_forecast ?? row.final_forecast));
+            const stock = remainingStock.get(row.product_id) ?? 0;
+            const allocated = Math.min(stock, gross);
+            row.net_forecast = gross;
+            row.final_forecast = gross - allocated;
+            remainingStock.set(row.product_id, stock - allocated);
+        }
+
+        return result;
+    }
+
+    static async loadOpeningFinishedGoodsStock(
+        productIds: number[],
+        month: number,
+        year: number,
+    ): Promise<Map<number, number>> {
+        if (productIds.length === 0) return new Map();
+
+        const rows = await prisma.$queryRaw<Array<{ product_id: number; quantity: number | string | null }>>(
+            Prisma.sql`
+                SELECT latest.product_id, SUM(latest.quantity)::float8 AS quantity
+                FROM (
+                    SELECT DISTINCT ON (pi.product_id, pi.warehouse_id)
+                        pi.product_id, pi.warehouse_id, pi.quantity
+                    FROM product_inventories pi
+                    JOIN warehouses w ON w.id = pi.warehouse_id
+                    WHERE pi.product_id IN (${Prisma.join(productIds)})
+                      AND (pi.year * 12 + pi.month) <= ${year * 12 + month}
+                      AND w.type = 'FINISH_GOODS'
+                      AND w.deleted_at IS NULL
+                    ORDER BY pi.product_id, pi.warehouse_id,
+                        pi.year DESC, pi.month DESC, pi.date DESC, pi.updated_at DESC, pi.id DESC
+                ) latest
+                GROUP BY latest.product_id
+            `,
+        );
+
+        return new Map(rows.map((row) => [row.product_id, Math.max(0, Number(row.quantity ?? 0))]));
     }
 
     /**
@@ -1203,10 +1253,14 @@ export class ForecastService {
             distField: "distribution_percentage",
         });
 
-        // Pure Forecast: nilai M1..Mn murni hasil engine, tanpa netting stok FG.
-        // Pengurangan stok hanya dilakukan di Need Produce (lihat ForecastService.get).
-        // Kolom net_forecast tetap diisi = final_forecast demi kompatibilitas skema.
-        const batch = grossBatch;
+        // Compute/chaining above stays gross. Persist gross in legacy-named net_forecast,
+        // then derive operational final_forecast using the frozen opening Stock SO.
+        const openingStock = await ForecastService.loadOpeningFinishedGoodsStock(
+            products.map((product) => product.id),
+            start_month,
+            start_year,
+        );
+        const batch = ForecastService.applyOpeningStockToForecastBatch(grossBatch, openingStock);
 
         // 5. Batch Save using Raw SQL Bulk Upsert (Optimization for large datasets)
         if (batch.length > 0) {
@@ -1400,7 +1454,7 @@ export class ForecastService {
 
         const currentBase = await getBase(month, year);
 
-        // New Logic: final_forecast in input is treated as Base Forecast
+        // API field final_forecast is the edited gross value; DB net_forecast is its legacy home.
         let resolvedBase = final_forecast !== undefined ? final_forecast : currentBase;
         let resolvedRatio = ratio !== undefined ? ratio : 0;
 
@@ -1627,6 +1681,57 @@ export class ForecastService {
             );
         }
 
+        // No planning-horizon field exists on this request. Reallocate from the earliest stored
+        // month so an M2 edit retains stock already consumed by M1 instead of restarting at M2.
+        const seriesStart = await prisma.forecast.findFirst({
+            where: { product_id },
+            orderBy: [{ year: "asc" }, { month: "asc" }],
+            select: { month: true, year: true },
+        });
+        if (seriesStart) {
+            const stored = await prisma.forecast.findMany({
+                where: { product_id },
+                orderBy: [{ year: "asc" }, { month: "asc" }],
+            });
+            const stock = await ForecastService.loadOpeningFinishedGoodsStock(
+                [product_id],
+                seriesStart.month,
+                seriesStart.year,
+            );
+            const allocated = ForecastService.applyOpeningStockToForecastBatch(
+                stored.map((forecast) => ({
+                    product_id: forecast.product_id,
+                    month: forecast.month,
+                    year: forecast.year,
+                    base_forecast: Number(forecast.base_forecast),
+                    final_forecast: Number(forecast.final_forecast),
+                    net_forecast: forecast.net_forecast == null ? undefined : Number(forecast.net_forecast),
+                    trend: forecast.trend,
+                    forecast_percentage_id: forecast.forecast_percentage_id,
+                    status: forecast.status,
+                })),
+                stock,
+            );
+            await prisma.$transaction(
+                allocated.map((forecast) =>
+                    prisma.forecast.update({
+                        where: {
+                            product_id_month_year: {
+                                product_id,
+                                month: forecast.month,
+                                year: forecast.year,
+                            },
+                        },
+                        data: {
+                            // Gross is preserved; only operational demand is reallocated.
+                            net_forecast: forecast.net_forecast,
+                            final_forecast: forecast.final_forecast,
+                        },
+                    }),
+                ),
+            );
+        }
+
         return { message: "Forecast berhasil diperbarui secara manual." };
     }
 
@@ -1792,7 +1897,8 @@ export class ForecastService {
                             'year',           f.year,
                             'base_forecast',  f.base_forecast,
                             'final_forecast', f.final_forecast,
-                            'gross_forecast', f.final_forecast,
+                            -- Legacy DB naming: net_forecast is gross/pure demand.
+                            'gross_forecast', COALESCE(f.net_forecast, f.final_forecast),
                             'trend',          f.trend,
                             'status',         f.status,
                             'ratio',          f.ratio
@@ -2150,13 +2256,13 @@ export class ForecastService {
                 last_updated: ss?.created_at ? new Date(ss.created_at) : null,
             };
 
-            // Forecast bersifat pure; stok FG hanya dipakai di sini untuk Need Produce.
+            // final_forecast is already operational after frozen Stock SO allocation.
             const m1MonthData = monthly_data.find(
                 (m) => m.month === startMonth && m.year === startYear,
             );
-            const m1Forecast = m1MonthData?.gross_forecast ?? 0;
+            const m1Forecast = m1MonthData?.final_forecast ?? 0;
             const currentStock = Number(p.current_stock ?? 0);
-            const needProduce = ForecastService.calculateNeedProduce(m1Forecast, currentStock);
+            const needProduce = m1Forecast;
 
             const edar_sales_share: ResponseForecastDTO["edar_sales_share"] = (() => {
                 if (Number(p.distribution_percentage ?? 0) <= 0) return null;

@@ -287,14 +287,47 @@ describe("ForecastService.calculateStockSurplus", () => {
     });
 });
 
-describe("ForecastService.calculateNeedProduce", () => {
-    it("hanya Need Produce yang dikurangi stok, forecast tetap pure", () => {
-        // Stok menutup seluruh forecast M1 -> Need Produce 0, tetapi FC tetap 7203.
-        expect(ForecastService.calculateNeedProduce(7203, 8649)).toBe(0);
-        // Stok sebagian -> sisa kebutuhan produksi.
-        expect(ForecastService.calculateNeedProduce(7203, 2249)).toBe(4954);
-        // Tanpa stok -> sama persis dengan gross forecast.
-        expect(ForecastService.calculateNeedProduce(7203, 0)).toBe(7203);
+describe("ForecastService.applyOpeningStockToForecastBatch", () => {
+    const row = (product_id: number, month: number, gross: number) => ({
+        product_id,
+        month,
+        year: 2026,
+        base_forecast: gross,
+        final_forecast: gross,
+        trend: "STABLE" as const,
+        forecast_percentage_id: 1,
+        status: "DRAFT" as const,
+    });
+
+    it("stores gross in legacy net_forecast and allocates Stock SO chronologically", () => {
+        const result = ForecastService.applyOpeningStockToForecastBatch(
+            [row(1, 1, 1_000), row(1, 2, 1_400), row(1, 3, 1_200)],
+            new Map([[1, 2_000]]),
+        );
+
+        expect(result.map(({ net_forecast }) => net_forecast)).toEqual([1_000, 1_400, 1_200]);
+        expect(result.map(({ final_forecast }) => final_forecast)).toEqual([0, 400, 1_200]);
+    });
+
+    it("sorts periods and keeps each SKU stock allocation independent", () => {
+        const result = ForecastService.applyOpeningStockToForecastBatch(
+            [row(2, 2, 100), row(1, 2, 100), row(2, 1, 80), row(1, 1, 80)],
+            new Map([[1, 100], [2, 50]]),
+        );
+        const operational = new Map(result.map((r) => [`${r.product_id}-${r.month}`, r.final_forecast]));
+
+        expect(operational).toEqual(new Map([
+            ["2-2", 100], ["1-2", 80], ["2-1", 30], ["1-1", 0],
+        ]));
+    });
+
+    it("reallocates an edited M2 from M1 so full opening stock is not restarted", () => {
+        const result = ForecastService.applyOpeningStockToForecastBatch(
+            [row(1, 1, 1_000), { ...row(1, 2, 1_600), net_forecast: 1_600 }, row(1, 3, 1_200)],
+            new Map([[1, 2_000]]),
+        );
+
+        expect(result.map(({ final_forecast }) => final_forecast)).toEqual([0, 600, 1_200]);
     });
 });
 

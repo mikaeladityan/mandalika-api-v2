@@ -51,6 +51,30 @@ describe("RecomendationV2Service - Override Features", () => {
     });
 
     describe("list with overrides", () => {
+        it("uses operational final_forecast only and keeps FG stock as metadata", async () => {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date(Date.UTC(2026, 3, 10)));
+            (prisma.$queryRaw as any)
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([{ count: 0n }]);
+
+            await RecomendationV2Service.list({
+                page: 1, take: 10, type: "lokal", sales_months: 4, forecast_months: 3, po_months: 3,
+            });
+
+            const queryArg = (prisma.$queryRaw as any).mock.calls[1]?.[0] as
+                | readonly string[]
+                | { strings?: readonly string[] };
+            const sql = "strings" in queryArg
+                ? queryArg.strings?.join(" ") ?? ""
+                : (queryArg as readonly string[]).join(" ");
+            expect(sql).toContain("f.final_forecast * rec.quantity");
+            expect(sql).not.toContain("f.net_forecast");
+            expect(sql).toContain("stock_fg_x_resep");
+            expect(sql).not.toMatch(/total_forecast_horizon_dynamic\s*-\s*[^)]*stock_fg_x_resep/);
+        });
+
         it("should include override data in the response", async () => {
             // Use fake timers to control internal 'now'
             vi.useFakeTimers();

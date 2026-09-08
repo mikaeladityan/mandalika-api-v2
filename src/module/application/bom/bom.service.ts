@@ -218,12 +218,6 @@ export class BOMService {
                     };
                 });
 
-                // Bulan berjalan (M1) pakai Need Produce (netted stok FG), bulan
-                // selanjutnya tetap pakai Final Forecast mentah.
-                const displayForecastRange = fscRange.map((f, idx) =>
-                    idx === 0 ? { ...f, value: needProduceRange[0]?.value ?? f.value } : f,
-                );
-
                 groupedMap.set(r.p_id, {
                     product: {
                         id: r.p_id,
@@ -235,7 +229,7 @@ export class BOMService {
                         uom: r.u_name ?? "-",
                     },
                     sales_history: slsRange,
-                    forecast: displayForecastRange,
+                    forecast: fscRange,
                     safety_stock: Math.round(calculatedSS),
                     need_produce: needProduceRange,
                     recipe_version: r.recipe_version,

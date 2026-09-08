@@ -342,10 +342,144 @@ describe("ForecastService", () => {
             expect(source).toContain("snapshot.period::integer");
             expect(source).toContain("usage_period.period::integer");
             expect(source).toContain("::integer)");
+            expect(source).toContain("COALESCE(fc.net_forecast, fc.final_forecast, 0)");
+        });
+    });
+
+    describe("loadOpeningFinishedGoodsStock", () => {
+        it("loads the deterministic latest non-deleted FG snapshot at or before M1", async () => {
+            (prisma.$queryRaw as any).mockResolvedValueOnce([
+                { product_id: 1, quantity: 250 },
+                { product_id: 2, quantity: -10 },
+            ]);
+
+            const stock = await ForecastService.loadOpeningFinishedGoodsStock([1, 2], 9, 2026);
+            const sql = (prisma.$queryRaw as any).mock.calls[0]?.[0] as { strings?: readonly string[] };
+            const source = sql.strings?.join(" ");
+
+            expect(stock).toEqual(new Map([[1, 250], [2, 0]]));
+            expect(source).toContain("DISTINCT ON (pi.product_id, pi.warehouse_id)");
+            expect(source).toContain("w.type = 'FINISH_GOODS'");
+            expect(source).toContain("w.deleted_at IS NULL");
+            expect(source).toContain("pi.year DESC, pi.month DESC, pi.date DESC, pi.updated_at DESC, pi.id DESC");
+        });
+    });
+
+    describe("run persistence", () => {
+        it("persists operational final_forecast and legacy gross net_forecast", async () => {
+            (prisma.product.findMany as any).mockResolvedValueOnce([{
+                id: 1,
+                name: "AROMA",
+                product_type: { slug: "atomizer" },
+                size: { size: 10 },
+                distribution_percentage: 0,
+                reference_distribution_percentage: 0,
+                safety_percentage: 0,
+            }]);
+            (prisma.forecastPercentage.findMany as any).mockResolvedValueOnce([
+                { id: 1, month: 1, year: 2026, value: 0.1 },
+            ]);
+            (prisma.$queryRaw as any)
+                .mockResolvedValueOnce([{ product_id: 1, total_quantity: 300 }])
+                .mockResolvedValueOnce([{ product_id: 1, quantity: 50 }]);
+            const executed: string[] = [];
+            (prisma.$transaction as any).mockImplementation(async (callback: any) => {
+                if (Array.isArray(callback)) return Promise.all(callback);
+                return callback({ $executeRawUnsafe: vi.fn(async (sql: string) => executed.push(sql)) });
+            });
+
+            await ForecastService.run({ start_month: 1, start_year: 2026, horizon: 1 });
+
+            // Actual average 300/3=100; gross=110; Stock SO 50 => operational=60.
+            expect(executed[0]).toContain("110.00000000000001, 60.000000000000014, 110.00000000000001");
+        });
+    });
+
+    describe("updateManual allocation", () => {
+        it("reallocates an M2 gross edit from the earliest stored M1", async () => {
+            (prisma.product.findUnique as any).mockResolvedValueOnce({
+                id: 1,
+                product_type: { slug: "display" },
+                safety_percentage: 0.25,
+            });
+            (prisma.forecast.findUnique as any).mockResolvedValueOnce({
+                base_forecast: 1_400,
+                ratio: 0,
+            });
+            (prisma.forecastPercentage.findMany as any).mockResolvedValueOnce([]);
+            (prisma.forecast.findMany as any)
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([
+                    { id: 1, product_id: 1, month: 1, year: 2026, base_forecast: 1_000, final_forecast: 0, net_forecast: 1_000, trend: "STABLE", status: "DRAFT", forecast_percentage_id: 1 },
+                    { id: 2, product_id: 1, month: 2, year: 2026, base_forecast: 1_600, final_forecast: 1_600, net_forecast: 1_600, trend: "STABLE", status: "ADJUSTED", forecast_percentage_id: 1 },
+                    { id: 3, product_id: 1, month: 3, year: 2026, base_forecast: 1_200, final_forecast: 1_200, net_forecast: 1_200, trend: "STABLE", status: "DRAFT", forecast_percentage_id: 1 },
+                ]);
+            (prisma.forecast as any).findFirst = vi.fn().mockResolvedValue({ month: 1, year: 2026 });
+            (prisma.$queryRaw as any)
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([{ product_id: 1, quantity: 2_000 }]);
+            const updates: any[] = [];
+            (prisma.forecast.update as any).mockImplementation((args: any) => {
+                updates.push(args.data);
+                return Promise.resolve(args.data);
+            });
+            (prisma.$transaction as any).mockImplementation(async (callback: any) => {
+                if (Array.isArray(callback)) return Promise.all(callback);
+                return callback({ $executeRawUnsafe: vi.fn().mockResolvedValue(1) });
+            });
+
+            await ForecastService.updateManual({
+                product_id: 1, month: 2, year: 2026, final_forecast: 1_600, ratio: 0,
+            });
+
+            expect(updates.slice(-3)).toEqual([
+                { net_forecast: 1_000, final_forecast: 0 },
+                { net_forecast: 1_600, final_forecast: 600 },
+                { net_forecast: 1_200, final_forecast: 1_200 },
+            ]);
         });
     });
 
     describe("get", () => {
+        it("maps operational final, legacy gross, and Need Produce M1 without another stock deduction", async () => {
+            (prisma.product.count as any).mockResolvedValue(1);
+            (prisma.$queryRaw as any).mockResolvedValue([{
+                id: 1,
+                status: "ACTIVE",
+                code: "P001",
+                name: "Product 1",
+                z_value: 1.65,
+                size: 110,
+                size_id: 1,
+                product_type_name: "EXT",
+                unit_name: "pcs",
+                distribution_percentage: null,
+                reference_distribution_percentage: null,
+                safety_percentage: null,
+                forecasts_data: JSON.stringify([{
+                    month: 1,
+                    year: 2026,
+                    base_forecast: 1_400,
+                    final_forecast: 400,
+                    gross_forecast: 1_400,
+                    trend: "UP",
+                    status: "DRAFT",
+                    ratio: 0,
+                }]),
+                safety_stock_data: null,
+                historical_sales_data: "[]",
+                stock_by_warehouse_data: "[]",
+                current_stock: 2_000,
+            }]);
+            (prisma.forecastPercentage.findMany as any).mockResolvedValue([]);
+
+            const result = await ForecastService.get({ start_month: 1, start_year: 2026, horizon: 1 });
+            const item = result.data[0]!;
+
+            expect(item.monthly_data[0]).toMatchObject({ final_forecast: 400, gross_forecast: 1_400 });
+            expect(item.need_produce).toBe(400);
+        });
+
         it("should return forecast list with correct len", async () => {
             (prisma.product.count as any).mockResolvedValue(1);
             (prisma.$queryRaw as any).mockResolvedValue([
