@@ -298,6 +298,44 @@ describe("ForecastService.calculateNeedProduce", () => {
     });
 });
 
+describe("ForecastService.applyOpeningStockToForecastBatch", () => {
+    const row = (product_id: number, month: number, final_forecast: number): any => ({
+        product_id,
+        month,
+        year: 2026,
+        base_forecast: final_forecast,
+        final_forecast,
+        trend: "STABLE",
+        forecast_percentage_id: month,
+        status: "DRAFT",
+    });
+
+    it("carries opening stock forward chronologically without changing gross values", () => {
+        const gross = [row(1, 1, 500), row(1, 2, 300), row(1, 3, 300)];
+        const result = ForecastService.applyOpeningStockToForecastBatch(gross, new Map([[1, 1000]]));
+
+        expect(result.map((item) => item.net_forecast)).toEqual([0, 0, 100]);
+        expect(result.map((item) => item.final_forecast)).toEqual([500, 300, 300]);
+        expect(gross.every((item) => item.net_forecast === undefined)).toBe(true);
+    });
+
+    it("handles partial, absent, and negative stock or demand", () => {
+        const result = ForecastService.applyOpeningStockToForecastBatch(
+            [row(1, 1, 500), row(2, 1, 300), row(3, 1, -20)],
+            new Map([[1, 200], [2, -10], [3, 10]]),
+        );
+        expect(result.map((item) => item.net_forecast)).toEqual([300, 300, 0]);
+    });
+
+    it("allocates independently per SKU even when input is unsorted", () => {
+        const result = ForecastService.applyOpeningStockToForecastBatch(
+            [row(1, 3, 300), row(2, 2, 80), row(1, 1, 500), row(2, 1, 60), row(1, 2, 300)],
+            new Map([[1, 1000], [2, 100]]),
+        );
+        expect(result.map((item) => item.net_forecast)).toEqual([100, 40, 0, 0, 0]);
+    });
+});
+
 describe("ForecastService.calculateSafetyStock", () => {
     it("uses the 3-month actual issuance average instead of forecast", () => {
         expect(ForecastService.calculateSafetyStock(120, 0.25)).toEqual({
