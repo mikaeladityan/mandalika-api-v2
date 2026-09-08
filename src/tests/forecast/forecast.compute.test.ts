@@ -41,12 +41,15 @@ describe("ForecastService.computeForecastBatch", () => {
         expect(acuan[0]!.final_forecast).toBeCloseTo(66, 5); // 110 * 0.6
     });
 
-    it("hampers mirror mengikuti distField yang dipilih", () => {
+    it.each([
+        { hampersSlug: "hampers-ext", regularSlug: "ext" },
+        { hampersSlug: "hampers-perfume", regularSlug: "parfume-intense" },
+    ])("canonical $hampersSlug mirror mengikuti distField yang dipilih", ({ hampersSlug, regularSlug }) => {
         const products: any[] = [
             {
                 id: 10,
-                name: "HAMPERS AROMA Y EXT 110ML",
-                product_type: { slug: "hampers-ext" },
+                name: "HAMPERS AROMA Y 110ML",
+                product_type: { slug: hampersSlug },
                 size: { size: 110 },
                 distribution_percentage: "0.4",
                 reference_distribution_percentage: "0.8",
@@ -54,8 +57,8 @@ describe("ForecastService.computeForecastBatch", () => {
             },
             {
                 id: 11,
-                name: "AROMA Y EXT 110ML",
-                product_type: { slug: "ext" },
+                name: "AROMA Y 110ML",
+                product_type: { slug: regularSlug },
                 size: { size: 110 },
                 distribution_percentage: "0.3",
                 reference_distribution_percentage: "0.2",
@@ -180,7 +183,9 @@ describe("ForecastService.computeForecastBatch", () => {
         );
     });
 
-    it("slug edp/hampers-edp ikut pool Atomizer dan vial menyalin induknya", () => {
+    it.each(["parfume-intense", "perfume-intense", "parfume"])(
+        "slug Parfum baru '%s' masuk pool Atomizer dan vial menyalin induknya",
+        (parfumSlug) => {
         // Data produksi memakai slug "edp", bukan "ext".
         const products: any[] = [
             {
@@ -204,7 +209,7 @@ describe("ForecastService.computeForecastBatch", () => {
             {
                 id: 3,
                 name: "GORGEOUS TUBEROSE",
-                product_type: { slug: "parfum" },
+                product_type: { slug: parfumSlug },
                 size: { size: 110 },
                 distribution_percentage: "0.4",
                 reference_distribution_percentage: "0.4",
@@ -222,7 +227,7 @@ describe("ForecastService.computeForecastBatch", () => {
             {
                 id: 5,
                 name: "GORGEOUS TUBEROSE",
-                product_type: { slug: "parfum" },
+                product_type: { slug: parfumSlug },
                 size: { size: 2 },
                 distribution_percentage: "0.4",
                 reference_distribution_percentage: "0.4",
@@ -254,7 +259,8 @@ describe("ForecastService.computeForecastBatch", () => {
         // Vial 2ml menyalin penuh nilai induk 110ml.
         expect(pick(4).final_forecast).toBeCloseTo(660, 5);
         expect(pick(5).final_forecast).toBeCloseTo(440, 5);
-    });
+        },
+    );
 });
 
 describe("ForecastService.calculateStockSurplus", () => {
