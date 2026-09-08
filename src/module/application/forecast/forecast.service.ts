@@ -595,10 +595,10 @@ export class ForecastService {
         return Buffer.from(`\uFEFF${[headers.join(","), ...rows].join("\n")}`, "utf-8");
     }
 
-    static applyOpeningStockToForecastBatch(
-        batch: ForecastBatchRow[],
+    static applyOpeningStockToForecastBatch<T extends Pick<ForecastBatchRow, "product_id" | "month" | "year" | "net_forecast" | "final_forecast">>(
+        batch: T[],
         openingStockByProduct: Map<number, number>,
-    ): ForecastBatchRow[] {
+    ): Array<T & { net_forecast?: number }> {
         const result = batch.map((row) => ({ ...row }));
         const remainingStock = new Map(
             [...openingStockByProduct].map(([productId, stock]) => [productId, Math.max(0, stock)]),
@@ -2234,6 +2234,27 @@ export class ForecastService {
                           : null,
                 };
             });
+
+            // Others can contain manual forecasts allocated from an older stored period.
+            // Project operational demand from this window's frozen Stock SO, using gross
+            // demand so an already allocated forecast never has stock deducted twice.
+            if (query.is_others) {
+                const operational = ForecastService.applyOpeningStockToForecastBatch(
+                    monthly_data.map((m) => ({
+                        product_id: p.id,
+                        month: m.month,
+                        year: m.year,
+                        net_forecast: m.gross_forecast ?? m.final_forecast ?? 0,
+                        final_forecast: m.final_forecast ?? 0,
+                    })),
+                    new Map([[p.id, Number(p.current_stock ?? 0)]]),
+                );
+                monthly_data.forEach((m, index) => {
+                    if (m.final_forecast != null || m.gross_forecast != null) {
+                        m.final_forecast = operational[index]!.final_forecast;
+                    }
+                });
+            }
 
             const ss =
                 typeof p.safety_stock_data === "string"

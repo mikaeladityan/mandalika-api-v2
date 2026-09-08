@@ -441,6 +441,58 @@ describe("ForecastService", () => {
     });
 
     describe("get", () => {
+        it.each([
+            { stock: 220, stored: [100, 100, 100, 100], expected: [0, 0, 80, 100] },
+            { stock: 220, stored: [0, 0, 80, 100], expected: [0, 0, 80, 100] },
+            { stock: 40, stored: [100, 100, 100, 100], expected: [60, 100, 100, 100] },
+            { stock: 500, stored: [100, 100, 100, 100], expected: [0, 0, 0, 0] },
+        ])("allocates Others window from gross demand with stock $stock and stored $stored", async ({ stock, stored, expected }) => {
+            (prisma.product.count as any).mockResolvedValue(1);
+            (prisma.forecastPercentage.findMany as any).mockResolvedValue([]);
+            (prisma.$queryRaw as any).mockResolvedValue([{
+                id: 1, status: "ACTIVE", code: "OTH001", name: "Display",
+                product_type_name: "Others", distribution_percentage: null,
+                safety_percentage: 0.25, current_stock: stock,
+                historical_sales_data: "[]", stock_by_warehouse_data: "[]",
+                safety_stock_data: null,
+                forecasts_data: stored.map((value, index) => ({
+                    month: index === 0 ? 12 : index,
+                    year: index === 0 ? 2026 : 2027,
+                    base_forecast: 80, ratio: 25, gross_forecast: 100,
+                    final_forecast: value, trend: "UP", status: "ADJUSTED",
+                })),
+            }]);
+
+            const result = await ForecastService.get({
+                is_others: true, start_month: 12, start_year: 2026, horizon: 4,
+            });
+            const item = result.data[0]!;
+            expect(item.monthly_data.map((m) => m.final_forecast)).toEqual(expected);
+            expect(item.need_produce).toBe(expected[0]);
+            expect(item.monthly_data.map((m) => m.gross_forecast)).toEqual([100, 100, 100, 100]);
+            expect(item.monthly_data.every((m) => m.base_forecast === 80 && m.ratio === 25)).toBe(true);
+            expect(item.safety_stock_summary?.total_forecast).toBe(400);
+            expect(prisma.forecast.update).not.toHaveBeenCalled();
+
+            const exportQuery = {
+                is_others: true, start_month: 12, start_year: 2026, horizon: 4,
+                visibleColumns: "forecast-values,need_produce",
+            };
+            const affectedCsv = (await ForecastService.export({
+                ...exportQuery, export_mode: "affected",
+            })).toString("utf-8");
+            const [affectedHeader, affectedRow] = affectedCsv.replace(/^\uFEFF/, "").split("\n");
+            expect(affectedHeader).toBe("FC Des'26,FC Jan'27,FC Feb'27,FC Mar'27,NEED PRODUCE,KETERANGAN PRODUKSI,STATUS");
+            expect(affectedRow!.split(",").slice(0, 5)).toEqual([...expected, expected[0]].map(String));
+            expect(affectedRow).toContain(expected[0]! > 0 ? "PERLU PRODUKSI" : "STOK CUKUP");
+
+            const pureCsv = (await ForecastService.export({
+                ...exportQuery, export_mode: "pure",
+            })).toString("utf-8");
+            expect(pureCsv).not.toContain("NEED PRODUCE");
+            expect(pureCsv.split("\n")[1]).toBe("100,100,100,100,ACTIVE");
+        });
+
         it("maps operational final, legacy gross, and Need Produce M1 without another stock deduction", async () => {
             (prisma.product.count as any).mockResolvedValue(1);
             (prisma.$queryRaw as any).mockResolvedValue([{
