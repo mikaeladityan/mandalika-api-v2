@@ -4,7 +4,7 @@ import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";
 
-import { HampersMonthlySummaryDTO, QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO, RequestIssuanceBulkDTO, ResponseIssuanceDetailDTO } from "./issuance.schema.js";
+import { SalesMonthlySummaryDTO, QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO, RequestIssuanceBulkDTO, ResponseIssuanceDetailDTO } from "./issuance.schema.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 
 export { ISSUANCE_THRESHOLD_PERIOD };
@@ -105,7 +105,7 @@ export class IssuanceService {
         type,
         sales_analytics,
         hampers_only,
-    }: QueryIssuanceDTO): Promise<{ issuances: IssuanceListItem[]; len: number; hampersSummary?: HampersMonthlySummaryDTO[] }> {
+    }: QueryIssuanceDTO): Promise<{ issuances: IssuanceListItem[]; len: number; hampersSummary?: SalesMonthlySummaryDTO[]; salesSummary?: SalesMonthlySummaryDTO[] }> {
         // 1. Calculate Defaults
         const now = new Date();
         const defaultEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
@@ -184,7 +184,7 @@ export class IssuanceService {
                         SUM(CASE WHEN (year * 12 + month) <= ${IssuanceService.THRESHOLD_PERIOD} AND type::text = 'ALL' THEN quantity ELSE 0 END)
                     ) as quantity
                 FROM product_issuances sa
-                WHERE (year * 12 + month) >= ${hampers_only ? startVal - 1 : startVal}
+                WHERE (year * 12 + month) >= ${hampers_only || sales_analytics ? startVal - 1 : startVal}
                   AND (year * 12 + month) <= ${endVal}
                   ${saTypeFilter}
                 GROUP BY product_id, year, month
@@ -202,10 +202,10 @@ export class IssuanceService {
         const total = Number(countResult[0]?.total ?? 0);
 
         // Summary deliberately ignores table search, filters and pagination.
-        const hampersSummary = hampers_only
-            ? await this.hampersSummary(actualsSql, periods, startVal)
+        const salesSummary = hampers_only || sales_analytics
+            ? await this.monthlySummary(actualsSql, periods, startVal, Boolean(hampers_only))
             : undefined;
-        if (total === 0) return { issuances: [], len: 0, ...(hampers_only ? { hampersSummary } : {}) };
+        if (total === 0) return { issuances: [], len: 0, ...(salesSummary ? { salesSummary, ...(hampers_only ? { hampersSummary: salesSummary } : {}) } : {}) };
 
         // ponytail: special product codes at bottom; add when filter/exclude option needed
         const orderBySql =
@@ -300,7 +300,7 @@ export class IssuanceService {
 
             const previousPeriod = new Date(Date.UTC(finalStartY, finalStartM - 2, 1));
             const previousQuantity = issuanceMap.get(`${previousPeriod.getUTCFullYear()}-${previousPeriod.getUTCMonth() + 1}`) ?? 0;
-            const trendSeries = hampers_only
+            const trendSeries = hampers_only || sales_analytics
                 ? this.calculateTrendSeries([previousQuantity, ...rawSeries.map((r) => r.quantity)], 0).slice(1)
                 : this.calculateTrendSeries(rawSeries.map((r) => r.quantity));
             const quantitySeries = rawSeries.map((r, i) => ({
@@ -330,20 +330,24 @@ export class IssuanceService {
             };
         });
 
-        return { issuances, len: total, ...(hampers_only ? { hampersSummary } : {}) };
+        return { issuances, len: total, ...(salesSummary ? { salesSummary, ...(hampers_only ? { hampersSummary: salesSummary } : {}) } : {}) };
     }
 
-    private static async hampersSummary(
+    private static async monthlySummary(
         actualsSql: Prisma.Sql,
         periods: Array<{ year: number; month: number }>,
         startVal: number,
-    ): Promise<HampersMonthlySummaryDTO[]> {
+        hampersOnly: boolean,
+    ): Promise<SalesMonthlySummaryDTO[]> {
+        const scope = hampersOnly
+            ? Prisma.sql`pt.slug ILIKE 'hampers-%'`
+            : Prisma.sql`p.code !~* '^(KEM-|KTP-|KTL-|KTB-|DW|DU|GS|BUK-|DP|GB|KA)'`;
         const rows = await prisma.$queryRaw<Array<{ year: number; month: number; quantity: number | string }>>(Prisma.sql`
             SELECT sa.year, sa.month, SUM(sa.quantity) AS quantity
             FROM (${actualsSql}) sa
             JOIN products p ON p.id = sa.product_id
-            JOIN product_types pt ON pt.id = p.type_id
-            WHERE pt.slug ILIKE 'hampers-%'
+            LEFT JOIN product_types pt ON pt.id = p.type_id
+            WHERE ${scope}
               AND p.status NOT IN ('BLOCK'::"STATUS", 'DELETE'::"STATUS", 'PENDING'::"STATUS")
             GROUP BY sa.year, sa.month
         `);
@@ -352,7 +356,7 @@ export class IssuanceService {
         return periods.map(({ year, month }) => {
             const quantity = totals.get(year * 12 + month) ?? 0;
             const difference = quantity - previousQuantity;
-            const result: HampersMonthlySummaryDTO = {
+            const result: SalesMonthlySummaryDTO = {
                 year, month, quantity, previousQuantity, difference,
                 percentage: previousQuantity === 0 ? null : difference / previousQuantity * 100,
                 trend: difference > 0 ? "UP" : difference < 0 ? "DOWN" : "STABLE",
@@ -538,7 +542,10 @@ export class IssuanceService {
     }
 
     static async export(query: QueryIssuanceDTO) {
-        let { issuances: data } = await this.list({ ...query, take: 1000000, page: 1 });
+        const result = await this.list({ ...query, take: 1000000, page: 1 });
+        let data = result.issuances;
+        const summary = result.salesSummary ?? (query.hampers_only ? result.hampersSummary : undefined);
+        const exportPeriods = summary ?? data[0]?.quantity ?? [];
 
         // Filter by selected IDs if provided
         if (query.selectedIds) {
@@ -569,8 +576,8 @@ export class IssuanceService {
         ];
 
         // Dynamic Period Headers
-        if (data.length > 0 && data[0]?.quantity) {
-            data[0].quantity.forEach((p) => {
+        if (exportPeriods.length > 0) {
+            exportPeriods.forEach((p) => {
                 const yearShort = String(p.year).slice(-2);
                 allColumns.push({
                     header: `${query.sales_analytics ? "SALES " : ""}${monthsShort[p.month - 1]?.toUpperCase()} '${yearShort}`,
@@ -583,8 +590,8 @@ export class IssuanceService {
 
         allColumns.push({ header: "TOTAL", key: "totalQuantity", width: 15, uiId: "total" });
 
-        if (query.sales_analytics && data.length > 0 && data[0]?.quantity) {
-            data[0].quantity.forEach((p) => {
+        if (query.sales_analytics && exportPeriods.length > 0) {
+            exportPeriods.forEach((p) => {
                 const yearShort = String(p.year).slice(-2);
                     allColumns.push({
                         header: `MOM ${monthsShort[p.month - 1]?.toUpperCase()} '${yearShort} (%)`,
@@ -650,6 +657,21 @@ export class IssuanceService {
 
             sheet.addRow(formattedRow);
         });
+
+        if (summary) {
+            const totalRow: Record<string, string | number> = {
+                code: query.hampers_only ? "TOTAL ALL HAMPERS" : "TOTAL ALL FG",
+                name: query.hampers_only ? "Seluruh FG Hampers sesuai periode (semua halaman dan filter produk)" : "Seluruh FG Sales Analytics sesuai periode (semua halaman dan filter produk)",
+                totalQuantity: Math.round(summary.reduce((total, month) => total + month.quantity, 0)),
+            };
+            for (const month of summary) {
+                totalRow[`period_${month.year}_${month.month}`] = Math.round(month.quantity);
+                totalRow[`percentage_${month.year}_${month.month}`] = month.percentage == null
+                    ? "- (basis 0)"
+                    : Number(month.percentage.toFixed(1));
+            }
+            sheet.addRow(totalRow);
+        }
 
         const buffer = await workbook.csv.writeBuffer();
         return buffer;

@@ -475,3 +475,61 @@ describe("Hampers analytics", () => {
         expect(result.hampersSummary?.[0]).toMatchObject({ quantity: 0, previousQuantity: 0, percentage: null, trend: "STABLE" });
     });
 });
+
+
+describe("Sales analytics CSV totals", () => {
+    it.each([true, false])("exports totals with empty product results (hampers_only=%s)", async (hampersOnly) => {
+        const list = vi.spyOn(IssuanceService, "list").mockResolvedValue({
+            issuances: [], len: 0,
+            salesSummary: [
+                { year: 2026, month: 1, quantity: 300, previousQuantity: 200, difference: 100, percentage: 50, trend: "UP" },
+                { year: 2026, month: 2, quantity: 0, previousQuantity: 300, difference: -300, percentage: -100, trend: "DOWN" },
+                { year: 2026, month: 3, quantity: 10, previousQuantity: 0, difference: 10, percentage: null, trend: "UP" },
+            ],
+        });
+        try {
+            const csv = Buffer.from(await IssuanceService.export({
+                sortBy: "name", sortOrder: "asc", sales_analytics: true, hampers_only: hampersOnly,
+                visibleColumns: "code,name,type,size,periods,total",
+            })).toString("utf8");
+            expect(csv).toContain("MOM JAN '26 (%)");
+            expect(csv).toContain(hampersOnly ? "TOTAL ALL HAMPERS" : "TOTAL ALL FG");
+            expect(csv).toContain(",300,0,10,310,50,-100,- (basis 0)");
+            expect(list).toHaveBeenCalledWith(expect.objectContaining({ page: 1, take: 1000000, hampers_only: hampersOnly }));
+        } finally {
+            list.mockRestore();
+        }
+    });
+});
+
+
+describe("All FG sales totals", () => {
+    it("uses the Sales Analytics product scope and ignores table pagination and product search", async () => {
+        const query = vi.mocked(prisma.$queryRaw);
+        query.mockReset();
+        query.mockResolvedValueOnce([{ total: 100 }]);
+        query.mockResolvedValueOnce([
+            { year: 2026, month: 1, quantity: 1000 },
+            { year: 2026, month: 2, quantity: 1200 },
+        ]);
+        query.mockResolvedValueOnce([{
+            id: 1, code: "FG-1", name: "Perfume", size_val: 50, unit_name: "ML",
+            pt_id: null, pt_name: null, pt_slug: null, totalQuantity: 10,
+            issuances_data: [{ year: 2026, month: 1, quantity: 20 }, { year: 2026, month: 2, quantity: 10 }],
+        }]);
+        const result = await IssuanceService.list({
+            sortBy: "name", sortOrder: "asc", sales_analytics: true, search: "Perfume", page: 2, take: 25,
+            start_month: 2, start_year: 2026, end_month: 2, end_year: 2026,
+        });
+        expect(result.salesSummary).toEqual([
+            { year: 2026, month: 2, quantity: 1200, previousQuantity: 1000, difference: 200, percentage: 20, trend: "UP" },
+        ]);
+        expect(result.issuances[0]?.quantity[0]?.percentage).toBe(-50);
+        expect(result.hampersSummary).toBeUndefined();
+        expect(query.mock.calls[1]?.[0]).toHaveProperty("sql", expect.stringContaining("p.code !~*"));
+        expect(query.mock.calls[1]?.[0]).toHaveProperty("sql", expect.stringContaining("LEFT JOIN product_types"));
+        expect(query.mock.calls[1]?.[0]).toHaveProperty("sql", expect.not.stringContaining("hampers-%"));
+        expect(query.mock.calls[1]?.[0]).toHaveProperty("sql", expect.not.stringContaining("p.name ILIKE"));
+        expect(query.mock.calls[1]?.[0]).toHaveProperty("sql", expect.not.stringContaining("LIMIT"));
+    });
+});

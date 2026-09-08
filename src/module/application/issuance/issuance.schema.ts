@@ -97,7 +97,7 @@ export const QueryIssuanceRekapSchema = z.object({
 
 export type QueryIssuanceRekapDTO = z.infer<typeof QueryIssuanceRekapSchema>;
 
-export const HampersMonthlySummarySchema = z.object({
+export const SalesMonthlySummarySchema = z.object({
     year: z.number(),
     month: z.number(),
     quantity: z.number(),
@@ -106,4 +106,6 @@ export const HampersMonthlySummarySchema = z.object({
     percentage: z.number().nullable(),
     trend: z.enum(["UP", "DOWN", "STABLE"]),
 });
-export type HampersMonthlySummaryDTO = z.infer<typeof HampersMonthlySummarySchema>;
+export type SalesMonthlySummaryDTO = z.infer<typeof SalesMonthlySummarySchema>;
+export const HampersMonthlySummarySchema = SalesMonthlySummarySchema;
+export type HampersMonthlySummaryDTO = SalesMonthlySummaryDTO;
