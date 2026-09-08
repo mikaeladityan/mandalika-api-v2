@@ -28,6 +28,7 @@ export class IssuanceController {
             take,
             type,
             sales_analytics,
+            hampers_only,
         } = c.req.query();
 
         const params: QueryIssuanceDTO = {
@@ -47,6 +48,7 @@ export class IssuanceController {
             take: take ? Number(take) : 10,
             type: (type as QueryIssuanceDTO["type"]) || undefined,
             sales_analytics: sales_analytics === "true",
+            hampers_only: hampers_only === "true",
         };
 
         const result = await IssuanceService.list(params);
@@ -114,6 +116,7 @@ export class IssuanceController {
             columnOrder,
             selectedIds,
             sales_analytics,
+            hampers_only,
         } = c.req.query();
 
         const params: QueryIssuanceDTO = {
@@ -136,6 +139,7 @@ export class IssuanceController {
             columnOrder,
             selectedIds,
             sales_analytics: sales_analytics === "true",
+            hampers_only: hampers_only === "true",
         };
 
         const buffer = await IssuanceService.export(params);

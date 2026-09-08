@@ -428,3 +428,50 @@ describe("IssuanceService", () => {
         });
     });
 });
+
+
+describe("Hampers analytics", () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it("returns totals across all pages and compares the first month with the preceding year", async () => {
+        const query = vi.mocked(prisma.$queryRaw);
+        query.mockResolvedValueOnce([{ total: 26 }]);
+        query.mockResolvedValueOnce([
+            { year: 2025, month: 12, quantity: "200" },
+            { year: 2026, month: 1, quantity: "300" },
+            { year: 2026, month: 2, quantity: "0" },
+            { year: 2026, month: 3, quantity: "10" },
+        ]);
+        query.mockResolvedValueOnce([{
+            id: 1, code: "GB-HAMPERS", name: "Gift", size_val: null, unit_name: "PCS",
+            pt_id: 1, pt_name: "Hampers", pt_slug: "hampers-ext", totalQuantity: 15,
+            issuances_data: [{ year: 2025, month: 12, quantity: 10 }, { year: 2026, month: 1, quantity: 15 }],
+        }]);
+        const result = await IssuanceService.list({
+            sortBy: "name", sortOrder: "asc", hampers_only: true, sales_analytics: true, search: "Gift", page: 2, take: 25,
+            start_month: 1, start_year: 2026, end_month: 3, end_year: 2026,
+        });
+        expect(result.len).toBe(26);
+        expect(result.hampersSummary).toEqual([
+            { year: 2026, month: 1, quantity: 300, previousQuantity: 200, difference: 100, percentage: 50, trend: "UP" },
+            { year: 2026, month: 2, quantity: 0, previousQuantity: 300, difference: -300, percentage: -100, trend: "DOWN" },
+            { year: 2026, month: 3, quantity: 10, previousQuantity: 0, difference: 10, percentage: null, trend: "UP" },
+        ]);
+        expect(result.issuances[0]?.quantity[0]?.percentage).toBe(50);
+        expect(result.issuances[0]?.quantity[1]?.percentage).toBe(-100);
+        expect(result.issuances[0]?.totalQuantity).toBe(15);
+        const countSql = query.mock.calls[0]?.[0];
+        const summarySql = query.mock.calls[1]?.[0];
+        expect(countSql).toHaveProperty("sql", expect.stringContaining("pt.slug ILIKE 'hampers-%'"));
+        expect(countSql).toHaveProperty("sql", expect.not.stringContaining("p.code !~*"));
+        expect(summarySql).toHaveProperty("sql", expect.not.stringContaining("LIMIT"));
+        expect(summarySql).toHaveProperty("sql", expect.not.stringContaining("p.name ILIKE"));
+    });
+
+    it("keeps all-Hampers totals when the table search has no matches", async () => {
+        vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([{ total: 0 }]).mockResolvedValueOnce([]);
+        const result = await IssuanceService.list({ sortBy: "name", sortOrder: "asc", hampers_only: true, start_month: 1, start_year: 2026, end_month: 1, end_year: 2026 });
+        expect(result.issuances).toEqual([]);
+        expect(result.hampersSummary?.[0]).toMatchObject({ quantity: 0, previousQuantity: 0, percentage: null, trend: "STABLE" });
+    });
+});

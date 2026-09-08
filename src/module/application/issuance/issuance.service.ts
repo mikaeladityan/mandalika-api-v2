@@ -4,7 +4,7 @@ import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";
 
-import { QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO, RequestIssuanceBulkDTO, ResponseIssuanceDetailDTO } from "./issuance.schema.js";
+import { HampersMonthlySummaryDTO, QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO, RequestIssuanceBulkDTO, ResponseIssuanceDetailDTO } from "./issuance.schema.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 
 export { ISSUANCE_THRESHOLD_PERIOD };
@@ -104,7 +104,8 @@ export class IssuanceService {
         search,
         type,
         sales_analytics,
-    }: QueryIssuanceDTO): Promise<{ issuances: IssuanceListItem[]; len: number }> {
+        hampers_only,
+    }: QueryIssuanceDTO): Promise<{ issuances: IssuanceListItem[]; len: number; hampersSummary?: HampersMonthlySummaryDTO[] }> {
         // 1. Calculate Defaults
         const now = new Date();
         const defaultEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
@@ -155,7 +156,11 @@ export class IssuanceService {
             conditions.push(Prisma.sql`p.id = ${product_id}`);
         }
 
-        if (sales_analytics) {
+        if (hampers_only) {
+            conditions.push(Prisma.sql`pt.slug ILIKE 'hampers-%'`);
+        }
+
+        if (sales_analytics && !hampers_only) {
             conditions.push(
                 Prisma.sql`p.code !~* '^(KEM-|KTP-|KTL-|KTB-|DW|DU|GS|BUK-|DP|GB|KA)'`,
             );
@@ -169,6 +174,22 @@ export class IssuanceService {
             )`
             : Prisma.empty;
 
+        const actualsSql = Prisma.sql`
+                SELECT
+                    product_id,
+                    year,
+                    month,
+                    COALESCE(
+                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${IssuanceService.THRESHOLD_PERIOD} AND type::text != 'ALL' THEN quantity ELSE 0 END), 0),
+                        SUM(CASE WHEN (year * 12 + month) <= ${IssuanceService.THRESHOLD_PERIOD} AND type::text = 'ALL' THEN quantity ELSE 0 END)
+                    ) as quantity
+                FROM product_issuances sa
+                WHERE (year * 12 + month) >= ${hampers_only ? startVal - 1 : startVal}
+                  AND (year * 12 + month) <= ${endVal}
+                  ${saTypeFilter}
+                GROUP BY product_id, year, month
+        `;
+
         const whereSql = Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`;
 
         const countResult = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`
@@ -180,7 +201,11 @@ export class IssuanceService {
         `);
         const total = Number(countResult[0]?.total ?? 0);
 
-        if (total === 0) return { issuances: [], len: 0 };
+        // Summary deliberately ignores table search, filters and pagination.
+        const hampersSummary = hampers_only
+            ? await this.hampersSummary(actualsSql, periods, startVal)
+            : undefined;
+        if (total === 0) return { issuances: [], len: 0, ...(hampers_only ? { hampersSummary } : {}) };
 
         // ponytail: special product codes at bottom; add when filter/exclude option needed
         const orderBySql =
@@ -231,7 +256,7 @@ export class IssuanceService {
                       AND f.month = ${now.getUTCMonth() + 1}
                       AND f.year = ${now.getUTCFullYear()}
                 ), 0)                            AS "groupSortPriority",
-                COALESCE(SUM(sa.quantity), 0)    AS "totalQuantity",
+                COALESCE(SUM(sa.quantity) FILTER (WHERE (sa.year * 12 + sa.month) >= ${startVal}), 0) AS "totalQuantity",
                 COALESCE(
                     json_agg(
                         json_build_object(
@@ -247,19 +272,7 @@ export class IssuanceService {
             LEFT JOIN product_size ps ON p.size_id = ps.id
             LEFT JOIN unit_of_materials u ON p.unit_id = u.id
             LEFT JOIN (
-                SELECT 
-                    product_id, 
-                    year, 
-                    month,
-                    COALESCE(
-                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${IssuanceService.THRESHOLD_PERIOD} AND type::text != 'ALL' THEN quantity ELSE 0 END), 0),
-                        SUM(CASE WHEN (year * 12 + month) <= ${IssuanceService.THRESHOLD_PERIOD} AND type::text = 'ALL' THEN quantity ELSE 0 END)
-                    ) as quantity
-                FROM product_issuances
-                WHERE (year * 12 + month) >= ${startVal}
-                  AND (year * 12 + month) <= ${endVal}
-                  ${saTypeFilter}
-                GROUP BY product_id, year, month
+                ${actualsSql}
             ) sa ON sa.product_id = p.id
             ${whereSql}
             GROUP BY p.id, p.code, p.name, ps.size, u.name, pt.id, pt.name, pt.slug
@@ -285,7 +298,11 @@ export class IssuanceService {
                 return { year, month, quantity: qty };
             });
 
-            const trendSeries = this.calculateTrendSeries(rawSeries.map((r) => r.quantity));
+            const previousPeriod = new Date(Date.UTC(finalStartY, finalStartM - 2, 1));
+            const previousQuantity = issuanceMap.get(`${previousPeriod.getUTCFullYear()}-${previousPeriod.getUTCMonth() + 1}`) ?? 0;
+            const trendSeries = hampers_only
+                ? this.calculateTrendSeries([previousQuantity, ...rawSeries.map((r) => r.quantity)], 0).slice(1)
+                : this.calculateTrendSeries(rawSeries.map((r) => r.quantity));
             const quantitySeries = rawSeries.map((r, i) => ({
                 ...r,
                 trend: trendSeries[i]?.trend ?? Trend.STABLE,
@@ -304,7 +321,7 @@ export class IssuanceService {
                         row.pt_id && row.pt_name && row.pt_slug
                             ? { id: row.pt_id, name: row.pt_name, slug: row.pt_slug }
                             : null,
-                    size: sales_analytics
+                    size: sales_analytics && !hampers_only
                         ? `${row.size_val ?? ""} ML`.trim()
                         : `${row.size_val ?? ""} ${row.unit_name ?? ""}`.trim(),
                 },
@@ -313,7 +330,36 @@ export class IssuanceService {
             };
         });
 
-        return { issuances, len: total };
+        return { issuances, len: total, ...(hampers_only ? { hampersSummary } : {}) };
+    }
+
+    private static async hampersSummary(
+        actualsSql: Prisma.Sql,
+        periods: Array<{ year: number; month: number }>,
+        startVal: number,
+    ): Promise<HampersMonthlySummaryDTO[]> {
+        const rows = await prisma.$queryRaw<Array<{ year: number; month: number; quantity: number | string }>>(Prisma.sql`
+            SELECT sa.year, sa.month, SUM(sa.quantity) AS quantity
+            FROM (${actualsSql}) sa
+            JOIN products p ON p.id = sa.product_id
+            JOIN product_types pt ON pt.id = p.type_id
+            WHERE pt.slug ILIKE 'hampers-%'
+              AND p.status NOT IN ('BLOCK'::"STATUS", 'DELETE'::"STATUS", 'PENDING'::"STATUS")
+            GROUP BY sa.year, sa.month
+        `);
+        const totals = new Map(rows.map((row) => [row.year * 12 + row.month, Number(row.quantity)]));
+        let previousQuantity = totals.get(startVal - 1) ?? 0;
+        return periods.map(({ year, month }) => {
+            const quantity = totals.get(year * 12 + month) ?? 0;
+            const difference = quantity - previousQuantity;
+            const result: HampersMonthlySummaryDTO = {
+                year, month, quantity, previousQuantity, difference,
+                percentage: previousQuantity === 0 ? null : difference / previousQuantity * 100,
+                trend: difference > 0 ? "UP" : difference < 0 ? "DOWN" : "STABLE",
+            };
+            previousQuantity = quantity;
+            return result;
+        });
     }
 
     static async detail(
@@ -484,9 +530,9 @@ export class IssuanceService {
         return values.map((current, i) => {
             if (i === 0) return { trend: Trend.STABLE, percentage: null };
             const prev = values[i - 1]!;
-            if (prev === 0) return { trend: Trend.STABLE, percentage: null };
+            if (prev === 0) return { trend: threshold === 0 && current > 0 ? Trend.UP : Trend.STABLE, percentage: null };
             const delta = ((current - prev) / prev) * 100;
-            const trend = Math.abs(delta) < threshold ? Trend.STABLE : delta > 0 ? Trend.UP : Trend.DOWN;
+            const trend = delta === 0 || Math.abs(delta) < threshold ? Trend.STABLE : delta > 0 ? Trend.UP : Trend.DOWN;
             return { trend, percentage: delta };
         });
     }

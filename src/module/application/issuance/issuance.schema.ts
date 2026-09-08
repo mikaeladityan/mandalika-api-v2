@@ -72,6 +72,7 @@ export const QueryIssuanceSchema = z.object({
     columnOrder: z.string().optional(),
     selectedIds: z.string().optional(),
     sales_analytics: z.boolean().optional(),
+    hampers_only: z.boolean().optional(),
 });
 
 export type ResponseIssuanceDTO = z.infer<typeof ResponseIssuanceSchema>;
@@ -95,3 +96,14 @@ export const QueryIssuanceRekapSchema = z.object({
 });
 
 export type QueryIssuanceRekapDTO = z.infer<typeof QueryIssuanceRekapSchema>;
+
+export const HampersMonthlySummarySchema = z.object({
+    year: z.number(),
+    month: z.number(),
+    quantity: z.number(),
+    previousQuantity: z.number(),
+    difference: z.number(),
+    percentage: z.number().nullable(),
+    trend: z.enum(["UP", "DOWN", "STABLE"]),
+});
+export type HampersMonthlySummaryDTO = z.infer<typeof HampersMonthlySummarySchema>;
