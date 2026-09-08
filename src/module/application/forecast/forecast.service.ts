@@ -462,7 +462,7 @@ export class ForecastService {
                 FROM (
                     SELECT forecast_period.period, COALESCE((
                         -- Match BOM/Recommendation: floor each recipe contribution before summing.
-                        SELECT SUM(FLOOR(COALESCE(f.net_forecast, f.final_forecast) * r.quantity *
+                        SELECT SUM(FLOOR(f.final_forecast * r.quantity *
                             CASE WHEN r.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                         ))
                         FROM recipes r
@@ -596,57 +596,6 @@ export class ForecastService {
 
     static calculateNeedProduce(grossForecast: number, currentStock: number): number {
         return Math.max(0, grossForecast - currentStock);
-    }
-
-    static applyOpeningStockToForecastBatch(
-        batch: ForecastBatchRow[],
-        openingStockByProduct: Map<number, number>,
-    ): ForecastBatchRow[] {
-        const result = batch.map((row) => ({ ...row }));
-        const remainingStock = new Map(
-            [...openingStockByProduct].map(([productId, stock]) => [productId, Math.max(0, stock)]),
-        );
-
-        for (const row of [...result].sort(
-            (a, b) => a.year - b.year || a.month - b.month || a.product_id - b.product_id,
-        )) {
-            const gross = Math.max(0, Number(row.final_forecast));
-            const stock = remainingStock.get(row.product_id) ?? 0;
-            const allocated = Math.min(stock, gross);
-            row.net_forecast = gross - allocated;
-            remainingStock.set(row.product_id, stock - allocated);
-        }
-
-        return result;
-    }
-
-    static async loadOpeningFinishedGoodsStock(
-        productIds: number[],
-        month: number,
-        year: number,
-    ): Promise<Map<number, number>> {
-        if (productIds.length === 0) return new Map();
-
-        const rows = await prisma.$queryRaw<Array<{ product_id: number; quantity: number | string | null }>>(
-            Prisma.sql`
-                SELECT latest.product_id, SUM(latest.quantity)::float8 AS quantity
-                FROM (
-                    SELECT DISTINCT ON (pi.product_id, pi.warehouse_id)
-                        pi.product_id, pi.warehouse_id, pi.quantity
-                    FROM product_inventories pi
-                    JOIN warehouses w ON w.id = pi.warehouse_id
-                    WHERE pi.product_id IN (${Prisma.join(productIds)})
-                      AND (pi.year * 12 + pi.month) <= ${year * 12 + month}
-                      AND w.type = 'FINISH_GOODS'
-                      AND w.deleted_at IS NULL
-                    ORDER BY pi.product_id, pi.warehouse_id,
-                        pi.year DESC, pi.month DESC, pi.date DESC, pi.updated_at DESC, pi.id DESC
-                ) latest
-                GROUP BY latest.product_id
-            `,
-        );
-
-        return new Map(rows.map((row) => [row.product_id, Math.max(0, Number(row.quantity ?? 0))]));
     }
 
     /**
@@ -1254,12 +1203,10 @@ export class ForecastService {
             distField: "distribution_percentage",
         });
 
-        const openingStock = await ForecastService.loadOpeningFinishedGoodsStock(
-            products.map((product) => product.id),
-            start_month,
-            start_year,
-        );
-        const batch = ForecastService.applyOpeningStockToForecastBatch(grossBatch, openingStock);
+        // Pure Forecast: nilai M1..Mn murni hasil engine, tanpa netting stok FG.
+        // Pengurangan stok hanya dilakukan di Need Produce (lihat ForecastService.get).
+        // Kolom net_forecast tetap diisi = final_forecast demi kompatibilitas skema.
+        const batch = grossBatch;
 
         // 5. Batch Save using Raw SQL Bulk Upsert (Optimization for large datasets)
         if (batch.length > 0) {
@@ -1680,46 +1627,6 @@ export class ForecastService {
             );
         }
 
-        const affectedForecasts = await prisma.forecast.findMany({
-            where: {
-                product_id,
-                OR: [{ year: { gt: year } }, { year, month: { gte: month } }],
-            },
-            orderBy: [{ year: "asc" }, { month: "asc" }],
-        });
-        const openingStock = await ForecastService.loadOpeningFinishedGoodsStock(
-            [product_id],
-            month,
-            year,
-        );
-        const renetted = ForecastService.applyOpeningStockToForecastBatch(
-            affectedForecasts.map((forecast) => ({
-                ...forecast,
-                base_forecast: Number(forecast.base_forecast),
-                final_forecast: Number(forecast.final_forecast),
-                net_forecast: forecast.net_forecast == null ? undefined : Number(forecast.net_forecast),
-                trend: forecast.trend as ForecastBatchRow["trend"],
-                status: forecast.status as ForecastBatchRow["status"],
-            })),
-            openingStock,
-        );
-        if (renetted.length > 0) {
-            await prisma.$transaction(
-                renetted.map((forecast) =>
-                    prisma.forecast.update({
-                        where: {
-                            product_id_month_year: {
-                                product_id,
-                                month: forecast.month,
-                                year: forecast.year,
-                            },
-                        },
-                        data: { net_forecast: forecast.net_forecast },
-                    }),
-                ),
-            );
-        }
-
         return { message: "Forecast berhasil diperbarui secara manual." };
     }
 
@@ -1884,7 +1791,7 @@ export class ForecastService {
                             'month',          f.month,
                             'year',           f.year,
                             'base_forecast',  f.base_forecast,
-                            'final_forecast', COALESCE(f.net_forecast, f.final_forecast),
+                            'final_forecast', f.final_forecast,
                             'gross_forecast', f.final_forecast,
                             'trend',          f.trend,
                             'status',         f.status,
