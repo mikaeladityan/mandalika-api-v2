@@ -176,6 +176,19 @@ export class RecomendationV2Service {
                       )
                       ${searchFilter}
                 ),
+                -- Reuse the monthly issuance aggregation across material rows.
+                sales_by_product AS MATERIALIZED (
+                    SELECT
+                        product_id, year, month,
+                        COALESCE(
+                            NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
+                            SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
+                        ) as total_month_qty
+                    FROM "product_issuances"
+                    WHERE (year * 12 + month) >= ${slStartY * 12 + slStartM}
+                      AND (year * 12 + month) <= ${slEndY * 12 + slEndM}
+                    GROUP BY product_id, year, month
+                ),
                 -- Latest FG stock per product is display metadata only; final_forecast is already netted.
                 product_stock_agg AS (
                     SELECT latest_periods.product_id, SUM(pi.quantity) as total_qty
@@ -393,18 +406,7 @@ export class RecomendationV2Service {
                             SELECT ag_sub.month, ag_sub.year, SUM(FLOOR(ag_sub.total_month_qty * rec.quantity * 
                                 CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                             ) as qty
-                            FROM (
-                                SELECT 
-                                    product_id, year, month,
-                                    COALESCE(
-                                        NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
-                                        SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
-                                    ) as total_month_qty
-                                FROM "product_issuances"
-                                WHERE (year * 12 + month) >= ${slStartY * 12 + slStartM}
-                                  AND (year * 12 + month) <= ${slEndY * 12 + slEndM}
-                                GROUP BY product_id, year, month
-                            ) ag_sub
+                            FROM sales_by_product ag_sub
                             JOIN "recipes" rec ON rec.product_id = ag_sub.product_id AND rec.is_active = true
                             JOIN "products" p ON p.id = ag_sub.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                             LEFT JOIN "product_size" ps ON ps.id = p.size_id
