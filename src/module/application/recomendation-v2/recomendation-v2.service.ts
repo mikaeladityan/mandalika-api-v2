@@ -569,6 +569,77 @@ export class RecomendationV2Service {
               ${discontinueFilter}
         `;
 
+        const discontinuedFgIds = discontinue
+            ? [...new Set(rows.map((row) => Number(row.fg_id)).filter((id) => Number.isFinite(id)))]
+            : [];
+        const productionCapacityRows = discontinuedFgIds.length > 0
+            ? await prisma.$queryRaw<Array<{ product_id: number; estimated_producible_fg: number }>>(Prisma.sql`
+                WITH recipe_requirements AS (
+                    SELECT
+                        rec.product_id,
+                        rec.raw_mat_id,
+                        SUM(
+                            rec.quantity *
+                            CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
+                        )::numeric AS required_per_fg
+                    FROM recipes rec
+                    JOIN products p ON p.id = rec.product_id
+                    JOIN raw_materials rm ON rm.id = rec.raw_mat_id
+                    LEFT JOIN product_size ps ON ps.id = p.size_id
+                    WHERE rec.product_id IN (${Prisma.join(discontinuedFgIds)})
+                      AND rec.is_active = true
+                      AND p.status = 'PENDING'
+                      AND p.deleted_at IS NULL
+                      AND rm.deleted_at IS NULL
+                      AND rm.barcode IS DISTINCT FROM 'FO-ALK'
+                    GROUP BY rec.product_id, rec.raw_mat_id
+                ),
+                material_capacity AS (
+                    SELECT
+                        req.product_id,
+                        FLOOR(
+                            GREATEST(
+                                0,
+                                COALESCE((
+                                    SELECT SUM(rmi.quantity)
+                                    FROM (
+                                        SELECT DISTINCT ON (warehouse_id) warehouse_id, year, month
+                                        FROM raw_material_inventories
+                                        WHERE raw_material_id = req.raw_mat_id
+                                          AND (year * 12 + month) <= (${invYear} * 12 + ${invMonth})
+                                        ORDER BY warehouse_id, year DESC, month DESC
+                                    ) latest_periods
+                                    JOIN raw_material_inventories rmi
+                                      ON rmi.raw_material_id = req.raw_mat_id
+                                     AND rmi.warehouse_id = latest_periods.warehouse_id
+                                     AND rmi.year = latest_periods.year
+                                     AND rmi.month = latest_periods.month
+                                ), 0)
+                                - COALESCE((
+                                    SELECT SUM(poi.quantity_planned)
+                                    FROM production_order_items poi
+                                    JOIN production_orders po ON po.id = poi.production_order_id
+                                    WHERE poi.raw_material_id = req.raw_mat_id
+                                      AND po.status = 'RELEASED'
+                                ), 0)
+                            ) / NULLIF(req.required_per_fg, 0)
+                        ) AS capacity
+                    FROM recipe_requirements req
+                )
+                SELECT
+                    product_id,
+                    COALESCE(MIN(capacity), 0)::float8 AS estimated_producible_fg
+                FROM material_capacity
+                GROUP BY product_id
+            `)
+            : [];
+        const productionCapacityByFg = new Map(
+            productionCapacityRows.map((row) => [
+                Number(row.product_id),
+                Math.max(0, Math.floor(Number(row.estimated_producible_fg))),
+            ]),
+        );
+
         const data = rows.map((r) => {
             const salesRaw =
                 typeof r.sales_data === "string" ? JSON.parse(r.sales_data) : r.sales_data || [];
@@ -648,6 +719,9 @@ export class RecomendationV2Service {
                 row_id: discontinue ? `${r.fg_id}_${r.material_id}` : String(r.material_id),
                 finished_goods: discontinue ? [{ id: Number(r.fg_id), code: String(r.fg_code), name: String(r.fg_name) }] : [],
                 is_fg_named_material: isFgNamedMaterial,
+                estimated_producible_fg: discontinue
+                    ? productionCapacityByFg.get(Number(r.fg_id)) ?? 0
+                    : undefined,
                 ranking: Number(r.ranking),
                 material_id: r.material_id,
                 barcode: r.barcode,
@@ -1810,6 +1884,12 @@ export class RecomendationV2Service {
 
         if (query.product_status === "PENDING") {
             allColumns.splice(3, 0, { header: "FG DISCONTINUE", key: "finished_goods", width: 45, uiId: "finished_goods" });
+            allColumns.splice(4, 0, {
+                header: "ESTIMASI PRODUCE FG",
+                key: "estimated_producible_fg",
+                width: 22,
+                uiId: "estimated_producible_fg",
+            });
         }
 
         // Dynamic Sales Headers

@@ -23,7 +23,10 @@ describe("RecomendationV2Service - Override Features", () => {
             total_forecast_horizon_dynamic: 300, recommendation_quantity: 240,
             current_stock: 50, open_po: 20, safety_stock_x_resep: 10,
             stock_fg_x_resep: 0, forecast_needed: 300, ranking: 1, moq: 1,
-        }))).mockResolvedValueOnce([{ count: 2 }]);
+        }))).mockResolvedValueOnce([{ count: 2 }]).mockResolvedValueOnce([
+            { product_id: 1, estimated_producible_fg: 42 },
+            { product_id: 2, estimated_producible_fg: 17 },
+        ]);
         const result = await RecomendationV2Service.list({
             page: 1, take: 25, month: 9, year: 2026, product_status: "PENDING",
             sales_months: 3, forecast_months: 2, po_months: 3,
@@ -33,6 +36,8 @@ describe("RecomendationV2Service - Override Features", () => {
         expect(result.data[0]?.finished_goods).toEqual([{ id: 1, code: "FG-1", name: "VAMO" }]);
         expect(result.data[0]?.is_fg_named_material).toBe(true);
         expect(result.data[1]?.is_fg_named_material).toBe(false);
+        expect(result.data[0]?.estimated_producible_fg).toBe(42);
+        expect(result.data[1]?.estimated_producible_fg).toBe(17);
         expect(result.data[0]?.total_needed_horizon).toBe(0);
         expect(result.data[0]?.forecast_needed).toBe(0);
         expect(result.data[0]?.total_needed_fix_2_months).toBe(0);
@@ -66,6 +71,14 @@ describe("RecomendationV2Service - Override Features", () => {
         expect(result.data[0]?.work_order_id).toBeNull();
         expect(result.data[0]?.work_order_horizon).toBeNull();
         expect(sql).toContain("AND ?");
+        const capacityCall = raw.mock.calls[3];
+        if (!capacityCall) throw new Error("Missing production capacity query");
+        const capacityArg = capacityCall[0] as { sql?: string };
+        const capacitySql = capacityArg.sql ?? "";
+        expect(capacitySql).toContain("MIN(capacity)");
+        expect(capacitySql).toContain("rec.use_size_calc");
+        expect(capacitySql).toContain("rm.barcode IS DISTINCT FROM 'FO-ALK'");
+        expect(capacitySql).toContain("po.status = 'RELEASED'");
     });
 
     it.each(["PENDING", "ACTIVE"] as const)("scopes bulk horizon calculations to %s FGs", async (product_status) => {
