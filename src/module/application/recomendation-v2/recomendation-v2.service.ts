@@ -19,6 +19,7 @@ import * as ExcelJS from "exceljs";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { logger } from "../../../lib/logger.js";
 import { calculatePOEta } from "../purchase/po/po-eta.js";
+import { DiscontinueService } from "./discontinue/discontinue.service.js";
 
 const EDITABLE_PO_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "ORDERED"] as const;
 type EditablePOStatus = typeof EDITABLE_PO_STATUSES[number];
@@ -522,7 +523,8 @@ export class RecomendationV2Service {
             ) AS base
             ${fgGroupJoin(Prisma.sql`base.material_id`)}
             ORDER BY
-                ${discontinue ? Prisma.sql`fg_group.fg_name ASC, fg_group.fg_id ASC,` : Prisma.empty}
+                ${discontinue ? Prisma.sql`CASE WHEN regexp_replace(lower(base.material_name), '[^a-z0-9]', '', 'g') LIKE '%' || regexp_replace(lower(fg_group.fg_name), '[^a-z0-9]', '', 'g') || '%' THEN 0 ELSE 1 END ASC,
+                    fg_group.fg_name ASC, fg_group.fg_id ASC,` : Prisma.empty}
                 CASE WHEN barcode LIKE 'KA-%' THEN 0 ELSE 1 END ASC,
                 CASE WHEN barcode = 'FO-ALK' THEN 1 ELSE 0 END ASC,
                 ${
@@ -568,7 +570,83 @@ export class RecomendationV2Service {
               ${discontinueFilter}
         `;
 
+        const discontinuedFgIds = discontinue
+            ? [...new Set(rows.map((row) => Number(row.fg_id)).filter((id) => Number.isFinite(id)))]
+            : [];
+        const productionCapacityRows = discontinuedFgIds.length > 0
+            ? await prisma.$queryRaw<Array<{ product_id: number; estimated_producible_fg: number }>>(Prisma.sql`
+                WITH recipe_requirements AS (
+                    SELECT
+                        rec.product_id,
+                        rec.raw_mat_id,
+                        SUM(
+                            rec.quantity *
+                            CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
+                        )::numeric AS required_per_fg
+                    FROM recipes rec
+                    JOIN products p ON p.id = rec.product_id
+                    JOIN raw_materials rm ON rm.id = rec.raw_mat_id
+                    LEFT JOIN product_size ps ON ps.id = p.size_id
+                    WHERE rec.product_id IN (${Prisma.join(discontinuedFgIds)})
+                      AND rec.is_active = true
+                      AND p.status = 'PENDING'
+                      AND p.deleted_at IS NULL
+                      AND rm.deleted_at IS NULL
+                      AND rm.barcode IS DISTINCT FROM 'FO-ALK'
+                    GROUP BY rec.product_id, rec.raw_mat_id
+                ),
+                material_capacity AS (
+                    SELECT
+                        req.product_id,
+                        FLOOR(
+                            GREATEST(
+                                0,
+                                COALESCE((
+                                    SELECT SUM(rmi.quantity)
+                                    FROM (
+                                        SELECT DISTINCT ON (warehouse_id) warehouse_id, year, month
+                                        FROM raw_material_inventories
+                                        WHERE raw_material_id = req.raw_mat_id
+                                          AND (year * 12 + month) <= (${invYear} * 12 + ${invMonth})
+                                        ORDER BY warehouse_id, year DESC, month DESC
+                                    ) latest_periods
+                                    JOIN raw_material_inventories rmi
+                                      ON rmi.raw_material_id = req.raw_mat_id
+                                     AND rmi.warehouse_id = latest_periods.warehouse_id
+                                     AND rmi.year = latest_periods.year
+                                     AND rmi.month = latest_periods.month
+                                ), 0)
+                                - COALESCE((
+                                    SELECT SUM(poi.quantity_planned)
+                                    FROM production_order_items poi
+                                    JOIN production_orders po ON po.id = poi.production_order_id
+                                    WHERE poi.raw_material_id = req.raw_mat_id
+                                      AND po.status = 'RELEASED'
+                                ), 0)
+                            ) / NULLIF(req.required_per_fg, 0)
+                        ) AS capacity
+                    FROM recipe_requirements req
+                )
+                SELECT
+                    product_id,
+                    COALESCE(MIN(capacity), 0)::float8 AS estimated_producible_fg
+                FROM material_capacity
+                GROUP BY product_id
+            `)
+            : [];
+        const productionCapacityByFg = new Map(
+            productionCapacityRows.map((row) => [
+                Number(row.product_id),
+                Math.max(0, Math.floor(Number(row.estimated_producible_fg))),
+            ]),
+        );
+
+        const discontinueNeeds = discontinue
+            ? await DiscontinueService.needs(discontinuedFgIds, currentMonth, currentYear)
+            : [];
+        const discontinueNeedByRow = new Map(discontinueNeeds.map((need) => [`${need.product_id}_${need.material_id}`, need]));
         const data = rows.map((r) => {
+            const anchoredNeed = discontinueNeedByRow.get(`${r.fg_id}_${r.material_id}`);
             const salesRaw =
                 typeof r.sales_data === "string" ? JSON.parse(r.sales_data) : r.sales_data || [];
             const needsRaw =
@@ -629,6 +707,12 @@ export class RecomendationV2Service {
                 .reduce((sum, n) => sum + (n.override_needs ?? n.quantity ?? 0), 0);
             const totalNeededFix2Months = isSpecial ? totalNeededFix2MonthsRaw * sheetToKgFactor : totalNeededFix2MonthsRaw;
 
+            const fgName = discontinue ? String(r.fg_name ?? "") : "";
+            const normalizeName = (value: string) => value.toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
+            const isFgNamedMaterial = discontinue && fgName.length > 0
+                ? normalizeName(String(r.material_name)).includes(normalizeName(fgName))
+                : false;
+
             // Recalculate recommendation specifically for special paper to avoid mixed units subtraction
             let recommendationQuantity = discontinue ? 0 : Number(r.recommendation_quantity);
             if (!discontinue && isSpecial && horizon > 0) {
@@ -640,6 +724,10 @@ export class RecomendationV2Service {
                 product_status: discontinue ? "PENDING" as const : "ACTIVE" as const,
                 row_id: discontinue ? `${r.fg_id}_${r.material_id}` : String(r.material_id),
                 finished_goods: discontinue ? [{ id: Number(r.fg_id), code: String(r.fg_code), name: String(r.fg_name) }] : [],
+                is_fg_named_material: isFgNamedMaterial,
+                estimated_producible_fg: discontinue
+                    ? productionCapacityByFg.get(Number(r.fg_id)) ?? 0
+                    : undefined,
                 ranking: Number(r.ranking),
                 material_id: r.material_id,
                 barcode: r.barcode,
@@ -652,7 +740,12 @@ export class RecomendationV2Service {
                 stock_fg_x_resep: Number(r.stock_fg_x_resep),
                 safety_stock_x_resep: safetyStock,
                 forecast_needed: forecastNeeded,
-                total_needed_horizon: totalNeededHorizon,
+                total_needed_horizon: discontinue
+                    ? anchoredNeed?.anchor_valid && anchoredNeed.total_needed > 0
+                        ? Prisma.Decimal.max(0, new Prisma.Decimal(anchoredNeed.total_needed).minus(currentStock)).toDecimalPlaces(8).toNumber()
+                        : 0
+                    : totalNeededHorizon,
+                discontinue_anchor: discontinue ? anchoredNeed ?? null : null,
                 total_needed_fix_2_months: totalNeededFix2Months,
                 recommendation_quantity: recommendationQuantity,
                 is_special_paper: isSpecial,
@@ -1802,6 +1895,12 @@ export class RecomendationV2Service {
 
         if (query.product_status === "PENDING") {
             allColumns.splice(3, 0, { header: "FG DISCONTINUE", key: "finished_goods", width: 45, uiId: "finished_goods" });
+            allColumns.splice(4, 0, {
+                header: "ESTIMASI PRODUCE FG",
+                key: "estimated_producible_fg",
+                width: 22,
+                uiId: "estimated_producible_fg",
+            });
         }
 
         // Dynamic Sales Headers
@@ -1878,7 +1977,11 @@ export class RecomendationV2Service {
             // Calculate total need based on horizon (Only if set by PIC)
             const h = row.work_order_horizon || 0;
             const hasNeeds = row.needs && row.needs.length > 0;
-            const totalNeeded = query.product_status === "PENDING" ? 0 :
+            const totalNeeded = query.product_status === "PENDING"
+                ? row.discontinue_anchor?.anchor_material_id === row.material_id
+                    ? row.discontinue_anchor.anchor_quantity ?? 0
+                    : row.total_needed_horizon ?? 0
+                :
                 h > 0 && hasNeeds
                     ? (row.needs || [])
                           .slice(0, h)

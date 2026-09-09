@@ -535,6 +535,20 @@ model RawMaterialNeedOverride {
   @@map("raw_material_need_overrides")
 }
 
+model DiscontinueNeedAnchor {
+  id                  Int      @id @default(autoincrement())
+  product_id          Int
+  month               Int      @db.SmallInt
+  year                Int      @db.SmallInt
+  anchor_material_id  Int
+  quantity            Decimal  @db.Decimal(24, 8)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  @@unique([product_id, month, year])
+  @@map("discontinue_need_anchors")
+}
+
 model MaterialPurchaseDraft {
   id                   Int                  @id @default(autoincrement())
   raw_mat_id           Int
