@@ -19,7 +19,7 @@ describe("RecomendationV2Service - Override Features", () => {
             fg_id: fgId, fg_code: `FG-${fgId}`, fg_name: `Discontinue ${fgId}`,
             material_id: 7, material_name: "Shared material", barcode: "RM-7",
             needs_data: [{ month: 9, year: 2026, needs: 100 }, { month: 10, year: 2026, needs: 200 }],
-            sales_data: [], po_data: [], work_order_data: { id: 12, horizon: 2, status: "DRAFT" },
+            sales_data: [], po_data: [], work_order_data: null,
             total_forecast_horizon_dynamic: 300, recommendation_quantity: 240,
             current_stock: 50, open_po: 20, safety_stock_x_resep: 10,
             stock_fg_x_resep: 0, forecast_needed: 300, ranking: 1, moq: 1,
@@ -38,7 +38,7 @@ describe("RecomendationV2Service - Override Features", () => {
         expect(result.data[0]?.recommendation_quantity).toBe(0);
         expect(result.data[0]?.safety_stock_x_resep).toBe(0);
         expect(result.data[0]?.product_status).toBe("PENDING");
-        expect(result.data[0]?.work_order_horizon).toBe(2);
+        expect(result.data[0]?.work_order_horizon).toBeNull();
         // Flatten the tagged template to verify every product calculation is scoped to Discontinue.
         const call = raw.mock.calls[1];
         if (!call) throw new Error("Missing recommendation query");
@@ -60,7 +60,9 @@ describe("RecomendationV2Service - Override Features", () => {
         expect(sql).toContain("0::numeric AS safety_stock_x_resep");
         expect(sql).toContain("0::numeric AS total_forecast_horizon_dynamic");
         expect(sql).toContain("ON o.raw_material_id = fm.id");
-        expect(result.data[0]?.work_order_id).toBe(12);
+        expect(result.data[0]?.work_order_id).toBeNull();
+        expect(result.data[0]?.work_order_horizon).toBeNull();
+        expect(sql).toContain("AND ?");
     });
 
     it.each(["PENDING", "ACTIVE"] as const)("scopes bulk horizon calculations to %s FGs", async (product_status) => {

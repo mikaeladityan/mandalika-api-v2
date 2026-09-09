@@ -483,6 +483,7 @@ export class RecomendationV2Service {
                         WHERE mro_sub.raw_mat_id = fm.id
                           AND mro_sub.month = ${currentMonth}
                           AND mro_sub.year = ${currentYear}
+                          AND ${!discontinue}
                         LIMIT 1
                     ) AS work_order_data,
                     mro.hidden_at AS work_order_hidden_at
@@ -492,6 +493,7 @@ export class RecomendationV2Service {
                     ON mro.raw_mat_id = fm.id
                     AND mro.month = ${currentMonth} 
                     AND mro.year = ${currentYear}
+                    AND ${!discontinue}
                 LEFT JOIN LATERAL (
                     SELECT COALESCE(SUM(COALESCE(o.quantity, mr.calc_needed)), 0) AS total_needed
                     FROM (
