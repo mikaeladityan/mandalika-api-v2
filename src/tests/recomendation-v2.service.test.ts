@@ -111,7 +111,7 @@ describe("RecomendationV2Service - Override Features", () => {
             ];
 
             // @ts-ignore
-            prisma.$queryRaw.mockResolvedValueOnce([]); // earliestPo (MIN order_date)
+            prisma.$queryRaw.mockResolvedValueOnce([]); // historical months with outstanding POs
             // @ts-ignore
             prisma.$queryRaw.mockResolvedValueOnce(mockRows); // main rows query
             // @ts-ignore
@@ -132,6 +132,67 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(target).toBeDefined();
             expect(target?.override_needs).toBe(1500);
             expect(target?.quantity).toBe(1000);
+        });
+    });
+
+    describe("historical Open PO columns", () => {
+        const query = {
+            page: 1, take: 10, month: 9, year: 2026,
+            type: "lokal" as const, sales_months: 3, forecast_months: 3, po_months: 2,
+        };
+        const mockList = (months: { month: number; year: number }[]) => {
+            vi.mocked(prisma.$queryRaw)
+                .mockResolvedValueOnce(months)
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([{ count: 0 }]);
+        };
+
+        it("does not retain the previous month when no RM has an outstanding PO", async () => {
+            mockList([]);
+            const result = await RecomendationV2Service.list(query);
+            expect(result.periods.po_periods.map(p => p.key)).toEqual([
+                "9-2026", "10-2026", "11-2026",
+            ]);
+        });
+
+        it("keeps occupied historical months without filling empty gaps or truncating old POs", async () => {
+            mockList([{ month: 12, year: 2024 }, { month: 2, year: 2026 }, { month: 7, year: 2026 }]);
+            const result = await RecomendationV2Service.list(query);
+            expect(result.periods.po_periods.map(p => p.key)).toEqual([
+                "12-2024", "2-2026", "7-2026", "9-2026", "10-2026", "11-2026",
+            ]);
+        });
+
+        it("drops a historical month on refresh after its last outstanding PO disappears", async () => {
+            mockList([{ month: 7, year: 2026 }]);
+            const before = await RecomendationV2Service.list(query);
+            expect(before.periods.po_periods[0]?.key).toBe("7-2026");
+            mockList([]);
+            const after = await RecomendationV2Service.list(query);
+            expect(after.periods.po_periods.map(p => p.key)).not.toContain("7-2026");
+        });
+
+        it("checks positive outstanding lines across all RM independently of search and pagination", async () => {
+            mockList([{ month: 7, year: 2026 }]);
+            const result = await RecomendationV2Service.list({ ...query, page: 3, search: "FILTERED-RM" });
+            expect(result.data).toEqual([]);
+            expect(result.periods.po_periods[0]?.key).toBe("7-2026");
+            const call = vi.mocked(prisma.$queryRaw).mock.calls[0]!;
+            const sql = (call[0] as TemplateStringsArray).join(" ");
+            expect(sql).toContain("SELECT DISTINCT");
+            expect(sql).toContain("po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')");
+            expect(sql).toContain("poi.qty_received < poi.qty_ordered");
+            expect(sql).toContain("rm.deleted_at IS NULL");
+            expect(sql).not.toMatch(/ILIKE|LIMIT|OFFSET/);
+            expect(call.slice(1)).toEqual([2026 * 12 + 9]);
+        });
+
+        it("preserves the planning horizon across a year boundary", async () => {
+            mockList([]);
+            const result = await RecomendationV2Service.list({ ...query, month: 12 });
+            expect(result.periods.po_periods.map(p => p.key)).toEqual([
+                "12-2026", "1-2027", "2-2027",
+            ]);
         });
     });
 
