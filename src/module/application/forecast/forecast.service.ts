@@ -40,6 +40,7 @@ export function sortInventoryTurnoverRows<T extends Record<string, SortableValue
 
 const PRODUCT_SELECT = {
     id: true,
+    status: true,
     name: true,
     product_type: { select: { slug: true } },
     size: { select: { size: true } },
@@ -847,9 +848,18 @@ export class ForecastService {
                     const distPct = Number(product[distField] ?? 0);
                     const input = currentInputMap.get(product.id) ?? 0;
 
+                    if (product.status === "PENDING") {
+                        computedFinalMap.set(product.id, 0);
+                        nextInputMap.set(product.id, 0);
+                        batch.push({ product_id: product.id, month: m.month, year: m.year,
+                            base_forecast: 0, final_forecast: 0, trend: ForecastService.trend(0, input),
+                            forecast_percentage_id: pct?.id ?? 1, status });
+                        continue;
+                    }
+
                     const isRegularExtParfum =
                         (ForecastService.isExtSlug(slug) || ForecastService.isParfumSlug(slug)) &&
-                        (ForecastService.isAnchorSize(size) || size === 2);
+                        (ForecastService.isAnchorSize(size) || (size === 2 && distField === "reference_distribution_percentage"));
 
                     // In Pass 1, skip regular EXT/Parfum that need mirroring (defer to Pass 2)
                     const needsMirrorInPass1 =
@@ -886,34 +896,37 @@ export class ForecastService {
                         base_forecast = input * (1 + pctValue);
                         final_forecast = atomFinal * distPct;
                     } else if (isVial2ml) {
-                        // Pass 1: Handle only Hampers 2ML or Regular 2ML that doesn't need mirroring
-                        // (Mirroring check is already done at the start of loop)
                         base_forecast = input * (1 + pctValue);
-                        // Copy from its corresponding 100-120ml variant in this group.
-                        // Slug dicocokkan per keluarga (EXT/EDP vs Parfum), bukan string persis.
-                        const isSameFamily = (candidate?: string | null) => {
-                            if (ForecastService.isExtSlug(slug)) {
-                                return ForecastService.isExtSlug(candidate);
-                            }
-                            if (ForecastService.isHampersExtSlug(slug)) {
-                                return ForecastService.isHampersExtSlug(candidate);
-                            }
-                            if (ForecastService.isParfumSlug(slug)) {
-                                return ForecastService.isParfumSlug(candidate);
-                            }
-                            return ForecastService.isHampersParfumSlug(candidate);
-                        };
-                        const parent = group.find(
-                            (p) =>
-                                isSameFamily(p.product_type?.slug) &&
-                                ForecastService.isAnchorSize(p.size?.size),
-                        );
-                        if (parent) {
-                            final_forecast =
-                                computedFinalMap.get(parent.id) ??
-                                atomFinal * Number(parent[distField] ?? 0);
-                        } else {
+                        // EDAR Vial is independent; keep the reference calculation unchanged.
+                        if (distField === "distribution_percentage") {
                             final_forecast = atomFinal * distPct;
+                        } else {
+                            // Copy from its corresponding 100-120ml variant in this group.
+                            // Slug dicocokkan per keluarga (EXT/EDP vs Parfum), bukan string persis.
+                            const isSameFamily = (candidate?: string | null) => {
+                                if (ForecastService.isExtSlug(slug)) {
+                                    return ForecastService.isExtSlug(candidate);
+                                }
+                                if (ForecastService.isHampersExtSlug(slug)) {
+                                    return ForecastService.isHampersExtSlug(candidate);
+                                }
+                                if (ForecastService.isParfumSlug(slug)) {
+                                    return ForecastService.isParfumSlug(candidate);
+                                }
+                                return ForecastService.isHampersParfumSlug(candidate);
+                            };
+                            const parent = group.find(
+                                (p) =>
+                                    isSameFamily(p.product_type?.slug) &&
+                                    ForecastService.isAnchorSize(p.size?.size),
+                            );
+                            if (parent) {
+                                final_forecast =
+                                    computedFinalMap.get(parent.id) ??
+                                    atomFinal * Number(parent[distField] ?? 0);
+                            } else {
+                                final_forecast = atomFinal * distPct;
+                            }
                         }
                     }
 
@@ -937,19 +950,18 @@ export class ForecastService {
                     const size = product.size?.size;
                     const input = currentInputMap.get(product.id) ?? 0;
 
+                    if (product.status === "PENDING") continue;
                     if (!is_others && isOthersSlug(slug)) continue;
 
                     const isRegularExt =
                         ForecastService.isExtSlug(slug) && ForecastService.isAnchorSize(size);
-                    const isRegularExt2ml = ForecastService.isExtSlug(slug) && size === 2;
                     const isRegularParfum =
                         ForecastService.isParfumSlug(slug) && ForecastService.isAnchorSize(size);
-                    const isRegularParfum2ml = ForecastService.isParfumSlug(slug) && size === 2;
 
                     const needsExtMirror =
-                        (isRegularExt || isRegularExt2ml) && extMirrorAromas.has(aromaName);
+                        (isRegularExt || (size === 2 && ForecastService.isExtSlug(slug) && distField === "reference_distribution_percentage")) && extMirrorAromas.has(aromaName);
                     const needsParfumMirror =
-                        (isRegularParfum || isRegularParfum2ml) &&
+                        (isRegularParfum || (size === 2 && ForecastService.isParfumSlug(slug) && distField === "reference_distribution_percentage")) &&
                         parfumMirrorAromas.has(aromaName);
 
                     if (!needsExtMirror && !needsParfumMirror) continue;
@@ -1128,7 +1140,7 @@ export class ForecastService {
             ? await ForecastService.loadVariantsByProductId(product_id, body.is_others)
             : await prisma.product.findMany({
                   where: {
-                      status: "ACTIVE",
+                      status: { in: ["ACTIVE", "PENDING"] },
                       ...(body.is_others
                           ? {
                                 OR: [
@@ -2416,7 +2428,7 @@ export class ForecastService {
 
         const variations = await prisma.product.findMany({
             where: {
-                status: "ACTIVE",
+                status: { in: ["ACTIVE", "PENDING"] },
                 deleted_at: null,
                 AND: [
                     {

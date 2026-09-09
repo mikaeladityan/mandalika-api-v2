@@ -1,8 +1,13 @@
 import z from "zod";
+import { RunForecastSchema } from "../forecast/forecast.schema.js";
+
 import { GENDER, STATUS } from "../../../generated/prisma/client.js";
 import { UnitResponseSchema } from "./unit/unit.schema.js";
 import { TypeResponseSchema } from "./type/type.schema.js";
 import { ResponseProductSizeSchema } from "./size/size.schema.js";
+
+export const ProductForecastPeriodSchema = RunForecastSchema.omit({ product_id: true, is_others: true });
+export type ProductForecastPeriodDTO = z.infer<typeof ProductForecastPeriodSchema>;
 
 export const RequestProductSchema = z.object({
     code: z.string().max(100).regex(/^\S+$/, { message: "Gunakan '_' (underscore) untuk spasi" }),
@@ -123,7 +128,8 @@ export const UpdateProductSchema = z
         review_period: z.number().int().min(1),
         unit: z.string().nullable(),
         product_type: z.string().nullable(),
-        distribution_percentage: z.coerce.number().min(0),
+        distribution_percentage: z.coerce.number().min(0).max(1),
+        rerun: ProductForecastPeriodSchema,
         safety_percentage: z.coerce.number().min(0),
         description: z.string().nullable(),
     })
@@ -132,6 +138,9 @@ export const UpdateProductSchema = z
 
 export const StatusQuerySchema = z.object({
     status: z.enum(STATUS),
+    start_month: ProductForecastPeriodSchema.shape.start_month.optional(),
+    start_year: ProductForecastPeriodSchema.shape.start_year.optional(),
+    horizon: ProductForecastPeriodSchema.shape.horizon.optional(),
 });
 
 export type RequestProductDTO = z.infer<typeof RequestProductSchema>;

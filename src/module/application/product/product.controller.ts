@@ -75,7 +75,7 @@ export class ProductController {
         const parsed = StatusQuerySchema.safeParse(c.req.query());
         if (!parsed.success) throw new ApiError(400, "Status tidak valid");
 
-        await ProductService.status(id, parsed.data.status);
+        await ProductService.status(id, parsed.data.status, parsed.data);
 
         const accountSession = c.get("session");
         const log: CreateLoggingActivityDTO = {
