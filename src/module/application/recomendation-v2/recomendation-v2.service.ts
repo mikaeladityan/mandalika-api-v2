@@ -629,6 +629,12 @@ export class RecomendationV2Service {
                 .reduce((sum, n) => sum + (n.override_needs ?? n.quantity ?? 0), 0);
             const totalNeededFix2Months = isSpecial ? totalNeededFix2MonthsRaw * sheetToKgFactor : totalNeededFix2MonthsRaw;
 
+            const fgName = discontinue ? String(r.fg_name ?? "") : "";
+            const normalizeName = (value: string) => value.toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
+            const isFgNamedMaterial = discontinue && fgName.length > 0
+                ? normalizeName(String(r.material_name)).includes(normalizeName(fgName))
+                : false;
+
             // Recalculate recommendation specifically for special paper to avoid mixed units subtraction
             let recommendationQuantity = discontinue ? 0 : Number(r.recommendation_quantity);
             if (!discontinue && isSpecial && horizon > 0) {
@@ -640,6 +646,7 @@ export class RecomendationV2Service {
                 product_status: discontinue ? "PENDING" as const : "ACTIVE" as const,
                 row_id: discontinue ? `${r.fg_id}_${r.material_id}` : String(r.material_id),
                 finished_goods: discontinue ? [{ id: Number(r.fg_id), code: String(r.fg_code), name: String(r.fg_name) }] : [],
+                is_fg_named_material: isFgNamedMaterial,
                 ranking: Number(r.ranking),
                 material_id: r.material_id,
                 barcode: r.barcode,
