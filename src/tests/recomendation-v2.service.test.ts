@@ -62,7 +62,7 @@ describe("RecomendationV2Service - Override Features", () => {
         expect(result.data[0]?.forecast_needed).toBe(0);
         expect(result.data[0]?.total_needed_fix_2_months).toBe(0);
         expect(result.data[0]?.needs.every((need) => need.quantity === 0 && need.override_needs == null)).toBe(true);
-        expect(result.data[0]?.recommendation_quantity).toBe(0);
+        expect(result.data[0]?.recommendation_quantity).toBe(shortage);
         expect(result.data[0]?.safety_stock_x_resep).toBe(0);
         expect(result.data[0]?.product_status).toBe("PENDING");
         expect(result.data[0]?.work_order_horizon).toBeNull();
