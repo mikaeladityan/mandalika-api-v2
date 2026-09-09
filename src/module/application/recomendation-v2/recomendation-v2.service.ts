@@ -523,8 +523,8 @@ export class RecomendationV2Service {
             ) AS base
             ${fgGroupJoin(Prisma.sql`base.material_id`)}
             ORDER BY
-                ${discontinue ? Prisma.sql`CASE WHEN regexp_replace(lower(base.material_name), '[^a-z0-9]', '', 'g') LIKE '%' || regexp_replace(lower(fg_group.fg_name), '[^a-z0-9]', '', 'g') || '%' THEN 0 ELSE 1 END ASC,
-                    fg_group.fg_name ASC, fg_group.fg_id ASC,` : Prisma.empty}
+                ${discontinue ? Prisma.sql`fg_group.fg_name ASC, fg_group.fg_id ASC,
+                    CASE WHEN regexp_replace(lower(base.material_name), '[^a-z0-9]', '', 'g') LIKE '%' || regexp_replace(lower(fg_group.fg_name), '[^a-z0-9]', '', 'g') || '%' THEN 0 ELSE 1 END ASC,` : Prisma.empty}
                 CASE WHEN barcode LIKE 'KA-%' THEN 0 ELSE 1 END ASC,
                 CASE WHEN barcode = 'FO-ALK' THEN 1 ELSE 0 END ASC,
                 ${
