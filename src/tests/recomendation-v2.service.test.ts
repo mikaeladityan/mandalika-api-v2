@@ -49,6 +49,7 @@ describe("RecomendationV2Service - Override Features", () => {
             ? Prisma.sql(template as TemplateStringsArray, ...call.slice(1)).sql
             : "";
         expect(sql).toContain("fg_group.fg_name ASC, fg_group.fg_id ASC");
+        expect(sql).toContain("regexp_replace(lower(base.material_name)");
         expect(sql.indexOf("fg_group.fg_name ASC")).toBeLessThan(sql.lastIndexOf("LIMIT"));
         const countCall = raw.mock.calls[2];
         if (!countCall || !Array.isArray(countCall[0])) throw new Error("Missing count query");
