@@ -13,6 +13,75 @@ describe("RecomendationV2Service - Override Features", () => {
         vi.useRealTimers();
     });
 
+    it("groups shared materials under each FG before pagination without calculating needs", async () => {
+        const raw = vi.mocked(prisma.$queryRaw);
+        raw.mockResolvedValueOnce([]).mockResolvedValueOnce([1, 2].map((fgId) => ({
+            fg_id: fgId, fg_code: `FG-${fgId}`, fg_name: `Discontinue ${fgId}`,
+            material_id: 7, material_name: "Shared material", barcode: "RM-7",
+            needs_data: [{ month: 9, year: 2026, needs: 100 }, { month: 10, year: 2026, needs: 200 }],
+            sales_data: [], po_data: [], work_order_data: { id: 12, horizon: 2, status: "DRAFT" },
+            total_forecast_horizon_dynamic: 300, recommendation_quantity: 240,
+            current_stock: 50, open_po: 20, safety_stock_x_resep: 10,
+            stock_fg_x_resep: 0, forecast_needed: 300, ranking: 1, moq: 1,
+        }))).mockResolvedValueOnce([{ count: 2 }]);
+        const result = await RecomendationV2Service.list({
+            page: 1, take: 25, month: 9, year: 2026, product_status: "PENDING",
+            sales_months: 3, forecast_months: 2, po_months: 3,
+        });
+        expect(result.len).toBe(2);
+        expect(result.data.map((row) => row.row_id)).toEqual(["1_7", "2_7"]);
+        expect(result.data[0]?.finished_goods).toEqual([{ id: 1, code: "FG-1", name: "Discontinue 1" }]);
+        expect(result.data[0]?.total_needed_horizon).toBe(0);
+        expect(result.data[0]?.forecast_needed).toBe(0);
+        expect(result.data[0]?.total_needed_fix_2_months).toBe(0);
+        expect(result.data[0]?.needs.every((need) => need.quantity === 0 && need.override_needs == null)).toBe(true);
+        expect(result.data[0]?.recommendation_quantity).toBe(0);
+        expect(result.data[0]?.safety_stock_x_resep).toBe(0);
+        expect(result.data[0]?.product_status).toBe("PENDING");
+        expect(result.data[0]?.work_order_horizon).toBe(2);
+        // Flatten the tagged template to verify every product calculation is scoped to Discontinue.
+        const call = raw.mock.calls[1];
+        if (!call) throw new Error("Missing recommendation query");
+        const template = call[0];
+        const sql = Array.isArray(template)
+            ? Prisma.sql(template as TemplateStringsArray, ...call.slice(1)).sql
+            : "";
+        expect(sql).toContain("fg_group.fg_name ASC, fg_group.fg_id ASC");
+        expect(sql.indexOf("fg_group.fg_name ASC")).toBeLessThan(sql.lastIndexOf("LIMIT"));
+        const countCall = raw.mock.calls[2];
+        if (!countCall || !Array.isArray(countCall[0])) throw new Error("Missing count query");
+        const countSql = Prisma.sql(countCall[0] as TemplateStringsArray, ...countCall.slice(1)).sql;
+        expect(countSql).toContain("gr.raw_mat_id = rm.id");
+        expect(countSql).toContain("fg_group ON TRUE");
+        expect(sql).toContain("p.status = 'PENDING'");
+        expect(sql).not.toContain("p.status = 'ACTIVE'");
+        expect(sql).toContain("dp.status = 'PENDING'");
+        expect(sql).toContain("rm.barcode IS DISTINCT FROM 'FO-ALK'");
+        expect(sql).toContain("0::numeric AS safety_stock_x_resep");
+        expect(sql).toContain("0::numeric AS total_forecast_horizon_dynamic");
+        expect(sql).toContain("ON o.raw_material_id = fm.id");
+        expect(result.data[0]?.work_order_id).toBe(12);
+    });
+
+    it.each(["PENDING", "ACTIVE"] as const)("scopes bulk horizon calculations to %s FGs", async (product_status) => {
+        await RecomendationV2Service.bulkSaveHorizon({ month: 9, year: 2026, horizon: 3, product_status });
+        const call = vi.mocked(prisma.$executeRaw).mock.calls[0];
+        if (!call || !Array.isArray(call[0])) throw new Error("Missing bulk SQL");
+        const sql = Prisma.sql(call[0] as TemplateStringsArray, ...call.slice(1)).sql;
+        expect(sql).toContain(`p.status = '${product_status}'`);
+        expect(sql).not.toContain(`p.status = '${product_status === "PENDING" ? "ACTIVE" : "PENDING"}'`);
+        if (product_status === "PENDING") {
+            expect(sql).toContain("dp.status = 'PENDING'");
+            expect(sql).toContain("rm.barcode IS DISTINCT FROM 'FO-ALK'");
+            expect(sql).toContain("0::numeric AS safety_stock_x_resep");
+            expect(sql).toContain("0::numeric AS total_needed");
+        } else {
+            expect(sql).toContain("COALESCE(ss.total, 0) AS safety_stock_x_resep");
+            expect(sql).not.toContain("rm.barcode IS DISTINCT FROM 'FO-ALK'");
+        }
+        expect(sql).toContain(`"material_purchase_drafts".status = 'DRAFT'`);
+    });
+
     describe("saveNeedOverride", () => {
         const mockBody = {
             raw_material_id: 1,

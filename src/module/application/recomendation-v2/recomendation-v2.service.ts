@@ -36,6 +36,27 @@ export class RecomendationV2Service {
             forecast_months = 3,
             po_months = 3,
         } = query;
+        const discontinue = query.product_status === "PENDING";
+        const productStatus = discontinue ? Prisma.sql`'PENDING'` : Prisma.sql`'ACTIVE'`;
+        const discontinueFilter = discontinue ? Prisma.sql`AND rm.barcode IS DISTINCT FROM 'FO-ALK'
+        AND EXISTS (
+            SELECT 1 FROM recipes dr JOIN products dp ON dp.id = dr.product_id
+            WHERE dr.raw_mat_id = rm.id AND dr.is_active = true
+              AND dp.status = 'PENDING' AND dp.deleted_at IS NULL
+        )` : Prisma.empty;
+        const fgGroupJoin = (materialId: Prisma.Sql) => discontinue ? Prisma.sql`
+            JOIN LATERAL (
+                SELECT DISTINCT gp.id AS fg_id, gp.code AS fg_code, gp.name AS fg_name
+                FROM recipes gr JOIN products gp ON gp.id = gr.product_id
+                WHERE gr.raw_mat_id = ${materialId} AND gr.is_active = true
+                  AND gp.status = 'PENDING' AND gp.deleted_at IS NULL
+                  ${search ? Prisma.sql`AND (
+                      gp.name ILIKE ${"%" + search + "%"} OR gp.code ILIKE ${"%" + search + "%"}
+                      OR EXISTS (SELECT 1 FROM raw_materials gm WHERE gm.id = ${materialId}
+                          AND (gm.name ILIKE ${"%" + search + "%"} OR gm.barcode ILIKE ${"%" + search + "%"}))
+                  )` : Prisma.empty}
+            ) fg_group ON TRUE
+        ` : Prisma.empty;
         const { skip, take: limit } = GetPagination(page, take);
 
         const now = new Date();
@@ -90,7 +111,13 @@ export class RecomendationV2Service {
         const slEndM = salesPeriods[salesPeriods.length - 1]?.month || currentMonth;
         const slEndY = salesPeriods[salesPeriods.length - 1]?.year || currentYear;
 
-        const searchFilter = RecomendationV2Service.buildSearchFilter(search);
+        const searchFilter = discontinue && search ? Prisma.sql`AND (
+            rm.name ILIKE ${"%" + search + "%"} OR rm.barcode ILIKE ${"%" + search + "%"}
+            OR EXISTS (SELECT 1 FROM recipes sr JOIN products sp ON sp.id = sr.product_id
+                WHERE sr.raw_mat_id = rm.id AND sr.is_active = true
+                  AND sp.status = 'PENDING' AND sp.deleted_at IS NULL
+                  AND (sp.name ILIKE ${"%" + search + "%"} OR sp.code ILIKE ${"%" + search + "%"}))
+        )` : RecomendationV2Service.buildSearchFilter(search);
 
         const [latestInv, latestFgInv, historicalPoPeriods] = await Promise.all([
             prisma.rawMaterialInventory.findFirst({
@@ -172,6 +199,7 @@ export class RecomendationV2Service {
                           WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
                       )
                       ${searchFilter}
+              ${discontinueFilter}
                 ),
                 -- Reuse the monthly issuance aggregation across material rows.
                 sales_by_product AS MATERIALIZED (
@@ -224,7 +252,7 @@ export class RecomendationV2Service {
                         WHERE (year * 12 + month) BETWEEN ${ssStart} AND ${ssEnd}
                         GROUP BY product_id, year, month
                     ) actual ON actual.product_id = p.id
-                    WHERE p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                    WHERE p.status = ${productStatus} AND p.deleted_at IS NULL
                       AND EXISTS (
                           SELECT 1 FROM "recipes" rec 
                           WHERE rec.product_id = p.id
@@ -252,8 +280,8 @@ export class RecomendationV2Service {
                         ), 0) AS m1_forecast_needed
                     FROM filtered_materials fm
                     JOIN "recipes" rec ON rec.raw_mat_id = fm.id AND rec.is_active = true
-                    JOIN "forecasts" f ON f.product_id = rec.product_id
-                    JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                    JOIN "forecasts" f ON f.product_id = rec.product_id AND ${!discontinue}
+                    JOIN "products" p ON p.id = f.product_id AND p.status = ${productStatus} AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE (f.year * 12 + f.month) >= ${fcStart}
                       AND (f.year * 12 + f.month) <= ${fcEnd}
@@ -272,7 +300,7 @@ export class RecomendationV2Service {
                         ), 0) AS stock_fg_x_resep
                     FROM filtered_materials fm
                     JOIN "recipes" rec ON rec.raw_mat_id = fm.id AND rec.is_active = true
-                    JOIN "products" p ON p.id = rec.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                    JOIN "products" p ON p.id = rec.product_id AND p.status = ${productStatus} AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     LEFT JOIN prod_dynamic_ss dss ON dss.product_id = p.id
                     LEFT JOIN product_stock_agg pi_agg ON pi_agg.product_id = p.id
@@ -285,7 +313,7 @@ export class RecomendationV2Service {
                     FROM "product_issuances" pi
                     JOIN "recipes" rec ON rec.product_id = pi.product_id AND rec.is_active = true
                     JOIN filtered_materials fm ON fm.id = rec.raw_mat_id
-                    JOIN "products" p ON p.id = pi.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                    JOIN "products" p ON p.id = pi.product_id AND p.status = ${productStatus} AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE pi.month = ${prevMonth} AND pi.year = ${prevYear}
                       AND (
@@ -386,12 +414,12 @@ export class RecomendationV2Service {
                         ) p_data
                     ) AS po_data,
 
-                    COALESCE(fa.m1_forecast_needed, 0) AS forecast_needed,
-                    COALESCE(sa.dynamic_ss_x_resep, 0) AS safety_stock_x_resep,
+                    ${discontinue ? Prisma.sql`0::numeric` : Prisma.sql`COALESCE(fa.m1_forecast_needed, 0)`} AS forecast_needed,
+                    ${discontinue ? Prisma.sql`0::numeric` : Prisma.sql`COALESCE(sa.dynamic_ss_x_resep, 0)`} AS safety_stock_x_resep,
                     COALESCE(sa.stock_fg_x_resep, 0) AS stock_fg_x_resep,
                     
-                    COALESCE(h_fc.total_needed, 0) AS total_forecast_horizon_dynamic,
-                    COALESCE(fa.total_forecast_needed, 0) AS total_forecast_horizon_max,
+                    ${discontinue ? Prisma.sql`0::numeric` : Prisma.sql`COALESCE(h_fc.total_needed, 0)`} AS total_forecast_horizon_dynamic,
+                    ${discontinue ? Prisma.sql`0::numeric` : Prisma.sql`COALESCE(fa.total_forecast_needed, 0)`} AS total_forecast_horizon_max,
                     COALESCE(cms.current_month_sales, 0) as current_month_sales,
                     (
                         SELECT COALESCE(json_agg(
@@ -407,7 +435,7 @@ export class RecomendationV2Service {
                             ) as qty
                             FROM sales_by_product ag_sub
                             JOIN "recipes" rec ON rec.product_id = ag_sub.product_id AND rec.is_active = true
-                            JOIN "products" p ON p.id = ag_sub.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                            JOIN "products" p ON p.id = ag_sub.product_id AND p.status = ${productStatus} AND p.deleted_at IS NULL
                             LEFT JOIN "product_size" ps ON ps.id = p.size_id
                             WHERE rec.raw_mat_id = fm.id
                             GROUP BY ag_sub.month, ag_sub.year
@@ -429,9 +457,10 @@ export class RecomendationV2Service {
                             ) as total_needed
                             FROM "forecasts" f
                             JOIN "recipes" rec ON rec.product_id = f.product_id AND rec.is_active = true
-                            JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                            JOIN "products" p ON p.id = f.product_id AND p.status = ${productStatus} AND p.deleted_at IS NULL
                             LEFT JOIN "product_size" ps ON ps.id = p.size_id
                             WHERE rec.raw_mat_id = fm.id
+                              AND ${!discontinue}
                               AND (f.year * 12 + f.month) >= ${fcStartY * 12 + fcStartM}
                               AND (f.year * 12 + f.month) <= ${fcEndY * 12 + fcEndM}
                             GROUP BY f.month, f.year
@@ -460,7 +489,7 @@ export class RecomendationV2Service {
 
                 FROM filtered_materials fm
                 LEFT JOIN "material_purchase_drafts" mro 
-                    ON mro.raw_mat_id = fm.id 
+                    ON mro.raw_mat_id = fm.id
                     AND mro.month = ${currentMonth} 
                     AND mro.year = ${currentYear}
                 LEFT JOIN LATERAL (
@@ -471,8 +500,8 @@ export class RecomendationV2Service {
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ) as calc_needed
                         FROM "recipes" rec
-                        JOIN "forecasts" f ON f.product_id = rec.product_id
-                        JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                        JOIN "forecasts" f ON f.product_id = rec.product_id AND ${!discontinue}
+                        JOIN "products" p ON p.id = f.product_id AND p.status = ${productStatus} AND p.deleted_at IS NULL
                         LEFT JOIN "product_size" ps ON ps.id = p.size_id
                         WHERE rec.raw_mat_id = fm.id
                           AND mro.horizon IS NOT NULL
@@ -489,7 +518,9 @@ export class RecomendationV2Service {
                 LEFT JOIN rm_stock_ss_agg sa ON sa.raw_mat_id = fm.id
                 LEFT JOIN rm_current_sales_agg cms ON cms.raw_mat_id = fm.id
             ) AS base
+            ${fgGroupJoin(Prisma.sql`base.material_id`)}
             ORDER BY
+                ${discontinue ? Prisma.sql`fg_group.fg_name ASC, fg_group.fg_id ASC,` : Prisma.empty}
                 CASE WHEN barcode LIKE 'KA-%' THEN 0 ELSE 1 END ASC,
                 CASE WHEN barcode = 'FO-ALK' THEN 1 ELSE 0 END ASC,
                 ${
@@ -511,6 +542,7 @@ export class RecomendationV2Service {
                             ? Prisma.sql`current_month_sales DESC, material_name ASC` 
                             : Prisma.sql`material_name ASC`)
                 }
+                , material_id ASC
             LIMIT ${limit} OFFSET ${skip}
         `;
 
@@ -521,6 +553,7 @@ export class RecomendationV2Service {
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
             LEFT JOIN "supplier_materials" sm ON sm.raw_material_id = rm.id AND sm.is_preferred = true
             LEFT JOIN "suppliers" s ON s.id = sm.supplier_id
+            ${fgGroupJoin(Prisma.sql`rm.id`)}
             WHERE ${typeFilter}
               AND rm.deleted_at IS NULL
               AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
@@ -530,6 +563,7 @@ export class RecomendationV2Service {
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
               )
               ${searchFilter}
+              ${discontinueFilter}
         `;
 
         const data = rows.map((r) => {
@@ -545,7 +579,7 @@ export class RecomendationV2Service {
             });
 
             const needs = forecastPeriods.map((p) => {
-                const found = needsRaw.find((n: any) => n.month === p.month && n.year === p.year);
+                const found = discontinue ? undefined : needsRaw.find((n: any) => n.month === p.month && n.year === p.year);
                 return { 
                     ...p, 
                     quantity: Number(found?.needs || 0),
@@ -578,9 +612,9 @@ export class RecomendationV2Service {
             // Base values from DB
             const currentStock = Number(r.current_stock);
             const openPo = Number(r.open_po);
-            const forecastNeededRaw = Number(r.forecast_needed);
-            const safetyStockRaw = Number(r.safety_stock_x_resep);
-            const totalNeededHorizonRaw = Number(r.total_forecast_horizon_dynamic);
+            const forecastNeededRaw = discontinue ? 0 : Number(r.forecast_needed);
+            const safetyStockRaw = discontinue ? 0 : Number(r.safety_stock_x_resep);
+            const totalNeededHorizonRaw = discontinue ? 0 : Number(r.total_forecast_horizon_dynamic);
 
             // Converted values if special paper
             const forecastNeeded = isSpecial ? forecastNeededRaw * sheetToKgFactor : forecastNeededRaw;
@@ -594,13 +628,16 @@ export class RecomendationV2Service {
             const totalNeededFix2Months = isSpecial ? totalNeededFix2MonthsRaw * sheetToKgFactor : totalNeededFix2MonthsRaw;
 
             // Recalculate recommendation specifically for special paper to avoid mixed units subtraction
-            let recommendationQuantity = Number(r.recommendation_quantity);
-            if (isSpecial && horizon > 0) {
+            let recommendationQuantity = discontinue ? 0 : Number(r.recommendation_quantity);
+            if (!discontinue && isSpecial && horizon > 0) {
                 // (Total Need KG + Safety KG) - (Stock KG + PO KG)
                 recommendationQuantity = Math.max(0, (totalNeededHorizon + safetyStock) - (currentStock + openPo));
             }
 
             return {
+                product_status: discontinue ? "PENDING" as const : "ACTIVE" as const,
+                row_id: discontinue ? `${r.fg_id}_${r.material_id}` : String(r.material_id),
+                finished_goods: discontinue ? [{ id: Number(r.fg_id), code: String(r.fg_code), name: String(r.fg_name) }] : [],
                 ranking: Number(r.ranking),
                 material_id: r.material_id,
                 barcode: r.barcode,
@@ -1008,11 +1045,12 @@ export class RecomendationV2Service {
             year,
             quantity,
             horizon,
-            total_needed,
             current_stock,
             stock_fg_x_resep,
-            safety_stock_x_resep,
         } = body;
+
+        const total_needed = body.product_status === "PENDING" ? 0 : body.total_needed;
+        const safety_stock_x_resep = body.product_status === "PENDING" ? 0 : body.safety_stock_x_resep;
 
         return await prisma.$transaction(async (tx) => {
             return await tx.materialPurchaseDraft.upsert({
@@ -1519,6 +1557,13 @@ export class RecomendationV2Service {
 
     static async bulkSaveHorizon(body: RequestBulkSaveHorizonDTO) {
         const { month, year, horizon, type } = body;
+        const productStatus = body.product_status === "PENDING" ? Prisma.sql`'PENDING'` : Prisma.sql`'ACTIVE'`;
+        const discontinueFilter = body.product_status === "PENDING" ? Prisma.sql`AND rm.barcode IS DISTINCT FROM 'FO-ALK'
+        AND EXISTS (
+            SELECT 1 FROM recipes dr JOIN products dp ON dp.id = dr.product_id
+            WHERE dr.raw_mat_id = rm.id AND dr.is_active = true
+              AND dp.status = 'PENDING' AND dp.deleted_at IS NULL
+        )` : Prisma.empty;
 
         const typeFilter = RecomendationV2Service.getTypeFilter(type);
 
@@ -1585,9 +1630,9 @@ export class RecomendationV2Service {
                     JOIN "recipes" rec ON rec.product_id = f.product_id AND rec.is_active = true
                     JOIN "raw_materials" rm2 ON rm2.id = rec.raw_mat_id
                     LEFT JOIN "unit_raw_materials" urm2 ON urm2.id = rm2.unit_id
-                    JOIN "products" p ON p.id = f.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                    JOIN "products" p ON p.id = f.product_id AND p.status = ${productStatus} AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
-                    WHERE (f.year * 12 + f.month) >= ${fcStart} AND (f.year * 12 + f.month) <= ${fcEnd}
+                    WHERE ${body.product_status !== "PENDING"} AND (f.year * 12 + f.month) >= ${fcStart} AND (f.year * 12 + f.month) <= ${fcEnd}
                     GROUP BY rec.raw_mat_id
                 ),
                 ss_agg AS (
@@ -1618,7 +1663,7 @@ export class RecomendationV2Service {
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                         ))::numeric AS total
                     FROM "recipes" rec
-                    JOIN "products" p ON p.id = rec.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                    JOIN "products" p ON p.id = rec.product_id AND p.status = ${productStatus} AND p.deleted_at IS NULL
                     LEFT JOIN "product_types" pt ON pt.id = p.type_id
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE rec.is_active = true
@@ -1631,7 +1676,7 @@ export class RecomendationV2Service {
                     FROM "recipes" rec
                     JOIN "raw_materials" rm2 ON rm2.id = rec.raw_mat_id
                     LEFT JOIN "unit_raw_materials" urm2 ON urm2.id = rm2.unit_id
-                    JOIN "products" p ON p.id = rec.product_id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
+                    JOIN "products" p ON p.id = rec.product_id AND p.status = ${productStatus} AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     JOIN (
                         SELECT product_id, SUM(quantity) AS total_qty
@@ -1653,10 +1698,10 @@ export class RecomendationV2Service {
                 ${year} AS year,
                 0 AS quantity,
                 ${horizon} AS horizon,
-                COALESCE(fc.total, 0) AS total_needed,
+                ${body.product_status === "PENDING" ? Prisma.sql`0::numeric` : Prisma.sql`COALESCE(fc.total, 0)`} AS total_needed,
                 COALESCE(inv.total, 0) AS current_stock,
                 COALESCE(fg.total, 0) AS stock_fg_x_resep,
-                COALESCE(ss.total, 0) AS safety_stock_x_resep,
+                ${body.product_status === "PENDING" ? Prisma.sql`0::numeric` : Prisma.sql`COALESCE(ss.total, 0)`} AS safety_stock_x_resep,
                 ${now} AS created_at,
                 ${now} AS updated_at,
                 'DRAFT' AS status
@@ -1668,7 +1713,7 @@ export class RecomendationV2Service {
             LEFT JOIN fc_agg fc ON fc.raw_mat_id = rm.id
             LEFT JOIN ss_agg ss ON ss.raw_mat_id = rm.id
             LEFT JOIN fg_agg fg ON fg.raw_mat_id = rm.id
-            WHERE ${typeFilter}
+            WHERE ${typeFilter} ${discontinueFilter}
               AND rm.deleted_at IS NULL
               AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')
               AND rm.name NOT ILIKE '%(DISPLAY)%'
@@ -1690,6 +1735,11 @@ export class RecomendationV2Service {
 
     static async export(query: QueryRecomendationV2DTO) {
         let { data, periods: meta } = await this.list({ ...query, take: 1000000, page: 1 });
+
+        if (query.selectedRowIds) {
+            const rowIds = new Set(query.selectedRowIds.split(","));
+            data = data.filter((row) => rowIds.has(row.row_id));
+        }
 
         // Filter by selected IDs if provided (comma-separated material_id list)
         if (query.selectedIds) {
@@ -1721,6 +1771,7 @@ export class RecomendationV2Service {
 
         // Custom filter function to check if a column should be included in export
         const isVisible = (uiId: string) => {
+            if (query.product_status === "PENDING" && (uiId === "needs_buy" || uiId === "safety_stock_x_resep")) return false;
             if (!visibleCols) return true;
             return visibleCols.includes(uiId);
         };
@@ -1746,6 +1797,10 @@ export class RecomendationV2Service {
                 uiId: "available_stock",
             },
         ];
+
+        if (query.product_status === "PENDING") {
+            allColumns.splice(3, 0, { header: "FG DISCONTINUE", key: "finished_goods", width: 45, uiId: "finished_goods" });
+        }
 
         // Dynamic Sales Headers
         meta.sales_periods?.forEach((p: any) => {
@@ -1821,7 +1876,7 @@ export class RecomendationV2Service {
             // Calculate total need based on horizon (Only if set by PIC)
             const h = row.work_order_horizon || 0;
             const hasNeeds = row.needs && row.needs.length > 0;
-            const totalNeeded =
+            const totalNeeded = query.product_status === "PENDING" ? 0 :
                 h > 0 && hasNeeds
                     ? (row.needs || [])
                           .slice(0, h)
@@ -1830,6 +1885,7 @@ export class RecomendationV2Service {
 
             const formattedRow: any = {
                 ...row,
+                finished_goods: row.finished_goods?.map((fg: { code: string; name: string }) => `${fg.code} - ${fg.name}`).join("; ") ?? "",
                 current_stock: currentStock,
                 safety_stock_x_resep: Math.round(row.safety_stock_x_resep || 0),
                 recommendation_quantity:
