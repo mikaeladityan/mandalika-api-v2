@@ -1,11 +1,12 @@
 import { GENDER, Prisma, STATUS } from "../../../generated/prisma/client.js";
-import { QueryProductDTO, RequestProductDTO, ResponseProductDTO, UpdateReferenceEdarDTO } from "./product.schema.js";
+import { QueryProductDTO, RequestProductDTO, ResponseProductDTO, UpdateReferenceEdarDTO, ProductForecastPeriodDTO } from "./product.schema.js";
 import { PRODUCT_IMPORT_HEADERS } from "./import/import.schema.js";
 import prisma from "../../../config/prisma.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import { normalizeSlug } from "../../../lib/index.js";
 import { enqueueProductSheetSync } from "./sheet/product-sheet.queue.js";
+import { ForecastService } from "../forecast/forecast.service.js";
 import ExcelJS from "exceljs";
 
 type UpsertBySlugDelegate = {
@@ -180,8 +181,9 @@ export class ProductService {
         }
     }
 
-    static async update(id: number, body: Partial<RequestProductDTO>) {
-        const { code, unit, product_type, size, ...reqBody } = body;
+    static async update(id: number, body: Partial<RequestProductDTO> & { rerun?: ProductForecastPeriodDTO }) {
+        const { code, unit, product_type, size, rerun, ...reqBody } = body;
+        const changedIds = new Set<number>([id]);
 
         try {
             const existing = await prisma.product.findUnique({
@@ -209,34 +211,9 @@ export class ProductService {
                     include: { product_type: true, unit: true, size: true },
                 });
 
-                // Sinkronkan EDAR% ke varian pasangan (parent 110ml <-> vial 2ml,
-                // aroma & slug sama). Engine forecast memakai final parent untuk
-                // nilai 2ml, jadi tanpa sinkron ini EDAR% 2ml yang tampil bisa
-                // beda dari yang efektif dipakai — ambigu bagi user.
                 if (reqBody.distribution_percentage !== undefined) {
-                    const slug = result.product_type?.slug?.toLowerCase();
-                    const ownSize = result.size?.size != null ? Number(result.size.size) : null;
-                    const isEdarPaired =
-                        slug != null &&
-                        ["ext", "parfum", "perfume", "hampers-ext", "hampers-parfum"].includes(slug);
-                    const parentSizes = [100, 110, 120];
-                    const pairSizes =
-                        ownSize === 2 ? parentSizes : ownSize != null && parentSizes.includes(ownSize) ? [2] : null;
-
-                    if (isEdarPaired && pairSizes) {
-                        await tx.product.updateMany({
-                            where: {
-                                id: { not: id },
-                                deleted_at: null,
-                                name: { equals: result.name, mode: "insensitive" },
-                                product_type: { slug: { equals: slug, mode: "insensitive" } },
-                                size: { size: { in: pairSizes } },
-                            },
-                            data: {
-                                distribution_percentage: reqBody.distribution_percentage,
-                            },
-                        });
-                    }
+                    const changes = await this.balanceEdar(tx, result);
+                    changes.forEach((changedId) => changedIds.add(changedId));
                 }
 
                 return this.toResponseNumbers(result);
@@ -249,6 +226,10 @@ export class ProductService {
                 productId: id,
                 ...(oldCode ? { oldCode } : {}),
             });
+            for (const changedId of changedIds) {
+                if (changedId !== id) await enqueueProductSheetSync({ action: "upsert", productId: changedId });
+            }
+            if (reqBody.distribution_percentage !== undefined) await this.rerunForecast(id, rerun);
             return updated;
         } catch (e) {
             if (e instanceof Prisma.PrismaClientKnownRequestError) {
@@ -259,7 +240,73 @@ export class ProductService {
         }
     }
 
-    static async status(id: number, status: STATUS) {
+    private static async balanceEdar(
+        tx: Prisma.TransactionClient,
+        product: Prisma.ProductGetPayload<{ include: { product_type: true; size: true } }>,
+    ): Promise<number[]> {
+        const percentage = product.status === "PENDING" ? 0 : Number(product.distribution_percentage ?? 0);
+        if (!Number.isFinite(percentage) || percentage < 0 || percentage > 1) {
+            throw new ApiError(400, "%EDAR harus antara 0% dan 100%");
+        }
+        if (product.status === "PENDING") {
+            product.distribution_percentage = new Prisma.Decimal(0);
+            await tx.product.update({ where: { id: product.id }, data: { distribution_percentage: 0 } });
+        }
+        const slug = product.product_type?.slug;
+        const isExt = ForecastService.isExtSlug(slug);
+        const isParfum = ForecastService.isParfumSlug(slug);
+        const size = product.size?.size;
+        if ((!isExt && !isParfum) || !(size === 2 || ForecastService.isAnchorSize(size))) return [];
+
+        const candidates = await tx.product.findMany({
+            where: {
+                id: { not: product.id },
+                name: { equals: product.name, mode: "insensitive" },
+                size_id: product.size_id,
+                deleted_at: null,
+                status: { in: ["ACTIVE", "PENDING"] },
+            },
+            include: { product_type: true },
+        });
+        const pairs = candidates.filter((candidate) => isExt
+            ? ForecastService.isParfumSlug(candidate.product_type?.slug)
+            : ForecastService.isExtSlug(candidate.product_type?.slug));
+        if (pairs.length > 1) throw new ApiError(400, "Pasangan EXT–PARFUM lebih dari satu. Periksa FG Group dan ukuran produk.");
+        const pair = pairs[0];
+        if (!pair) return [];
+        if (pair.status === "PENDING" && product.status === "ACTIVE") {
+            product.distribution_percentage = new Prisma.Decimal(1);
+            await tx.product.update({ where: { id: product.id }, data: { distribution_percentage: 1 } });
+        }
+        await tx.product.update({
+            where: { id: pair.id },
+            data: { distribution_percentage: pair.status === "PENDING" ? 0 : Number((1 - percentage).toFixed(8)) },
+        });
+        return [pair.id];
+    }
+
+    private static async rerunForecast(id: number, period?: Partial<ProductForecastPeriodDTO>) {
+        const target = await prisma.product.findUnique({
+            where: { id }, select: { product_type: { select: { slug: true } } },
+        });
+        const slug = target?.product_type?.slug?.toLowerCase() ?? "";
+        // These categories are manually forecasted; the automatic engine excludes them.
+        if (["display", "kertas", "botol", "paper-bag", "kartu-garansi", "canvas-bag", "box-uk", "others"].some((type) => slug.includes(type))) return;
+        const now = new Date();
+        try {
+            await ForecastService.run({
+                product_id: id,
+                start_month: period?.start_month ?? now.getMonth() + 1,
+                start_year: period?.start_year ?? now.getFullYear(),
+                horizon: period?.horizon ?? 12,
+            });
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : "Kesalahan perhitungan";
+            throw new ApiError(400, `Perubahan produk tersimpan, tetapi rerun Forecast gagal: ${detail}. Jalankan ulang Forecast grup ini.`);
+        }
+    }
+
+    static async status(id: number, status: STATUS, period?: Partial<ProductForecastPeriodDTO>) {
         try {
             const existing = await prisma.product.findUnique({
                 where: { id },
@@ -268,10 +315,25 @@ export class ProductService {
             if (!existing)
                 throw new ApiError(404, `Produk dengan kode ${id} tidak ditemukan`);
 
-            await prisma.product.update({
-                where: { id },
-                data: { deleted_at: status === "DELETE" ? new Date() : null, status },
-            });
+            const changedIds = status === "PENDING"
+                ? await prisma.$transaction(async (tx) => {
+                    const product = await tx.product.update({
+                        where: { id },
+                        data: { deleted_at: null, status, distribution_percentage: 0 },
+                        include: { product_type: true, size: true },
+                    });
+                    return this.balanceEdar(tx, product);
+                })
+                : [];
+            if (status !== "PENDING") {
+                await prisma.product.update({
+                    where: { id },
+                    data: { deleted_at: status === "DELETE" ? new Date() : null, status },
+                });
+            }
+            for (const changedId of changedIds) {
+                if (changedId !== id) await enqueueProductSheetSync({ action: "upsert", productId: changedId });
+            }
 
             if (status === "DELETE") {
                 await enqueueProductSheetSync({
@@ -282,6 +344,7 @@ export class ProductService {
             } else {
                 await enqueueProductSheetSync({ action: "upsert", productId: id });
             }
+            if (status === "PENDING") await this.rerunForecast(id, period);
         } catch (e) {
             if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
                 throw new ApiError(404, `Produk dengan kode ${id} tidak ditemukan`);
