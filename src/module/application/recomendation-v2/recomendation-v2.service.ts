@@ -78,8 +78,6 @@ export class RecomendationV2Service {
             if (found) p.percentage = Number(found.value);
         });
 
-        let backMonths = -1;
-
         const typeFilter = RecomendationV2Service.getTypeFilter(type);
 
         const fcStartM = forecastPeriods[0]?.month || currentMonth;
@@ -94,7 +92,7 @@ export class RecomendationV2Service {
 
         const searchFilter = RecomendationV2Service.buildSearchFilter(search);
 
-        const [latestInv, latestFgInv, earliestPoResult] = await Promise.all([
+        const [latestInv, latestFgInv, historicalPoPeriods] = await Promise.all([
             prisma.rawMaterialInventory.findFirst({
                 orderBy: [{ year: "desc" }, { month: "desc" }],
                 select: { month: true, year: true },
@@ -103,18 +101,20 @@ export class RecomendationV2Service {
                 orderBy: [{ year: "desc" }, { month: "desc" }],
                 select: { month: true, year: true },
             }),
-            prisma.$queryRaw<any[]>`
-                SELECT MIN(po.po_date) as earliest
+            // Historical columns are global across RM, not limited by search/pagination.
+            prisma.$queryRaw<{ month: number; year: number }[]>`
+                SELECT DISTINCT
+                    EXTRACT(MONTH FROM po.po_date)::int AS month,
+                    EXTRACT(YEAR FROM po.po_date)::int AS year
                 FROM "purchase_orders" po
                 JOIN "purchase_order_items" poi ON poi.po_id = po.id
                 JOIN "raw_materials" rm ON rm.id = poi.raw_material_id
-                LEFT JOIN "supplier_materials" sm ON sm.raw_material_id = rm.id AND sm.is_preferred = true
-                LEFT JOIN "suppliers" s ON s.id = sm.supplier_id
-                LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-                LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
                 WHERE po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
-                  AND ${typeFilter}
-                  ${searchFilter}
+                  AND poi.qty_received < poi.qty_ordered
+                  AND rm.deleted_at IS NULL
+                  AND (EXTRACT(YEAR FROM po.po_date) * 12 + EXTRACT(MONTH FROM po.po_date))
+                      < ${currentYear * 12 + currentMonth}
+                ORDER BY year, month
             `,
         ]);
 
@@ -125,16 +125,12 @@ export class RecomendationV2Service {
             { month: currentMonth, year: currentYear }, latestFgInv
         );
 
-        if (earliestPoResult[0]?.earliest) {
-            const d = new Date(earliestPoResult[0].earliest);
-            const mDiff = (currentYear * 12 + currentMonth) - (d.getFullYear() * 12 + d.getMonth() + 1);
-            if (mDiff > 1) {
-                backMonths = Math.max(-12, -mDiff);
-            }
-        }
-
-        const poPeriods: { month: number; year: number; key: string }[] = [];
-        for (let i = backMonths; i <= po_months; i++) {
+        // Only retain past months with outstanding PO lines. Keep the planning horizon
+        // available for entering current/future POs, including when there are no open POs.
+        const poPeriods = historicalPoPeriods.map(({ month, year }) => ({
+            month, year, key: `${month}-${year}`,
+        }));
+        for (let i = 0; i <= po_months; i++) {
             let m = currentMonth + i;
             let y = currentYear;
             while (m <= 0) { m += 12; y -= 1; }
