@@ -4,6 +4,7 @@ import { ApiResponse } from "../../../lib/api.response.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import {
     QueryRecomendationV2DTO,
+    QueryRecomendationV2Schema,
     RequestApproveWorkOrderSchema,
     RequestSaveWorkOrderSchema,
     RequestBulkSaveHorizonSchema,
@@ -18,21 +19,7 @@ import {
 
 export class RecomendationV2Controller {
     static async list(c: Context) {
-        const { page, take, search, month, year, type, sales_months, forecast_months, po_months, sortBy, order } = c.req.query();
-
-        const params: QueryRecomendationV2DTO = {
-            page: page ? Number(page) : 1,
-            take: take ? Number(take) : 25,
-            search,
-            month: month ? Number(month) : undefined,
-            year: year ? Number(year) : undefined,
-            type: type as QueryRecomendationV2DTO["type"],
-            sales_months: sales_months ? Number(sales_months) : 3,
-            forecast_months: forecast_months ? Number(forecast_months) : 3,
-            po_months: po_months ? Number(po_months) : 3,
-            sortBy: sortBy as QueryRecomendationV2DTO["sortBy"],
-            order: order as QueryRecomendationV2DTO["order"],
-        };
+        const params = QueryRecomendationV2Schema.parse(c.req.query());
 
         const result = await RecomendationV2Service.list(params);
         return ApiResponse.sendSuccess(c, result, 200);
@@ -46,29 +33,13 @@ export class RecomendationV2Controller {
     }
     
     static async export(c: Context) {
-        const { search, month, year, type, sales_months, forecast_months, po_months, sortBy, order, visibleColumns, columnOrder, selectedIds } = c.req.query();
-
-        const params: QueryRecomendationV2DTO = {
-            page: 1,
-            take: 1000000,
-            search,
-            month: month ? Number(month) : undefined,
-            year: year ? Number(year) : undefined,
-            type: type as QueryRecomendationV2DTO["type"],
-            sales_months: sales_months ? Number(sales_months) : 3,
-            forecast_months: forecast_months ? Number(forecast_months) : 3,
-            po_months: po_months ? Number(po_months) : 3,
-            sortBy: sortBy as QueryRecomendationV2DTO["sortBy"],
-            order: order as QueryRecomendationV2DTO["order"],
-            visibleColumns,
-            columnOrder,
-            selectedIds,
-        };
+        const params = QueryRecomendationV2Schema.parse({ ...c.req.query(), page: 1, take: 1000000 });
+        const { type, month, year } = params;
 
         const buffer = await RecomendationV2Service.export(params);
 
         c.header("Content-Type", "text/csv");
-        c.header("Content-Disposition", `attachment; filename=Rekomendasi_V2_${type?.toUpperCase()}_${month}_${year}.csv`);
+        c.header("Content-Disposition", `attachment; filename=Rekomendasi_V2_${params.product_status === "PENDING" ? "DISCONTINUE" : type?.toUpperCase()}_${month}_${year}.csv`);
 
         return c.body(buffer as any);
     }

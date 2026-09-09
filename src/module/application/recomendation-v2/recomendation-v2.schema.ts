@@ -4,6 +4,7 @@ export const QueryRecomendationV2Schema = z.object({
     page: z.coerce.number().min(1).optional().default(1),
     take: z.coerce.number().min(1).optional().default(25),
     search: z.string().optional(),
+    product_status: z.enum(["ACTIVE", "PENDING"]).optional(),
     month: z.coerce.number().min(1).max(12).optional(),
     year: z.coerce.number().min(2000).optional(),
     sales_months: z.coerce.number().min(0).max(12).optional().default(3),
@@ -15,11 +16,13 @@ export const QueryRecomendationV2Schema = z.object({
     visibleColumns: z.string().optional(),
     columnOrder: z.string().optional(),
     selectedIds: z.string().optional(),
+    selectedRowIds: z.string().optional(),
 });
 
 export type QueryRecomendationV2DTO = z.infer<typeof QueryRecomendationV2Schema>;
 
 export const RequestSaveWorkOrderSchema = z.object({
+    product_status: z.enum(["ACTIVE", "PENDING"]).optional(),
     raw_mat_id: z.coerce.number(),
     month: z.coerce.number().min(1).max(12),
     year: z.coerce.number().min(2000),
@@ -34,6 +37,7 @@ export const RequestSaveWorkOrderSchema = z.object({
 export type RequestSaveWorkOrderDTO = z.infer<typeof RequestSaveWorkOrderSchema>;
 
 export const RequestBulkSaveHorizonSchema = z.object({
+    product_status: z.enum(["ACTIVE", "PENDING"]).optional(),
     month: z.coerce.number().min(1).max(12),
     year: z.coerce.number().min(2000),
     horizon: z.coerce.number().min(1).max(12).default(3),
