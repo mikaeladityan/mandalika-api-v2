@@ -101,6 +101,7 @@ export class RecomendationV2Service {
                 orderBy: [{ year: "desc" }, { month: "desc" }],
                 select: { month: true, year: true },
             }),
+            // Match purchase Open PO: only ORDERED lines with a positive balance.
             // Historical columns are global across RM, not limited by search/pagination.
             prisma.$queryRaw<{ month: number; year: number }[]>`
                 SELECT DISTINCT
@@ -109,7 +110,7 @@ export class RecomendationV2Service {
                 FROM "purchase_orders" po
                 JOIN "purchase_order_items" poi ON poi.po_id = po.id
                 JOIN "raw_materials" rm ON rm.id = poi.raw_material_id
-                WHERE po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
+                WHERE po.status = 'ORDERED'
                   AND poi.qty_received < poi.qty_ordered
                   AND rm.deleted_at IS NULL
                   AND (EXTRACT(YEAR FROM po.po_date) * 12 + EXTRACT(MONTH FROM po.po_date))
@@ -357,11 +358,12 @@ export class RecomendationV2Service {
                             FROM "purchase_order_items" poi
                             JOIN "purchase_orders" po ON poi.po_id = po.id
                             WHERE poi.raw_material_id = fm.id
-                              AND po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
+                              AND po.status = 'ORDERED'
+                              AND poi.qty_received < poi.qty_ordered
                         ), 0)
                     ) AS open_po,
 
-                    -- Open PO per month breakdown (SUBMITTED/APPROVED/ORDERED)
+                    -- Open PO per month breakdown: match the purchase Open PO list.
                     (
                         SELECT COALESCE(json_agg(
                              json_build_object(
@@ -378,7 +380,8 @@ export class RecomendationV2Service {
                             FROM "purchase_order_items" poi
                             JOIN "purchase_orders" po ON poi.po_id = po.id
                             WHERE poi.raw_material_id = fm.id
-                              AND po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')
+                              AND po.status = 'ORDERED'
+                              AND poi.qty_received < poi.qty_ordered
                             GROUP BY 1, 2
                         ) p_data
                     ) AS po_data,

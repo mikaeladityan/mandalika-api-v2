@@ -180,11 +180,22 @@ describe("RecomendationV2Service - Override Features", () => {
             const call = vi.mocked(prisma.$queryRaw).mock.calls[0]!;
             const sql = (call[0] as TemplateStringsArray).join(" ");
             expect(sql).toContain("SELECT DISTINCT");
-            expect(sql).toContain("po.status IN ('SUBMITTED', 'APPROVED', 'ORDERED')");
+            expect(sql).toContain("po.status = 'ORDERED'");
+            expect(sql).not.toMatch(/SUBMITTED|APPROVED|DRAFT/);
             expect(sql).toContain("poi.qty_received < poi.qty_ordered");
             expect(sql).toContain("rm.deleted_at IS NULL");
             expect(sql).not.toMatch(/ILIKE|LIMIT|OFFSET/);
             expect(call.slice(1)).toEqual([2026 * 12 + 9]);
+        });
+
+        it("uses the same outstanding ORDERED scope for monthly quantities and stock calculations", async () => {
+            mockList([]);
+            await RecomendationV2Service.list(query);
+            const call = vi.mocked(prisma.$queryRaw).mock.calls[1]!;
+            const sql = (call[0] as TemplateStringsArray).join(" ");
+            expect(sql.match(/po.status = 'ORDERED'/g)).toHaveLength(2);
+            expect(sql.match(/poi.qty_received < poi.qty_ordered/g)).toHaveLength(2);
+            expect(sql).not.toMatch(/SUBMITTED|APPROVED/);
         });
 
         it("preserves the planning horizon across a year boundary", async () => {
