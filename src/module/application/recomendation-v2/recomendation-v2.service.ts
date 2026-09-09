@@ -714,7 +714,10 @@ export class RecomendationV2Service {
                 : false;
 
             // Recalculate recommendation specifically for special paper to avoid mixed units subtraction
-            let recommendationQuantity = discontinue ? 0 : Number(r.recommendation_quantity);
+            const discontinueShortage = anchoredNeed?.anchor_valid && anchoredNeed.total_needed > 0
+                ? Prisma.Decimal.max(0, new Prisma.Decimal(anchoredNeed.total_needed).minus(currentStock)).toDecimalPlaces(8).toNumber()
+                : 0;
+            let recommendationQuantity = discontinue ? discontinueShortage : Number(r.recommendation_quantity);
             if (!discontinue && isSpecial && horizon > 0) {
                 // (Total Need KG + Safety KG) - (Stock KG + PO KG)
                 recommendationQuantity = Math.max(0, (totalNeededHorizon + safetyStock) - (currentStock + openPo));
@@ -741,9 +744,7 @@ export class RecomendationV2Service {
                 safety_stock_x_resep: safetyStock,
                 forecast_needed: forecastNeeded,
                 total_needed_horizon: discontinue
-                    ? anchoredNeed?.anchor_valid && anchoredNeed.total_needed > 0
-                        ? Prisma.Decimal.max(0, new Prisma.Decimal(anchoredNeed.total_needed).minus(currentStock)).toDecimalPlaces(8).toNumber()
-                        : 0
+                    ? discontinueShortage
                     : totalNeededHorizon,
                 discontinue_anchor: discontinue ? anchoredNeed ?? null : null,
                 total_needed_fix_2_months: totalNeededFix2Months,
@@ -1994,7 +1995,7 @@ export class RecomendationV2Service {
                 current_stock: currentStock,
                 safety_stock_x_resep: Math.round(row.safety_stock_x_resep || 0),
                 recommendation_quantity:
-                    h > 0 ? Math.round(row.recommendation_quantity || 0) : null,
+                    query.product_status === "PENDING" ? row.recommendation_quantity ?? 0 : h > 0 ? Math.round(row.recommendation_quantity || 0) : null,
                 open_po: openPo,
                 total_stock: currentStock + openPo,
                 total_needed: totalNeeded !== null ? Math.round(totalNeeded) : null,
