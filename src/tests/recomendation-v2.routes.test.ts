@@ -2,11 +2,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import routes from "../module/application/recomendation-v2/recomendation-v2.routes.js";
 import { RecomendationV2Service } from "../module/application/recomendation-v2/recomendation-v2.service.js";
+import { DiscontinueService } from "../module/application/recomendation-v2/discontinue/discontinue.service.js";
 
 const app = new Hono().route("/recommendations", routes);
 afterEach(() => vi.restoreAllMocks());
 
 describe("Discontinue recommendation HTTP contracts", () => {
+    it("saves a scoped recipe anchor using the dedicated endpoint", async () => {
+        const save = vi.spyOn(DiscontinueService, "save").mockResolvedValue([]);
+        const body = { product_id: 1, month: 9, year: 2026, anchor_material_id: 7, quantity: 12.5 };
+        const res = await app.request("/recommendations/discontinue/anchor", {
+            method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        });
+        expect(res.status).toBe(200);
+        expect(save).toHaveBeenCalledWith(body);
+    });
     it("forwards the FG scope and all table filters to the list service", async () => {
         const list = vi.spyOn(RecomendationV2Service, "list").mockResolvedValue({
             data: [], len: 0, periods: { sales_periods: [], forecast_periods: [], po_periods: [] },

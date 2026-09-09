@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { RecomendationV2Controller } from "./recomendation-v2.controller.js";
+import discontinueRoutes from "./discontinue/discontinue.routes.js";
 
 const routes = new Hono();
+routes.route("/discontinue", discontinueRoutes);
 
 routes.get("/", RecomendationV2Controller.list);
 routes.get("/export", RecomendationV2Controller.export);

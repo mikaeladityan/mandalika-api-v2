@@ -19,6 +19,7 @@ import * as ExcelJS from "exceljs";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { logger } from "../../../lib/logger.js";
 import { calculatePOEta } from "../purchase/po/po-eta.js";
+import { DiscontinueService } from "./discontinue/discontinue.service.js";
 
 const EDITABLE_PO_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "ORDERED"] as const;
 type EditablePOStatus = typeof EDITABLE_PO_STATUSES[number];
@@ -640,7 +641,12 @@ export class RecomendationV2Service {
             ]),
         );
 
+        const discontinueNeeds = discontinue
+            ? await DiscontinueService.needs(discontinuedFgIds, currentMonth, currentYear)
+            : [];
+        const discontinueNeedByRow = new Map(discontinueNeeds.map((need) => [`${need.product_id}_${need.material_id}`, need]));
         const data = rows.map((r) => {
+            const anchoredNeed = discontinueNeedByRow.get(`${r.fg_id}_${r.material_id}`);
             const salesRaw =
                 typeof r.sales_data === "string" ? JSON.parse(r.sales_data) : r.sales_data || [];
             const needsRaw =
@@ -734,7 +740,12 @@ export class RecomendationV2Service {
                 stock_fg_x_resep: Number(r.stock_fg_x_resep),
                 safety_stock_x_resep: safetyStock,
                 forecast_needed: forecastNeeded,
-                total_needed_horizon: totalNeededHorizon,
+                total_needed_horizon: discontinue
+                    ? anchoredNeed?.anchor_valid && anchoredNeed.total_needed > 0
+                        ? Prisma.Decimal.max(0, new Prisma.Decimal(anchoredNeed.total_needed).minus(currentStock)).toDecimalPlaces(8).toNumber()
+                        : 0
+                    : totalNeededHorizon,
+                discontinue_anchor: discontinue ? anchoredNeed ?? null : null,
                 total_needed_fix_2_months: totalNeededFix2Months,
                 recommendation_quantity: recommendationQuantity,
                 is_special_paper: isSpecial,
@@ -1966,7 +1977,11 @@ export class RecomendationV2Service {
             // Calculate total need based on horizon (Only if set by PIC)
             const h = row.work_order_horizon || 0;
             const hasNeeds = row.needs && row.needs.length > 0;
-            const totalNeeded = query.product_status === "PENDING" ? 0 :
+            const totalNeeded = query.product_status === "PENDING"
+                ? row.discontinue_anchor?.anchor_material_id === row.material_id
+                    ? row.discontinue_anchor.anchor_quantity ?? 0
+                    : row.total_needed_horizon ?? 0
+                :
                 h > 0 && hasNeeds
                     ? (row.needs || [])
                           .slice(0, h)

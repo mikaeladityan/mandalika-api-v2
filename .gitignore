@@ -29,7 +29,8 @@ lerna-debug.log*
 .DS_Store
 
 # prisma
-prisma/migrations/
+prisma/migrations/*
+!prisma/migrations/20260909150000_add_discontinue_need_anchor/
 src/generated
 
 /src/generated/prisma
