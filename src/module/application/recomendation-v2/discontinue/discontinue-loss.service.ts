@@ -2,8 +2,8 @@ import prisma from "../../../../config/prisma.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { DiscontinueService } from "./discontinue.service.js";
-import { DiscontinueAnchorKey, DiscontinueNeed } from "./discontinue.schema.js";
-import { DiscontinueLoss } from "./discontinue-loss.schema.js";
+import { DiscontinueNeed } from "./discontinue.schema.js";
+import { DiscontinueLoss, DiscontinueLossKey } from "./discontinue-loss.schema.js";
 
 type LossMaterial = {
     material_id: number;
@@ -43,9 +43,10 @@ export function calculateDiscontinueLoss(materials: LossMaterial[], needs: Disco
 }
 
 export class DiscontinueLossService {
-    static async check(key: DiscontinueAnchorKey): Promise<DiscontinueLoss> {
-        const needs = await DiscontinueService.needs([key.product_id], key.month, key.year);
-        if (!needs.length) throw new ApiError(404, "FG Discontinue tidak memiliki recipe RM aktif.");
+    static async check(key: DiscontinueLossKey): Promise<DiscontinueLoss> {
+        const needs = (await DiscontinueService.needs([key.product_id], key.month, key.year))
+            .filter((need) => need.material_id === key.material_id);
+        if (!needs.length) throw new ApiError(404, "RM tidak memiliki recipe aktif pada FG Discontinue ini.");
         // Same latest-per-warehouse stock and RELEASED production deductions as recommendations.
         const materials = await prisma.$queryRaw<LossMaterial[]>(Prisma.sql`
             SELECT rm.id AS material_id, rm.barcode, rm.name AS material_name,
@@ -68,7 +69,7 @@ export class DiscontinueLossService {
                  WHERE sm.raw_material_id = rm.id AND sm.is_preferred = true AND sm.status = 'ACTIVE'
                  ORDER BY sm.updated_at DESC, sm.id DESC LIMIT 1) AS unit_price
             FROM raw_materials rm LEFT JOIN unit_raw_materials u ON u.id = rm.unit_id
-            WHERE rm.id IN (${Prisma.join(needs.map((need) => need.material_id))})
+            WHERE rm.id = ${key.material_id}
             ORDER BY rm.name, rm.id
         `);
         return calculateDiscontinueLoss(materials, needs);
