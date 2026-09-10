@@ -645,6 +645,9 @@ export class RecomendationV2Service {
             ? await DiscontinueService.needs(discontinuedFgIds, currentMonth, currentYear)
             : [];
         const discontinueNeedByRow = new Map(discontinueNeeds.map((need) => [`${need.product_id}_${need.material_id}`, need]));
+        const discontinuePurchases = discontinue ? new Map<number, number>()
+            : await DiscontinueService.purchases(currentMonth, currentYear,
+                new Map(rows.map((row) => [Number(row.material_id), Number(row.current_stock)])));
         const data = rows.map((r) => {
             const anchoredNeed = discontinueNeedByRow.get(`${r.fg_id}_${r.material_id}`);
             const salesRaw =
@@ -723,6 +726,10 @@ export class RecomendationV2Service {
                 recommendationQuantity = Math.max(0, (totalNeededHorizon + safetyStock) - (currentStock + openPo));
             }
 
+            const generalRecommendationQuantity = recommendationQuantity;
+            const discontinueRecommendationQuantity = discontinuePurchases.get(Number(r.material_id)) ?? 0;
+            recommendationQuantity = new Prisma.Decimal(recommendationQuantity).plus(discontinueRecommendationQuantity).toDecimalPlaces(8).toNumber();
+
             return {
                 product_status: discontinue ? "PENDING" as const : "ACTIVE" as const,
                 row_id: discontinue ? `${r.fg_id}_${r.material_id}` : String(r.material_id),
@@ -749,6 +756,8 @@ export class RecomendationV2Service {
                 discontinue_anchor: discontinue ? anchoredNeed ?? null : null,
                 total_needed_fix_2_months: totalNeededFix2Months,
                 recommendation_quantity: recommendationQuantity,
+                general_recommendation_quantity: generalRecommendationQuantity,
+                discontinue_recommendation_quantity: discontinueRecommendationQuantity,
                 is_special_paper: isSpecial,
                 weight_kg: isSpecial ? recommendationQuantity : undefined,
 
@@ -1995,7 +2004,9 @@ export class RecomendationV2Service {
                 current_stock: currentStock,
                 safety_stock_x_resep: Math.round(row.safety_stock_x_resep || 0),
                 recommendation_quantity:
-                    query.product_status === "PENDING" ? row.recommendation_quantity ?? 0 : h > 0 ? Math.round(row.recommendation_quantity || 0) : null,
+                    row.discontinue_recommendation_quantity > 0
+                        ? `Beli ${row.general_recommendation_quantity} + Discontinue ${row.discontinue_recommendation_quantity} = ${row.recommendation_quantity}`
+                        : query.product_status === "PENDING" ? row.recommendation_quantity ?? 0 : h > 0 ? Math.round(row.recommendation_quantity || 0) : null,
                 open_po: openPo,
                 total_stock: currentStock + openPo,
                 total_needed: totalNeeded !== null ? Math.round(totalNeeded) : null,

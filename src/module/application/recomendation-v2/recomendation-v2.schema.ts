@@ -70,6 +70,8 @@ export const ResponseRecomendationV2Schema = z.object({
     lead_time: z.number().nullable(),
     uom: z.string(),
     recommendation_quantity: z.number(),
+    general_recommendation_quantity: z.number().optional(),
+    discontinue_recommendation_quantity: z.number().optional(),
     // Base data for transparency
     current_stock: z.number(),
     open_po: z.number(),

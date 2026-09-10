@@ -9,6 +9,7 @@ describe("RecomendationV2Service - Override Features", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.spyOn(DiscontinueService, "needs").mockResolvedValue([]);
+        vi.spyOn(DiscontinueService, "purchases").mockResolvedValue(new Map());
     });
 
     afterEach(() => {
@@ -156,6 +157,30 @@ describe("RecomendationV2Service - Override Features", () => {
                 update: expect.objectContaining({ quantity: 1500 })
             }));
         });
+    });
+
+    it.each(["ffo", "lokal", "impor"] as const)("adds discontinue purchases to General %s", async (type) => {
+        vi.mocked(DiscontinueService.purchases).mockResolvedValueOnce(new Map([[7, 25]]));
+        vi.mocked(prisma.$queryRaw)
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([{
+                material_id: 7, barcode: "RM-7", material_name: "Shared RM",
+                current_stock: 10, open_po: 0, safety_stock_x_resep: 0,
+                recommendation_quantity: 40, total_forecast_horizon_dynamic: 50,
+                forecast_needed: 50, sales_data: [], needs_data: [], po_data: [],
+                work_order_data: { horizon: 1 },
+            }])
+            .mockResolvedValueOnce([{ count: 1 }]);
+        const result = await RecomendationV2Service.list({
+            type, month: 9, year: 2026, page: 1, take: 10,
+            sales_months: 3, forecast_months: 3, po_months: 3,
+        });
+        expect(result.data[0]).toMatchObject({
+            general_recommendation_quantity: 40,
+            discontinue_recommendation_quantity: 25,
+            recommendation_quantity: 65,
+        });
+        expect(DiscontinueService.purchases).toHaveBeenCalledWith(9, 2026, new Map([[7, 10]]));
     });
 
     describe("list with overrides", () => {
