@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { DiscontinueAnchorKeySchema } from "./discontinue.schema.js";
+
+export const DiscontinueLossKeySchema = DiscontinueAnchorKeySchema.extend({ material_id: z.coerce.number().int().positive() });
+export type DiscontinueLossKey = z.infer<typeof DiscontinueLossKeySchema>;
 
 export const DiscontinueLossRowSchema = z.object({
     material_id: z.number(),

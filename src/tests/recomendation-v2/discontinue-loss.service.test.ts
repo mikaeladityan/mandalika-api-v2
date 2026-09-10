@@ -3,6 +3,8 @@ import { Hono } from "hono";
 import { Prisma } from "../../generated/prisma/client.js";
 import { calculateDiscontinueLoss, DiscontinueLossService } from "../../module/application/recomendation-v2/discontinue/discontinue-loss.service.js";
 import routes from "../../module/application/recomendation-v2/discontinue/discontinue.routes.js";
+import prisma from "../../config/prisma.js";
+import { DiscontinueService } from "../../module/application/recomendation-v2/discontinue/discontinue.service.js";
 
 const material = (stock: number, price: number | null) => ({
     material_id: 1, barcode: "RM-1", material_name: "Bottle", uom: "PCS",
@@ -15,6 +17,20 @@ const need = (quantity: number) => ({
 });
 
 describe("Discontinue loss check", () => {
+    it("checks only the selected RM and rejects an RM outside the FG recipe", async () => {
+        const needs = vi.spyOn(DiscontinueService, "needs").mockResolvedValue([
+            need(120), { ...need(500), material_id: 2 },
+        ]);
+        vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([material(100, 1500)]);
+        try {
+            const result = await DiscontinueLossService.check({ product_id: 1, material_id: 1, month: 9, year: 2026 });
+            expect(result.rows).toHaveLength(1);
+            expect(result.rows[0]).toMatchObject({ material_id: 1, need_buy: 20, remaining_value: 120000 });
+            await expect(DiscontinueLossService.check({ product_id: 1, material_id: 99, month: 9, year: 2026 })).rejects.toThrow("RM tidak memiliki recipe aktif");
+        } finally {
+            needs.mockRestore();
+        }
+    });
     it("values stock minus the purchase recommendation and separately values purchases", () => {
         const result = calculateDiscontinueLoss([material(100, 1500)], [need(120)]);
         expect(result.rows[0]).toMatchObject({ stock: 100, need_buy: 20, remaining: 80, remaining_value: 120000, purchase_value: 30000 });
@@ -37,9 +53,9 @@ describe("Discontinue loss check", () => {
         const check = vi.spyOn(DiscontinueLossService, "check").mockResolvedValue(result);
         try {
             const app = new Hono().route("/discontinue", routes);
-            const response = await app.request("/discontinue/loss?product_id=1&month=9&year=2026");
+            const response = await app.request("/discontinue/loss?product_id=1&material_id=1&month=9&year=2026");
             expect(response.status).toBe(200);
-            expect(check).toHaveBeenCalledWith({ product_id: 1, month: 9, year: 2026 });
+            expect(check).toHaveBeenCalledWith({ product_id: 1, material_id: 1, month: 9, year: 2026 });
             expect(await response.text()).not.toContain("unit_price");
         } finally {
             check.mockRestore();
