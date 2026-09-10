@@ -80,4 +80,22 @@ describe("Discontinue recipe anchor", () => {
         await DiscontinueService.reset({ product_id: 1, month: 9, year: 2026 });
         expect(db.discontinueNeedAnchor.deleteMany).toHaveBeenCalledWith({ where: { product_id: 1, month: 9, year: 2026 } });
     });
+
+    it("adds purchases for shared RM across all anchored FGs and excludes sufficient stock", async () => {
+        db.discontinueNeedAnchor.findMany.mockResolvedValue([
+            { product_id: 1, anchor_material_id: 10, quantity: decimal(10) },
+            { product_id: 2, anchor_material_id: 20, quantity: decimal(40) },
+        ]);
+        const result = await DiscontinueService.purchases(9, 2026, new Map([[10, 10], [20, 15]]));
+        expect(result.get(10)).toBe(0);
+        expect(result.get(20)).toBe(60); // (50 - 15) + (40 - 15)
+        expect(result.has(30)).toBe(false);
+        expect(db.discontinueNeedAnchor.findMany).toHaveBeenCalledWith({ where: { month: 9, year: 2026 } });
+    });
+
+    it("removes the General addition when no anchors remain", async () => {
+        db.$queryRaw.mockResolvedValue([]);
+        expect(await DiscontinueService.purchases(10, 2026, new Map([[20, 15]]))).toEqual(new Map());
+        expect(db.$queryRaw).not.toHaveBeenCalled();
+    });
 });
