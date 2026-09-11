@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { DiscontinueAnchorKeySchema } from "./discontinue.schema.js";
 
-export const DiscontinueLossKeySchema = DiscontinueAnchorKeySchema.extend({ material_id: z.coerce.number().int().positive() });
+// material_id optional: without it the check covers every RM in the FG recipe (pre-bfa9160 contract).
+export const DiscontinueLossKeySchema = DiscontinueAnchorKeySchema.extend({ material_id: z.coerce.number().int().positive().optional() });
 export type DiscontinueLossKey = z.infer<typeof DiscontinueLossKeySchema>;
 
 export const DiscontinueLossRowSchema = z.object({

@@ -31,6 +31,33 @@ describe("Discontinue loss check", () => {
             needs.mockRestore();
         }
     });
+    it("covers every RM in the FG recipe when no material is selected", async () => {
+        const needs = vi.spyOn(DiscontinueService, "needs").mockResolvedValue([
+            need(120), { ...need(500), material_id: 2 },
+        ]);
+        vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([
+            material(100, 1500), { ...material(400, 10), material_id: 2, material_name: "Cap" },
+        ]);
+        try {
+            const result = await DiscontinueLossService.check({ product_id: 1, month: 9, year: 2026 });
+            expect(result.rows).toHaveLength(2);
+            expect(result.rows.map((row) => row.material_id)).toEqual([1, 2]);
+        } finally {
+            needs.mockRestore();
+        }
+    });
+    it("serves the check when the client omits material_id", async () => {
+        const check = vi.spyOn(DiscontinueLossService, "check")
+            .mockResolvedValue(calculateDiscontinueLoss([material(100, 1500)], [need(120)]));
+        try {
+            const app = new Hono().route("/discontinue", routes);
+            const response = await app.request("/discontinue/loss?product_id=1&month=9&year=2026");
+            expect(response.status).toBe(200);
+            expect(check).toHaveBeenCalledWith({ product_id: 1, month: 9, year: 2026 });
+        } finally {
+            check.mockRestore();
+        }
+    });
     it("values stock minus the purchase recommendation and separately values purchases", () => {
         const result = calculateDiscontinueLoss([material(100, 1500)], [need(120)]);
         expect(result.rows[0]).toMatchObject({ stock: 100, need_buy: 20, remaining: 80, remaining_value: 120000, purchase_value: 30000 });
