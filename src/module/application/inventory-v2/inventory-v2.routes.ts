@@ -5,6 +5,7 @@ import TGRoutes from "./tg/tg.routes.js";
 import ReturnRoutes from "./return/return.routes.js";
 import MonitoringRoutes from "./monitoring/monitoring.routes.js";
 import StockRoutes from "./stock/stock.routes.js";
+import BardatRoutes from "./bardat/import/import.routes.js";
 
 export const InventoryV2Routes = new Hono();
 
@@ -14,5 +15,6 @@ InventoryV2Routes.route("/tg",         TGRoutes);
 InventoryV2Routes.route("/return",     ReturnRoutes);
 InventoryV2Routes.route("/monitoring", MonitoringRoutes);
 InventoryV2Routes.route("/stocks",     StockRoutes);
+InventoryV2Routes.route("/bardat/import", BardatRoutes);
 
 export default InventoryV2Routes;
