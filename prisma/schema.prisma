@@ -131,6 +131,7 @@ model Product {
   size_id                  Int?
   forecasts                Forecast[]
   outlet_inventories       OutletInventory[]
+  goods_receipts            OutletGoodsReceipt[]
   product_inventories      ProductInventory[]
   issuances                ProductIssuance[]
   size                     ProductSize?            @relation(fields: [size_id], references: [id])
@@ -607,6 +608,7 @@ model Outlet {
   deleted_at               DateTime?
   address                  OutletAddress?
   inventories              OutletInventory[]
+  goods_receipts            OutletGoodsReceipt[]
   warehouses               OutletWarehouse[]
 
   @@index([code])
@@ -664,6 +666,28 @@ model OutletInventory {
   @@index([product_id])
   @@index([month, year])
   @@map("outlet_inventories")
+}
+
+model OutletGoodsReceipt {
+  id             Int      @id @default(autoincrement())
+  outlet_id      Int
+  product_id     Int
+  date           DateTime @db.Date
+  month          Int
+  year           Int
+  quantity       Decimal  @db.Decimal(12, 2)
+  import_batch_id String   @db.VarChar(100)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  outlet  Outlet  @relation(fields: [outlet_id], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([outlet_id, product_id, date])
+  @@index([month, year])
+  @@index([outlet_id, date])
+  @@index([product_id, date])
+  @@map("outlet_goods_receipts")
 }
 
 model StockMovement {
