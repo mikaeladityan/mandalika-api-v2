@@ -71,9 +71,8 @@ describe("BardatService", () => {
         vi.mocked(BardatImportCacheService.get).mockResolvedValue(payload);
         const tx = {
             outletInventory: {
-                findMany: vi.fn().mockResolvedValue([{ outlet_id: 2, product_id: 1, month: 4, year: 2026 }]),
-                upsert: vi.fn().mockResolvedValue({}),
-                update: vi.fn().mockResolvedValue({}),
+                deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+                createMany: vi.fn().mockResolvedValue({ count: 1 }),
             },
             outletGoodsReceipt: {
                 deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -86,12 +85,10 @@ describe("BardatService", () => {
         await BardatService.execute(payload.import_id);
         expect(tx.outletGoodsReceipt.deleteMany).toHaveBeenCalledWith({ where: { OR: payload.periods } });
         expect(tx.outletGoodsReceipt.createMany).toHaveBeenCalled();
-        expect(tx.outletInventory.upsert).toHaveBeenCalled();
-        expect(tx.outletInventory.upsert).toHaveBeenCalledWith(expect.objectContaining({
-            where: { outlet_id_product_id_month_year: { outlet_id: 2, product_id: 1, month: 4, year: 2026 } },
-        }));
-        const upsertArgs = vi.mocked(tx.outletInventory.upsert).mock.calls[0]?.[0] as { where: { outlet_id_product_id_month_year: Record<string, unknown> } };
-        expect(upsertArgs.where.outlet_id_product_id_month_year).not.toHaveProperty("_sum");
+        expect(tx.outletInventory.deleteMany).toHaveBeenCalledWith({ where: { OR: payload.periods } });
+        expect(tx.outletInventory.createMany).toHaveBeenCalledWith({
+            data: [{ outlet_id: 2, product_id: 1, month: 4, year: 2026, quantity: 4 }],
+        });
         expect(BardatImportCacheService.remove).toHaveBeenCalledWith(payload.import_id);
     });
 });
