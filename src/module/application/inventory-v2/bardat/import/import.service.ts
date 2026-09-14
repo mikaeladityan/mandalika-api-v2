@@ -128,7 +128,6 @@ export class BardatService {
     private static async replaceLedger(rows: BardatPreviewRow[], periods: CachePayload["periods"], importBatchId: string): Promise<void> {
         await prisma.$transaction(async (tx) => {
             const periodWhere = periods.map((period) => ({ month: period.month, year: period.year }));
-            const existing = await tx.outletInventory.findMany({ where: { OR: periodWhere }, select: { outlet_id: true, product_id: true, month: true, year: true } });
             await tx.outletGoodsReceipt.deleteMany({ where: { OR: periodWhere } });
             await tx.outletGoodsReceipt.createMany({ data: rows.map((row) => ({
                 outlet_id: row.outlet_id!, product_id: row.product_id!,
@@ -136,27 +135,20 @@ export class BardatService {
                 quantity: new Prisma.Decimal(row.quantity), import_batch_id: importBatchId,
             })) });
             const aggregates = await tx.outletGoodsReceipt.groupBy({ by: ["outlet_id", "product_id", "month", "year"], where: { OR: periodWhere }, _sum: { quantity: true } });
-            const keys = new Set(existing.map((item) => `${item.outlet_id}|${item.product_id}|${item.month}|${item.year}`));
-            for (const aggregate of aggregates) {
-                const key = {
-                    outlet_id: aggregate.outlet_id,
-                    product_id: aggregate.product_id,
-                    month: aggregate.month,
-                    year: aggregate.year,
-                };
-                keys.delete(`${key.outlet_id}|${key.product_id}|${key.month}|${key.year}`);
-                await tx.outletInventory.upsert({ where: { outlet_id_product_id_month_year: key }, update: { quantity: aggregate._sum.quantity ?? 0 }, create: { ...key, quantity: aggregate._sum.quantity ?? 0 } });
+            // Rebuild the imported periods in bulk. One upsert per aggregate can
+            // keep an interactive transaction open past Prisma's default timeout.
+            await tx.outletInventory.deleteMany({ where: { OR: periodWhere } });
+            if (aggregates.length > 0) {
+                await tx.outletInventory.createMany({
+                    data: aggregates.map((aggregate) => ({
+                        outlet_id: aggregate.outlet_id,
+                        product_id: aggregate.product_id,
+                        month: aggregate.month,
+                        year: aggregate.year,
+                        quantity: aggregate._sum.quantity ?? 0,
+                    })),
+                });
             }
-            for (const key of keys) {
-                const parts = key.split("|").map(Number);
-                const outlet_id = parts[0];
-                const product_id = parts[1];
-                const month = parts[2];
-                const year = parts[3];
-                if (outlet_id === undefined || product_id === undefined || month === undefined || year === undefined) continue;
-                if ([outlet_id, product_id, month, year].some((value) => Number.isNaN(value))) continue;
-                await tx.outletInventory.update({ where: { outlet_id_product_id_month_year: { outlet_id, product_id, month, year } }, data: { quantity: 0 } });
-            }
-        });
+        }, { timeout: 120_000 });
     }
 }
