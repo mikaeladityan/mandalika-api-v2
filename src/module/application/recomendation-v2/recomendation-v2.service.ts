@@ -349,8 +349,9 @@ export class RecomendationV2Service {
                     fm.min_buy AS moq,
                     fm.lead_time AS lead_time,
                     mro.horizon AS work_order_horizon,
-                    -- Forecast sudah dikurangi stok FG; kurangi hanya stok RM agar tidak double-count.
-                    GREATEST(0,
+                    -- Tester memakai stok FG yang dikonversi ke kebutuhan material melalui resep.
+                    -- Jenis lain tetap memakai stok RM.
+                    ${type === "tester" ? Prisma.sql`COALESCE(sa.stock_fg_x_resep, 0)` : Prisma.sql`GREATEST(0,
                                 COALESCE((
                                     SELECT SUM(rmi.quantity)
                                     FROM (
@@ -374,7 +375,7 @@ export class RecomendationV2Service {
                                     WHERE poi.raw_material_id = fm.id
                                       AND po.status = 'RELEASED'
                                 ), 0)
-                            ) AS current_stock,
+                            )`} AS current_stock,
                     (
                         COALESCE((
                             SELECT SUM(po.quantity)
@@ -1804,7 +1805,7 @@ export class RecomendationV2Service {
                 0 AS quantity,
                 ${horizon} AS horizon,
                 ${body.product_status === "PENDING" ? Prisma.sql`0::numeric` : Prisma.sql`COALESCE(fc.total, 0)`} AS total_needed,
-                COALESCE(inv.total, 0) AS current_stock,
+                ${type === "tester" ? Prisma.sql`COALESCE(fg.total, 0)` : Prisma.sql`COALESCE(inv.total, 0)`} AS current_stock,
                 COALESCE(fg.total, 0) AS stock_fg_x_resep,
                 ${body.product_status === "PENDING" ? Prisma.sql`0::numeric` : Prisma.sql`COALESCE(ss.total, 0)`} AS safety_stock_x_resep,
                 ${now} AS created_at,

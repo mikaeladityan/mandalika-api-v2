@@ -184,6 +184,26 @@ describe("RecomendationV2Service - Override Features", () => {
     });
 
     describe("list with overrides", () => {
+        it("uses FG stock as current stock for tester recommendations", async () => {
+            (prisma.$queryRaw as any)
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([{ count: 0n }]);
+
+            await RecomendationV2Service.list({
+                page: 1, take: 10, type: "tester", sales_months: 3, forecast_months: 3, po_months: 3,
+            });
+
+            const queryArg = (prisma.$queryRaw as any).mock.calls[1]?.[0] as
+                | readonly string[]
+                | { strings?: readonly string[] };
+            const sql = "strings" in queryArg
+                ? queryArg.strings?.join(" ") ?? ""
+                : (queryArg as readonly string[]).join(" ");
+            expect(sql).toContain("COALESCE(sa.stock_fg_x_resep, 0)");
+            expect(sql).toContain("AS current_stock");
+        });
+
         it("uses operational final_forecast only and keeps FG stock as metadata", async () => {
             vi.useFakeTimers();
             vi.setSystemTime(new Date(Date.UTC(2026, 3, 10)));
