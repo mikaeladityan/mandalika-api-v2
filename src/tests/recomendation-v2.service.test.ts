@@ -204,7 +204,7 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(sql).toContain("AS current_stock");
         });
 
-        it("uses operational final_forecast only and keeps FG stock as metadata", async () => {
+        it("restores gross demand only for same-code FG fallback and keeps recipe FG stock as metadata", async () => {
             vi.useFakeTimers();
             vi.setSystemTime(new Date(Date.UTC(2026, 3, 10)));
             (prisma.$queryRaw as any)
@@ -216,14 +216,12 @@ describe("RecomendationV2Service - Override Features", () => {
                 page: 1, take: 10, type: "lokal", sales_months: 4, forecast_months: 3, po_months: 3,
             });
 
-            const queryArg = (prisma.$queryRaw as any).mock.calls[1]?.[0] as
-                | readonly string[]
-                | { strings?: readonly string[] };
-            const sql = "strings" in queryArg
-                ? queryArg.strings?.join(" ") ?? ""
-                : (queryArg as readonly string[]).join(" ");
-            expect(sql).toContain("f.final_forecast * rec.quantity");
-            expect(sql).not.toContain("f.net_forecast");
+            const call = vi.mocked(prisma.$queryRaw).mock.calls[1];
+            if (!call || !Array.isArray(call[0])) throw new Error("Missing recommendation query");
+            const sql = Prisma.sql(call[0] as TemplateStringsArray, ...call.slice(1)).sql;
+            expect(sql).toContain("WHEN p.code = fm.barcode");
+            expect(sql).toContain("THEN COALESCE(f.net_forecast, f.final_forecast)");
+            expect(sql).toContain("ELSE f.final_forecast");
             expect(sql).toContain("stock_fg_x_resep");
             expect(sql).not.toMatch(/total_forecast_horizon_dynamic\s*-\s*[^)]*stock_fg_x_resep/);
         });

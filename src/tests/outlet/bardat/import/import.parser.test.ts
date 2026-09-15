@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { periodsFromRows, unpivotBardat } from "../../../../module/application/inventory-v2/bardat/import/import.parser.js";
+import { periodsFromRows, unpivotBardat } from "../../../../module/application/outlet/bardat/import/import.parser.js";
 
 describe("Bardat parser", () => {
     it("un pivots outlet/date headers and skips blank quantities", () => {

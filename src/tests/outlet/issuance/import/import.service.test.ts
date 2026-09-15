@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BardatService } from "../../../../module/application/inventory-v2/bardat/import/import.service.js";
-import { BardatImportCacheService } from "../../../../module/application/inventory-v2/bardat/import/import.cache.js";
+import { IssuanceService } from "../../../../module/application/outlet/issuance/import/import.service.js";
+import { IssuanceImportCacheService } from "../../../../module/application/outlet/issuance/import/import.cache.js";
 import prisma from "../../../../config/prisma.js";
 
 vi.mock("../../../../config/prisma.js", () => ({
@@ -11,11 +11,11 @@ vi.mock("../../../../config/prisma.js", () => ({
     },
 }));
 
-vi.mock("../../../../module/application/inventory-v2/bardat/import/import.cache.js", () => ({
-    BardatImportCacheService: { save: vi.fn(), get: vi.fn(), remove: vi.fn() },
+vi.mock("../../../../module/application/outlet/issuance/import/import.cache.js", () => ({
+    IssuanceImportCacheService: { save: vi.fn(), get: vi.fn(), remove: vi.fn() },
 }));
 
-describe("BardatService", () => {
+describe("IssuanceService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         // reason: Vitest's Prisma mock retains the generated full-record return type.
@@ -24,8 +24,8 @@ describe("BardatService", () => {
     });
 
     it("validates rows in batch and stores an outlet summary", async () => {
-        const result = await BardatService.preview([
-            ["BARDAT", "", "", "", "TOKO :", "T1"],
+        const result = await IssuanceService.preview([
+            ["ISSUANCE", "", "", "", "TOKO :", "T1"],
             ["", "", "", "", "TANGGAL :", "2026-04-01"],
             ["NO", "PRODUCT CODE", "PRODUCT NAME", "SIZE", "PRODUCT CATEGORY", ""],
             ["1", "P001", "Product", "M", "Category", 4],
@@ -35,12 +35,12 @@ describe("BardatService", () => {
         expect(result.valid).toBe(1);
         expect(result.invalid).toBe(1);
         expect(result.summaries[0]).toMatchObject({ outlet_code: "T1", valid_rows: 1, invalid_rows: 1 });
-        expect(BardatImportCacheService.save).toHaveBeenCalled();
+        expect(IssuanceImportCacheService.save).toHaveBeenCalled();
     });
 
     it("aggregates repeated date columns for the same outlet and SKU", async () => {
-        const result = await BardatService.preview([
-            ["BARDAT", "", "", "", "TOKO :", "T1"],
+        const result = await IssuanceService.preview([
+            ["ISSUANCE", "", "", "", "TOKO :", "T1"],
             ["", "", "", "", "TANGGAL :", "2026-04-01"],
             ["NO", "PRODUCT CODE", "PRODUCT NAME", "SIZE", "PRODUCT CATEGORY", ""],
             ["1", "P001", "Product", "M", "Category", 2],
@@ -48,14 +48,14 @@ describe("BardatService", () => {
         ]);
         expect(result.valid).toBe(1);
         expect(result.invalid).toBe(0);
-        const savedPayload = vi.mocked(BardatImportCacheService.save).mock.calls.at(-1)?.[1] as { rows: Array<{ quantity: number }> };
+        const savedPayload = vi.mocked(IssuanceImportCacheService.save).mock.calls.at(-1)?.[1] as { rows: Array<{ quantity: number }> };
         expect(savedPayload.rows).toHaveLength(1);
         expect(savedPayload.rows[0]?.quantity).toBe(5);
     });
 
     it("rejects execute when preview session is missing", async () => {
-        vi.mocked(BardatImportCacheService.get).mockResolvedValue(null);
-        await expect(BardatService.execute("00000000-0000-4000-8000-000000000001"))
+        vi.mocked(IssuanceImportCacheService.get).mockResolvedValue(null);
+        await expect(IssuanceService.execute("00000000-0000-4000-8000-000000000001"))
             .rejects.toThrow("Import session tidak ditemukan");
     });
 
@@ -68,13 +68,13 @@ describe("BardatService", () => {
             summaries: [], createdAt: Date.now(),
             rows: [{ product_code: "P001", outlet_code: "T1", date: "2026-04-01", quantity: 4, product_id: 1, outlet_id: 2, errors: [] }],
         };
-        vi.mocked(BardatImportCacheService.get).mockResolvedValue(payload);
+        vi.mocked(IssuanceImportCacheService.get).mockResolvedValue(payload);
         const tx = {
             outletInventory: {
                 deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
                 createMany: vi.fn().mockResolvedValue({ count: 1 }),
             },
-            outletGoodsReceipt: {
+            outletIssuance: {
                 deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
                 createMany: vi.fn().mockResolvedValue({ count: 1 }),
                 groupBy: vi.fn().mockResolvedValue([{ outlet_id: 2, product_id: 1, month: 4, year: 2026, _sum: { quantity: 4 } }]),
@@ -82,13 +82,13 @@ describe("BardatService", () => {
         };
         // reason: The test supplies a minimal transaction client for the methods exercised by this service.
         vi.mocked(prisma.$transaction).mockImplementation((async (callback: (client: typeof tx) => Promise<void>) => callback(tx)) as never);
-        await BardatService.execute(payload.import_id);
-        expect(tx.outletGoodsReceipt.deleteMany).toHaveBeenCalledWith({ where: { OR: payload.periods } });
-        expect(tx.outletGoodsReceipt.createMany).toHaveBeenCalled();
+        await IssuanceService.execute(payload.import_id);
+        expect(tx.outletIssuance.deleteMany).toHaveBeenCalledWith({ where: { OR: payload.periods } });
+        expect(tx.outletIssuance.createMany).toHaveBeenCalled();
         expect(tx.outletInventory.deleteMany).toHaveBeenCalledWith({ where: { OR: payload.periods } });
         expect(tx.outletInventory.createMany).toHaveBeenCalledWith({
             data: [{ outlet_id: 2, product_id: 1, month: 4, year: 2026, quantity: 4 }],
         });
-        expect(BardatImportCacheService.remove).toHaveBeenCalledWith(payload.import_id);
+        expect(IssuanceImportCacheService.remove).toHaveBeenCalledWith(payload.import_id);
     });
 });

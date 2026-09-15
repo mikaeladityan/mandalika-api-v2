@@ -1,3 +1,4 @@
+import { recommendationStockSql } from "../recommendation-stock.js";
 import prisma from "../../../../config/prisma.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
@@ -57,20 +58,9 @@ export class DiscontinueLossService {
         const materials = await prisma.$queryRaw<LossMaterial[]>(Prisma.sql`
             SELECT rm.id AS material_id, rm.barcode, rm.name AS material_name,
                 CASE WHEN rm.barcode IN ('KA-0.6MM', 'KA-0.4MM') THEN 'KG' ELSE COALESCE(u.name, 'UNIT') END AS uom,
-                GREATEST(0, COALESCE((
-                    SELECT SUM(inv.quantity) FROM (
-                        SELECT DISTINCT ON (warehouse_id) warehouse_id, year, month
-                        FROM raw_material_inventories
-                        WHERE raw_material_id = rm.id AND year * 12 + month <= ${key.year * 12 + key.month}
-                        ORDER BY warehouse_id, year DESC, month DESC
-                    ) latest
-                    JOIN raw_material_inventories inv ON inv.raw_material_id = rm.id
-                        AND inv.warehouse_id = latest.warehouse_id AND inv.year = latest.year AND inv.month = latest.month
-                ), 0) - COALESCE((
-                    SELECT SUM(poi.quantity_planned) FROM production_order_items poi
-                    JOIN production_orders po ON po.id = poi.production_order_id
-                    WHERE poi.raw_material_id = rm.id AND po.status = 'RELEASED'
-                ), 0))::numeric AS stock,
+                ${recommendationStockSql(
+                    Prisma.sql`rm.id`, Prisma.sql`rm.barcode`, key.year, key.month, key.year, key.month,
+                )}::numeric AS stock,
                 (SELECT sm.unit_price FROM supplier_materials sm
                  WHERE sm.raw_material_id = rm.id AND sm.is_preferred = true AND sm.status = 'ACTIVE'
                  ORDER BY sm.updated_at DESC, sm.id DESC LIMIT 1) AS unit_price

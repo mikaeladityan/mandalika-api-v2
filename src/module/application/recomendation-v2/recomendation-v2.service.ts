@@ -19,6 +19,7 @@ import * as ExcelJS from "exceljs";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { logger } from "../../../lib/logger.js";
 import { calculatePOEta } from "../purchase/po/po-eta.js";
+import { recommendationStockSql, recommendationForecastSql } from "./recommendation-stock.js";
 import { DiscontinueService } from "./discontinue/discontinue.service.js";
 
 const EDITABLE_PO_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "ORDERED"] as const;
@@ -215,7 +216,7 @@ export class RecomendationV2Service {
                       AND (year * 12 + month) <= ${slEndY * 12 + slEndM}
                     GROUP BY product_id, year, month
                 ),
-                -- Latest FG stock per product is display metadata only; final_forecast is already netted.
+                -- Recipe-converted FG stock is display metadata; same-code fallback is resolved separately.
                 product_stock_agg AS (
                     SELECT latest_periods.product_id, SUM(pi.quantity) as total_qty
                     FROM (
@@ -271,12 +272,12 @@ export class RecomendationV2Service {
                 rm_forecast_agg AS (
                     SELECT
                         fm.id AS raw_mat_id,
-                        COALESCE(SUM(FLOOR(f.final_forecast * rec.quantity *
+                        COALESCE(SUM(FLOOR(${recommendationForecastSql(Prisma.sql`fm.id`, Prisma.sql`fm.barcode`, invYear, invMonth)} * rec.quantity *
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ), 0) AS total_forecast_needed,
                         COALESCE(SUM(
                             CASE WHEN f.month = ${currentMonth} AND f.year = ${currentYear}
-                            THEN FLOOR(f.final_forecast * rec.quantity * CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
+                            THEN FLOOR(${recommendationForecastSql(Prisma.sql`fm.id`, Prisma.sql`fm.barcode`, invYear, invMonth)} * rec.quantity * CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                             ELSE 0 END
                         ), 0) AS m1_forecast_needed
                     FROM filtered_materials fm
@@ -349,33 +350,11 @@ export class RecomendationV2Service {
                     fm.min_buy AS moq,
                     fm.lead_time AS lead_time,
                     mro.horizon AS work_order_horizon,
-                    -- Tester memakai stok FG yang dikonversi ke kebutuhan material melalui resep.
-                    -- Jenis lain tetap memakai stok RM.
-                    ${type === "tester" ? Prisma.sql`COALESCE(sa.stock_fg_x_resep, 0)` : Prisma.sql`GREATEST(0,
-                                COALESCE((
-                                    SELECT SUM(rmi.quantity)
-                                    FROM (
-                                        SELECT DISTINCT ON (warehouse_id) warehouse_id, year, month
-                                        FROM "raw_material_inventories"
-                                        WHERE raw_material_id = fm.id
-                                          AND (year * 12 + month) <= (${invYear} * 12 + ${invMonth})
-                                        ORDER BY warehouse_id, year DESC, month DESC
-                                    ) latest_periods
-                                    JOIN "raw_material_inventories" rmi
-                                        ON rmi.raw_material_id = fm.id
-                                        AND rmi.warehouse_id = latest_periods.warehouse_id
-                                        AND rmi.year = latest_periods.year
-                                        AND rmi.month = latest_periods.month
-                                ), 0)
-                                -
-                                COALESCE((
-                                    SELECT SUM(poi.quantity_planned)
-                                    FROM "production_order_items" poi
-                                    JOIN "production_orders" po ON poi.production_order_id = po.id
-                                    WHERE poi.raw_material_id = fm.id
-                                      AND po.status = 'RELEASED'
-                                ), 0)
-                            )`} AS current_stock,
+                    ${recommendationStockSql(
+                        Prisma.sql`fm.id`, Prisma.sql`fm.barcode`,
+                        invYear, invMonth, fgInvYear, fgInvMonth,
+                        type === "tester" ? Prisma.sql`COALESCE(sa.stock_fg_x_resep, 0)` : undefined,
+                    )} AS current_stock,
                     (
                         COALESCE((
                             SELECT SUM(po.quantity)
@@ -454,7 +433,7 @@ export class RecomendationV2Service {
                         ), '[]'::json)
                         FROM (
                             SELECT f.month, f.year, SUM(FLOOR(
-                                f.final_forecast * rec.quantity *
+                                ${recommendationForecastSql(Prisma.sql`fm.id`, Prisma.sql`fm.barcode`, invYear, invMonth)} * rec.quantity *
                                 CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                             ) as total_needed
                             FROM "forecasts" f
@@ -500,7 +479,7 @@ export class RecomendationV2Service {
                     SELECT COALESCE(SUM(COALESCE(o.quantity, mr.calc_needed)), 0) AS total_needed
                     FROM (
                         SELECT f.month, f.year, SUM(FLOOR(
-                            f.final_forecast * rec.quantity *
+                            ${recommendationForecastSql(Prisma.sql`fm.id`, Prisma.sql`fm.barcode`, invYear, invMonth)} * rec.quantity *
                             CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END)
                         ) as calc_needed
                         FROM "recipes" rec
@@ -1349,8 +1328,9 @@ export class RecomendationV2Service {
                 ka_rec.quantity::numeric          AS ka_recipe_qty,
                 ktp_ov.override_qty::numeric      AS override_qty,
                 ktp_ov.ktp_recipe_qty::numeric    AS ktp_recipe_qty,
-                f.final_forecast::numeric AS final_forecast
+                (${recommendationForecastSql(Prisma.sql`ka_rm.id`, Prisma.sql`ka_rm.barcode`, year, month)})::numeric AS final_forecast
             FROM recipes ka_rec
+            JOIN raw_materials ka_rm ON ka_rm.id = ka_rec.raw_mat_id
             JOIN products p
                 ON p.id = ka_rec.product_id
                 AND p.status = 'ACTIVE'
@@ -1711,25 +1691,8 @@ export class RecomendationV2Service {
 
         return await prisma.$executeRaw`
             WITH
-                inv_agg AS (
-                    SELECT 
-                        rmi.raw_material_id, 
-                        GREATEST(0,
-                            SUM(rmi.quantity)::numeric
-                            - COALESCE((
-                                SELECT SUM(poi.quantity_planned)
-                                FROM "production_order_items" poi
-                                JOIN "production_orders" po ON poi.production_order_id = po.id
-                                WHERE poi.raw_material_id = rmi.raw_material_id
-                                  AND po.status = 'RELEASED'
-                            ), 0)
-                        ) AS total
-                    FROM "raw_material_inventories" rmi
-                    WHERE rmi.month = ${invMonth} AND rmi.year = ${invYear}
-                    GROUP BY rmi.raw_material_id
-                ),
                 fc_agg AS (
-                    SELECT rec.raw_mat_id, SUM(f.final_forecast * rec.quantity *
+                    SELECT rec.raw_mat_id, SUM(${recommendationForecastSql(Prisma.sql`rm2.id`, Prisma.sql`rm2.barcode`, invYear, invMonth)} * rec.quantity *
                         CASE WHEN rm2.type = 'FO' OR urm2.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
                     )::numeric AS total
                     FROM "forecasts" f
@@ -1805,7 +1768,11 @@ export class RecomendationV2Service {
                 0 AS quantity,
                 ${horizon} AS horizon,
                 ${body.product_status === "PENDING" ? Prisma.sql`0::numeric` : Prisma.sql`COALESCE(fc.total, 0)`} AS total_needed,
-                ${type === "tester" ? Prisma.sql`COALESCE(fg.total, 0)` : Prisma.sql`COALESCE(inv.total, 0)`} AS current_stock,
+                ${recommendationStockSql(
+                    Prisma.sql`rm.id`, Prisma.sql`rm.barcode`,
+                    invYear, invMonth, fgInvYear, fgInvMonth,
+                    type === "tester" ? Prisma.sql`COALESCE(fg.total, 0)` : undefined,
+                )} AS current_stock,
                 COALESCE(fg.total, 0) AS stock_fg_x_resep,
                 ${body.product_status === "PENDING" ? Prisma.sql`0::numeric` : Prisma.sql`COALESCE(ss.total, 0)`} AS safety_stock_x_resep,
                 ${now} AS created_at,
@@ -1815,7 +1782,6 @@ export class RecomendationV2Service {
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
             LEFT JOIN "supplier_materials" sm ON sm.raw_material_id = rm.id AND sm.is_preferred = true
             LEFT JOIN "suppliers" s ON s.id = sm.supplier_id
-            LEFT JOIN inv_agg inv ON inv.raw_material_id = rm.id
             LEFT JOIN fc_agg fc ON fc.raw_mat_id = rm.id
             LEFT JOIN ss_agg ss ON ss.raw_mat_id = rm.id
             LEFT JOIN fg_agg fg ON fg.raw_mat_id = rm.id

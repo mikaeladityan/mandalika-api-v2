@@ -22,7 +22,13 @@ export const ResponseRawMaterialStockSchema = z.object({
     name: z.string(),
     category: z.string(),
     uom: z.string(),
-    amount: z.number(), // Physical On-Hand
+    stock_source: z.enum(["RM", "FG"]).default("RM"),
+    source_warehouses: z.array(z.object({
+        warehouse_id: z.number(),
+        warehouse_name: z.string(),
+        quantity: z.number(),
+    })).default([]),
+    amount: z.number(), // On-hand at the selected source warehouses
     booked: z.number().default(0),
     avail: z.number().default(0),
     stocks: z.record(z.string(), z.number()).default({}), // Legacy support for amount (On-Hand)
