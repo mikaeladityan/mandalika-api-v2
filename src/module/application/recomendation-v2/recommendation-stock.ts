@@ -19,7 +19,7 @@ export function recommendationStockSql(
                     SELECT SUM(latest.quantity)
                     FROM (
                         SELECT quantity, ROW_NUMBER() OVER (
-                            PARTITION BY warehouse_id ORDER BY year DESC, month DESC, date DESC, id DESC
+                            PARTITION BY warehouse_id ORDER BY year DESC, month DESC, date DESC, updated_at DESC, id DESC
                         ) AS period_rank
                         FROM product_inventories
                         WHERE product_id = matched.id
@@ -35,9 +35,15 @@ export function recommendationStockSql(
             )
         END
         FROM (SELECT 1) seed
-        LEFT JOIN products matched
-            ON BTRIM(UPPER(matched.code)) = BTRIM(UPPER(${barcode}))
-                AND NULLIF(BTRIM(${barcode}), '') IS NOT NULL AND matched.deleted_at IS NULL
+        LEFT JOIN LATERAL (
+            SELECT p.id
+            FROM products p
+            WHERE BTRIM(UPPER(p.code)) = BTRIM(UPPER(${barcode}))
+              AND NULLIF(BTRIM(${barcode}), '') IS NOT NULL
+              AND p.deleted_at IS NULL
+            ORDER BY p.status ASC, p.updated_at DESC, p.id DESC
+            LIMIT 1
+        ) matched ON TRUE
     )`;
 }
 
@@ -46,7 +52,7 @@ function rawMaterialPhysicalStockSql(materialId: Prisma.Sql, year: number, month
     return Prisma.sql`(
         SELECT SUM(latest.quantity) FROM (
             SELECT quantity, ROW_NUMBER() OVER (
-                PARTITION BY warehouse_id ORDER BY year DESC, month DESC, date DESC, id DESC
+                PARTITION BY warehouse_id ORDER BY year DESC, month DESC, date DESC, updated_at DESC, id DESC
             ) AS period_rank
             FROM raw_material_inventories
             WHERE raw_material_id = ${materialId} AND year * 12 + month <= ${year * 12 + month}
