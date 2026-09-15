@@ -40,16 +40,16 @@ export function calculateDiscontinueNeeds(recipes: RecipeRequirement[], anchors:
 }
 
 export class DiscontinueService {
-    // Sum the existing per-FG purchase recommendations, using the same physical stock.
-    static async purchases(month: number, year: number, stocks: Map<number, number>): Promise<Map<number, number>> {
+    // Aggregate recipe-derived discontinued FG needs per RM. General applies stock once
+    // after adding this requirement to its own recipe-derived requirement.
+    static async purchases(month: number, year: number): Promise<Map<number, number>> {
         const anchors = await prisma.discontinueNeedAnchor.findMany({ where: { month, year } });
         const recipes = await this.recipes([...new Set(anchors.map((anchor) => anchor.product_id))]);
         const totals = new Map<number, number>();
         for (const need of calculateDiscontinueNeeds(recipes, anchors)) {
-            const stock = stocks.get(need.material_id);
-            if (stock === undefined || !need.anchor_valid || need.total_needed <= 0) continue;
-            const purchase = Prisma.Decimal.max(0, new Prisma.Decimal(need.total_needed).minus(stock));
-            totals.set(need.material_id, purchase.plus(totals.get(need.material_id) ?? 0).toDecimalPlaces(8).toNumber());
+            if (!need.anchor_valid || need.total_needed <= 0) continue;
+            const requirement = new Prisma.Decimal(need.total_needed);
+            totals.set(need.material_id, requirement.plus(totals.get(need.material_id) ?? 0).toDecimalPlaces(8).toNumber());
         }
         return totals;
     }

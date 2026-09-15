@@ -627,8 +627,7 @@ export class RecomendationV2Service {
             : [];
         const discontinueNeedByRow = new Map(discontinueNeeds.map((need) => [`${need.product_id}_${need.material_id}`, need]));
         const discontinuePurchases = discontinue ? new Map<number, number>()
-            : await DiscontinueService.purchases(currentMonth, currentYear,
-                new Map(rows.map((row) => [Number(row.material_id), Number(row.current_stock)])));
+            : await DiscontinueService.purchases(currentMonth, currentYear);
         const data = rows.map((r) => {
             const anchoredNeed = discontinueNeedByRow.get(`${r.fg_id}_${r.material_id}`);
             const salesRaw =
@@ -708,8 +707,19 @@ export class RecomendationV2Service {
             }
 
             const generalRecommendationQuantity = recommendationQuantity;
-            const discontinueRecommendationQuantity = discontinuePurchases.get(Number(r.material_id)) ?? 0;
-            recommendationQuantity = new Prisma.Decimal(recommendationQuantity).plus(discontinueRecommendationQuantity).toDecimalPlaces(8).toNumber();
+            const discontinueRequirement = discontinuePurchases.get(Number(r.material_id)) ?? 0;
+            const generalRequirement = !discontinue && horizon > 0
+                ? new Prisma.Decimal(totalNeededHorizon).plus(safetyStock)
+                : new Prisma.Decimal(0);
+            const combinedRecommendation = Prisma.Decimal.max(0,
+                generalRequirement.plus(discontinueRequirement).minus(currentStock).minus(openPo),
+            );
+            const discontinueRecommendationQuantity = !discontinue
+                ? Prisma.Decimal.max(0, combinedRecommendation.minus(generalRecommendationQuantity)).toDecimalPlaces(8).toNumber()
+                : 0;
+            recommendationQuantity = !discontinue
+                ? combinedRecommendation.toDecimalPlaces(8).toNumber()
+                : new Prisma.Decimal(recommendationQuantity).toDecimalPlaces(8).toNumber();
 
             return {
                 product_status: discontinue ? "PENDING" as const : "ACTIVE" as const,

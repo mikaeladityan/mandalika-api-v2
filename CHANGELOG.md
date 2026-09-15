@@ -2,6 +2,12 @@
 
 Semua perubahan utama pada sisi server dicatat di sini.
 
+## [Unreleased]
+
+### Fixed
+
+- **Recomendation-v2 / FG Discontinue**: Kebutuhan FG Discontinue kini tetap dihitung dari recipe FG→RM, diagregasi per RM, lalu stok dan Open PO dikurangi satu kali bersama kebutuhan General. Mencegah stok RM terpakai berulang untuk beberapa anchor atau terpotong dua kali antara General dan Discontinue.
+
 ## [2026-08-05]
 
 ### Changed
