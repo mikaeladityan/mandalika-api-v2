@@ -32,6 +32,7 @@ lerna-debug.log*
 prisma/migrations/*
 !prisma/migrations/20260909150000_add_discontinue_need_anchor/
 !prisma/migrations/20260914120000_add_outlet_goods_receipts/
+!prisma/migrations/20260915120000_add_bardat_cycles/
 src/generated
 
 /src/generated/prisma
