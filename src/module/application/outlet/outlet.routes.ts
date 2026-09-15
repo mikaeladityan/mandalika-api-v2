@@ -7,6 +7,7 @@ import { BulkDeleteSchema, BulkStatusSchema, RequestOutletSchema, UpdateOutletSc
 import { OutletImportRoutes } from "./import/import.routes.js";
 import BardatImportRoutes from "./bardat/import/import.routes.js";
 import BardatRoutes from "./bardat/bardat.routes.js";
+import { BardatCycleRoutes } from "./bardat/cycle/bardat.cycle.routes.js";
 import IssuanceImportRoutes from "./issuance/import/import.routes.js";
 import IssuanceRoutes from "./issuance/issuance.routes.js";
 
@@ -15,6 +16,7 @@ export const OutletRoutes = new Hono();
 // ─── Sub-Modules ──────────────────────────────────────────────────────────────
 OutletRoutes.route("/import", OutletImportRoutes);
 OutletRoutes.route("/bardat/import", BardatImportRoutes);
+OutletRoutes.route("/bardat/cycle", BardatCycleRoutes);
 OutletRoutes.route("/bardat", BardatRoutes);
 OutletRoutes.route("/issuance/import", IssuanceImportRoutes);
 OutletRoutes.route("/issuance", IssuanceRoutes);

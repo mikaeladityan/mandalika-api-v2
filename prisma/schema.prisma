@@ -608,6 +608,7 @@ model Outlet {
   returns_as_destination   StockReturn[]     @relation("ReturnToOutlet")
   deleted_at               DateTime?
   address                  OutletAddress?
+  bardat_cycle              OutletBardatCycle?
   inventories              OutletInventory[]
   goods_receipts            OutletGoodsReceipt[]
   outlet_issuances          OutletIssuance[]
@@ -616,6 +617,22 @@ model Outlet {
   @@index([code])
   @@index([type])
   @@map("outlets")
+}
+
+model OutletBardatCycle {
+  id            Int      @id @default(autoincrement())
+  outlet_id     Int      @unique
+  pattern       String   @db.VarChar(10)
+  weekdays      Int[]    @default([])
+  interval_days Int?
+  start_date    DateTime @db.Date
+  end_date      DateTime? @db.Date
+  enabled       Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  outlet        Outlet   @relation(fields: [outlet_id], references: [id], onDelete: Restrict)
+
+  @@map("outlet_bardat_cycles")
 }
 
 model OutletWarehouse {
