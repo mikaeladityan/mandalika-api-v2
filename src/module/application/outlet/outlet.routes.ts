@@ -8,6 +8,7 @@ import { OutletImportRoutes } from "./import/import.routes.js";
 import BardatImportRoutes from "./bardat/import/import.routes.js";
 import BardatRoutes from "./bardat/bardat.routes.js";
 import IssuanceImportRoutes from "./issuance/import/import.routes.js";
+import IssuanceRoutes from "./issuance/issuance.routes.js";
 
 export const OutletRoutes = new Hono();
 
@@ -16,6 +17,7 @@ OutletRoutes.route("/import", OutletImportRoutes);
 OutletRoutes.route("/bardat/import", BardatImportRoutes);
 OutletRoutes.route("/bardat", BardatRoutes);
 OutletRoutes.route("/issuance/import", IssuanceImportRoutes);
+OutletRoutes.route("/issuance", IssuanceRoutes);
 
 // ─── Outlet CRUD ──────────────────────────────────────────────────────────────
 OutletRoutes.get("/", OutletController.list);
