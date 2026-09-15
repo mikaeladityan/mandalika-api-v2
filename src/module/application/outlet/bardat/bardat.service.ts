@@ -4,6 +4,7 @@ import prisma from "../../../../config/prisma.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
 import { QueryBardatDTO, RequestBardatDTO } from "./bardat.schema.js";
+import { orderProductIdsByForecast } from "../shared/forecast-product-order.js";
 
 const BARDAT_INCLUDE = {
     outlet: { select: { id: true, code: true, name: true } },
@@ -79,7 +80,9 @@ export class BardatService {
             if (row) row.values[`${record.outlet_id}|${record.date.toISOString().slice(0, 10)}`] = Number(record.quantity);
             if (row) row.ids[`${record.outlet_id}|${record.date.toISOString().slice(0, 10)}`] = record.id;
         }
-        rows.sort((left, right) => left.product_code.localeCompare(right.product_code));
+        const orderedProductIds = await orderProductIdsByForecast(rows.map((row) => row.product_id));
+        const rank = new Map(orderedProductIds.map((productId, index) => [productId, index]));
+        rows.sort((left, right) => (rank.get(left.product_id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.product_id) ?? Number.MAX_SAFE_INTEGER));
         return { columns, rows };
     }
 

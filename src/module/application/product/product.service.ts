@@ -67,6 +67,7 @@ const SORT_COLUMN_MAP: { [key: string]: Prisma.Sql | undefined } = {
 
 const FORECAST_DEFAULT_ORDER = Prisma.sql`
     CASE WHEN pt.name ILIKE '%Display%' THEN 1 ELSE 0 END ASC,
+    CASE WHEN p.code ILIKE 'KEM-%' OR p.code ILIKE 'KT%-%' THEN 1 ELSE 0 END ASC,
     group_sort_priority DESC,
     p.name ASC,
     CASE
