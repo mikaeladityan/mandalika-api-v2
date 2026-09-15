@@ -97,6 +97,29 @@ export const QueryIssuanceRekapSchema = z.object({
 
 export type QueryIssuanceRekapDTO = z.infer<typeof QueryIssuanceRekapSchema>;
 
+export const QuerySalesRankingSchema = z.object({
+    start_month: z.coerce.number().min(1).max(12).optional(),
+    start_year: z.coerce.number().int().positive().optional(),
+    end_month: z.coerce.number().min(1).max(12).optional(),
+    end_year: z.coerce.number().int().positive().optional(),
+    gender: z.enum(GENDER).optional(),
+    variant: z.string().optional(),
+    search: z.string().optional(),
+    page: z.coerce.number().int().positive().default(1).optional(),
+    take: z.coerce.number().int().positive().max(500).default(25).optional(),
+});
+
+export type QuerySalesRankingDTO = z.infer<typeof QuerySalesRankingSchema>;
+
+export type SalesRankingItemDTO = {
+    rank: number;
+    name_grouping: string;
+    products: Array<{ code: string; size: number | null; type: string }>;
+    ext: number;
+    parfum: number;
+    total: number;
+};
+
 export const SalesMonthlySummarySchema = z.object({
     year: z.number(),
     month: z.number(),

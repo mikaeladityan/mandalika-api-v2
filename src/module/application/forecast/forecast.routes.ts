@@ -15,6 +15,8 @@ export const ForecastRoutes = new Hono();
 
 ForecastRoutes.route("/forecast-percentages", ForecastPercentageRoutes);
 ForecastRoutes.route("/accuracy", ForecastAccuracyRoutes);
+ForecastRoutes.get("/sales-ranking/export", ForecastController.exportSalesRanking);
+ForecastRoutes.get("/sales-ranking", ForecastController.salesRanking);
 
 // Static routes (must be before /:product_id / /:id)
 ForecastRoutes.post("/run", validateBody(RunForecastSchema), ForecastController.run);

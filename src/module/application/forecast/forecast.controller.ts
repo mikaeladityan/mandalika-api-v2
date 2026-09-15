@@ -12,10 +12,26 @@ import {
     QueryInventoryTurnoverRMSchema,
 } from "./forecast.schema.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
+import { IssuanceService } from "../issuance/issuance.service.js";
+import { QuerySalesRankingSchema } from "../issuance/issuance.schema.js";
 
 const Table = "Forecast";
 
 export class ForecastController {
+    static async salesRanking(c: Context) {
+        const query = QuerySalesRankingSchema.parse(c.req.query());
+        const result = await IssuanceService.salesRanking(query);
+        return ApiResponse.sendSuccess(c, result, 200, query);
+    }
+
+    static async exportSalesRanking(c: Context) {
+        const query = QuerySalesRankingSchema.parse(c.req.query());
+        const buffer = await IssuanceService.exportSalesRanking(query);
+        c.header("Content-Type", "text/csv; charset=utf-8");
+        c.header("Content-Disposition", `attachment; filename="Sales_Ranking_${new Date().toISOString().split("T")[0]}.csv"`);
+        return c.body(buffer as any);
+    }
+
     static async run(c: Context) {
         const body = c.get("body");
         const session = c.get("session");

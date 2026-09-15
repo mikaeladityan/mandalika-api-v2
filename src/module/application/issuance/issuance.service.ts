@@ -4,7 +4,7 @@ import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
 import ExcelJS from "exceljs";
 
-import { SalesMonthlySummaryDTO, QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO, RequestIssuanceBulkDTO, ResponseIssuanceDetailDTO } from "./issuance.schema.js";
+import { SalesMonthlySummaryDTO, QueryIssuanceDTO, RequestIssuanceDTO, ResponseIssuanceDTO, QueryIssuanceRekapDTO, RequestIssuanceBulkDTO, ResponseIssuanceDetailDTO, QuerySalesRankingDTO, SalesRankingItemDTO } from "./issuance.schema.js";
 import { ISSUANCE_THRESHOLD_PERIOD } from "../shared/constants.js";
 
 export { ISSUANCE_THRESHOLD_PERIOD };
@@ -364,6 +364,118 @@ export class IssuanceService {
             previousQuantity = quantity;
             return result;
         });
+    }
+
+    static async salesRanking({
+        start_month,
+        start_year,
+        end_month,
+        end_year,
+        gender,
+        variant,
+        search,
+        page = 1,
+        take = 25,
+    }: QuerySalesRankingDTO): Promise<{ data: SalesRankingItemDTO[]; len: number }> {
+        const now = new Date();
+        const defaultEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+        let defaultStart = new Date(Date.UTC(defaultEnd.getUTCFullYear(), defaultEnd.getUTCMonth() - 5, 1));
+        const jan2026 = new Date(Date.UTC(2026, 0, 1));
+        if (defaultStart < jan2026) defaultStart = jan2026;
+
+        const finalStartM = start_month ?? (end_month ? 1 : defaultStart.getUTCMonth() + 1);
+        const finalStartY = start_year ?? (end_year ? 2026 : defaultStart.getUTCFullYear());
+        const finalEndM = end_month ?? defaultEnd.getUTCMonth() + 1;
+        const finalEndY = end_year ?? defaultEnd.getUTCFullYear();
+        const startVal = finalStartY * 12 + finalStartM;
+        const endVal = finalEndY * 12 + finalEndM;
+        const { skip, take: limit } = GetPagination(page, take);
+
+        const conditions: Prisma.Sql[] = [
+            Prisma.sql`p.status NOT IN ('BLOCK'::"STATUS", 'DELETE'::"STATUS", 'PENDING'::"STATUS")`,
+            Prisma.sql`ps.size IN (100, 110, 120)`,
+            Prisma.sql`LOWER(pt.slug) IN ('ext', 'edp', 'parfume-intense', 'perfume-intense', 'parfume', 'parfum', 'perfume')`,
+            Prisma.sql`p.code !~* '^(KEM-|KTP-|KTL-|KTB-|DW|DU|GS|BUK-|DP|GB|KA)'`,
+        ];
+        if (search) {
+            const pattern = `%${search}%`;
+            conditions.push(Prisma.sql`(p.name ILIKE ${pattern} OR p.code ILIKE ${pattern})`);
+        }
+        if (gender) conditions.push(Prisma.sql`p.gender = CAST(${gender} AS "GENDER")`);
+        if (variant) conditions.push(Prisma.sql`pt.slug = ${variant}`);
+
+        const actualsSql = Prisma.sql`
+            SELECT product_id, year, month,
+                COALESCE(
+                    NULLIF(SUM(CASE WHEN (year * 12 + month) > ${IssuanceService.THRESHOLD_PERIOD} AND type::text != 'ALL' THEN quantity ELSE 0 END), 0),
+                    SUM(CASE WHEN (year * 12 + month) <= ${IssuanceService.THRESHOLD_PERIOD} AND type::text = 'ALL' THEN quantity ELSE 0 END)
+                ) AS quantity
+            FROM product_issuances
+            WHERE (year * 12 + month) >= ${startVal}
+              AND (year * 12 + month) <= ${endVal}
+            GROUP BY product_id, year, month
+        `;
+        const whereSql = Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`;
+        const countRows = await prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`
+            SELECT COUNT(*)::int AS total FROM (
+                SELECT p.name
+                FROM products p
+                LEFT JOIN product_types pt ON p.type_id = pt.id
+                LEFT JOIN product_size ps ON p.size_id = ps.id
+                ${whereSql}
+                GROUP BY p.name
+            ) grouped
+        `);
+        const total = Number(countRows[0]?.total ?? 0);
+        if (total === 0) return { data: [], len: 0 };
+
+        const rows = await prisma.$queryRaw<Array<{ name_grouping: string; products: Array<{ code: string; size: number | null; type: string }> | string; ext: number | string; parfum: number | string; total: number | string }>>(Prisma.sql`
+            SELECT
+                p.name AS name_grouping,
+                jsonb_agg(DISTINCT jsonb_build_object('code', p.code, 'size', ps.size, 'type', pt.name)) AS products,
+                COALESCE(SUM(CASE WHEN LOWER(pt.slug) IN ('ext', 'edp') THEN sa.quantity ELSE 0 END), 0)::float AS ext,
+                COALESCE(SUM(CASE WHEN LOWER(pt.slug) IN ('parfume-intense', 'perfume-intense', 'parfume', 'parfum', 'perfume') THEN sa.quantity ELSE 0 END), 0)::float AS parfum,
+                COALESCE(SUM(sa.quantity), 0)::float AS total
+            FROM products p
+            LEFT JOIN product_types pt ON p.type_id = pt.id
+            LEFT JOIN product_size ps ON p.size_id = ps.id
+            LEFT JOIN (${actualsSql}) sa ON sa.product_id = p.id
+            ${whereSql}
+            GROUP BY p.name
+            ORDER BY total DESC, p.name ASC
+            LIMIT ${limit} OFFSET ${skip}
+        `);
+
+        return {
+            data: rows.map((row, index) => ({
+                rank: skip + index + 1,
+                name_grouping: row.name_grouping,
+                products: typeof row.products === "string" ? JSON.parse(row.products) : row.products,
+                ext: Number(row.ext),
+                parfum: Number(row.parfum),
+                total: Number(row.total),
+            })),
+            len: total,
+        };
+    }
+
+    static async exportSalesRanking(query: QuerySalesRankingDTO) {
+        const result = await this.salesRanking({ ...query, page: 1, take: 1000000 });
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet("Sales Ranking");
+        sheet.columns = [
+            { header: "RANK", key: "rank", width: 10 },
+            { header: "NAME GROUPING", key: "name_grouping", width: 35 },
+            { header: "FG", key: "products", width: 60 },
+            { header: "EXT", key: "ext", width: 15 },
+            { header: "PARFUM", key: "parfum", width: 15 },
+            { header: "TOTAL", key: "total", width: 15 },
+        ];
+        result.data.forEach((row) => sheet.addRow({
+            ...row,
+            products: row.products.map((product) => `${product.code} · ${product.type} · ${product.size ?? "-"} ML`).join(" | "),
+        }));
+        return workbook.csv.writeBuffer();
     }
 
     static async detail(
