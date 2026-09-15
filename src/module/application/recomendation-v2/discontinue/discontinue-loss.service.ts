@@ -23,7 +23,12 @@ export function calculateDiscontinueLoss(materials: LossMaterial[], needs: Disco
         const buy = need?.anchor_valid && need.total_needed > 0
             ? Prisma.Decimal.max(0, new Prisma.Decimal(need.total_needed).minus(stock))
             : new Prisma.Decimal(0);
-        const remaining = Prisma.Decimal.max(0, stock.minus(buy));
+        // Remaining stock is what is left after fulfilling the full discontinue need.
+        // `buy` is only the shortage and must not be subtracted from stock again.
+        const required = need?.anchor_valid && need.total_needed > 0
+            ? new Prisma.Decimal(need.total_needed)
+            : new Prisma.Decimal(0);
+        const remaining = Prisma.Decimal.max(0, stock.minus(required));
         const price = material.unit_price?.gte(0) ? material.unit_price : null;
         return {
             material_id: material.material_id, barcode: material.barcode,
