@@ -39,7 +39,8 @@ export function rawMaterialStockCtes(
                     THEN 'FG' ELSE 'RM' END AS stock_source
             FROM raw_materials rm
             LEFT JOIN rm_totals rt ON rt.raw_material_id = rm.id
-            LEFT JOIN products p ON p.code = rm.barcode AND rm.barcode <> '' AND p.deleted_at IS NULL
+            LEFT JOIN products p ON BTRIM(UPPER(p.code)) = BTRIM(UPPER(rm.barcode))
+                AND NULLIF(BTRIM(rm.barcode), '') IS NOT NULL AND p.deleted_at IS NULL
             WHERE rm.deleted_at IS NULL
         ), effective_inventory AS (
             SELECT ri.raw_material_id, ri.warehouse_id, ri.quantity

@@ -219,7 +219,7 @@ describe("RecomendationV2Service - Override Features", () => {
             const call = vi.mocked(prisma.$queryRaw).mock.calls[1];
             if (!call || !Array.isArray(call[0])) throw new Error("Missing recommendation query");
             const sql = Prisma.sql(call[0] as TemplateStringsArray, ...call.slice(1)).sql;
-            expect(sql).toContain("WHEN p.code = fm.barcode");
+            expect(sql).toContain("WHEN BTRIM(UPPER(p.code)) = BTRIM(UPPER(fm.barcode))");
             expect(sql).toContain("THEN COALESCE(f.net_forecast, f.final_forecast)");
             expect(sql).toContain("ELSE f.final_forecast");
             expect(sql).toContain("stock_fg_x_resep");
