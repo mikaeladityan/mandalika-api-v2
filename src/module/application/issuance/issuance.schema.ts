@@ -112,6 +112,7 @@ export const QuerySalesRankingSchema = z.object({
 export type QuerySalesRankingDTO = z.infer<typeof QuerySalesRankingSchema>;
 
 export type SalesRankingItemDTO = {
+    months: Array<{ year: number; month: number; ext: number; parfum: number; total: number }>;
     rank: number;
     name_grouping: string;
     products: Array<{ code: string; size: number | null; type: string }>;

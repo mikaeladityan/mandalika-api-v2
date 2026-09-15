@@ -376,9 +376,9 @@ export class IssuanceService {
         search,
         page = 1,
         take = 25,
-    }: QuerySalesRankingDTO): Promise<{ data: SalesRankingItemDTO[]; len: number }> {
+    }: QuerySalesRankingDTO): Promise<{ data: SalesRankingItemDTO[]; len: number; periods: Array<{ year: number; month: number }> }> {
         const now = new Date();
-        const defaultEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+        const defaultEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
         let defaultStart = new Date(Date.UTC(defaultEnd.getUTCFullYear(), defaultEnd.getUTCMonth() - 5, 1));
         const jan2026 = new Date(Date.UTC(2026, 0, 1));
         if (defaultStart < jan2026) defaultStart = jan2026;
@@ -389,6 +389,8 @@ export class IssuanceService {
         const finalEndY = end_year ?? defaultEnd.getUTCFullYear();
         const startVal = finalStartY * 12 + finalStartM;
         const endVal = finalEndY * 12 + finalEndM;
+        if (startVal > endVal) throw new ApiError(400, "Periode mulai harus sebelum periode akhir");
+        const periods = this.getRangePeriods(finalStartM, finalStartY, finalEndM, finalEndY);
         const { skip, take: limit } = GetPagination(page, take);
 
         const conditions: Prisma.Sql[] = [
@@ -427,11 +429,16 @@ export class IssuanceService {
             ) grouped
         `);
         const total = Number(countRows[0]?.total ?? 0);
-        if (total === 0) return { data: [], len: 0 };
+        if (total === 0) return { data: [], len: 0, periods };
 
-        const rows = await prisma.$queryRaw<Array<{ name_grouping: string; products: Array<{ code: string; size: number | null; type: string }> | string; ext: number | string; parfum: number | string; total: number | string }>>(Prisma.sql`
+        const rows = await prisma.$queryRaw<Array<{ monthly: Array<{ year: number; month: number; ext: number; parfum: number }>; name_grouping: string; products: Array<{ code: string; size: number | null; type: string }> | string; ext: number | string; parfum: number | string; total: number | string }>>(Prisma.sql`
             SELECT
                 p.name AS name_grouping,
+                COALESCE(jsonb_agg(jsonb_build_object(
+                    'year', sa.year, 'month', sa.month,
+                    'ext', CASE WHEN LOWER(pt.slug) IN ('ext', 'edp') THEN sa.quantity ELSE 0 END,
+                    'parfum', CASE WHEN LOWER(pt.slug) IN ('ext', 'edp') THEN 0 ELSE sa.quantity END
+                )) FILTER (WHERE sa.year IS NOT NULL), '[]'::jsonb) AS monthly,
                 jsonb_agg(DISTINCT jsonb_build_object('code', p.code, 'size', ps.size, 'type', pt.name)) AS products,
                 COALESCE(SUM(CASE WHEN LOWER(pt.slug) IN ('ext', 'edp') THEN sa.quantity ELSE 0 END), 0)::float AS ext,
                 COALESCE(SUM(CASE WHEN LOWER(pt.slug) IN ('parfume-intense', 'perfume-intense', 'parfume', 'parfum', 'perfume') THEN sa.quantity ELSE 0 END), 0)::float AS parfum,
@@ -448,6 +455,12 @@ export class IssuanceService {
 
         return {
             data: rows.map((row, index) => ({
+                months: periods.map((period) => {
+                    const matching = row.monthly.filter((entry) => entry.year === period.year && entry.month === period.month);
+                    const ext = matching.reduce((sum, entry) => sum + Number(entry.ext), 0);
+                    const parfum = matching.reduce((sum, entry) => sum + Number(entry.parfum), 0);
+                    return { ...period, ext, parfum, total: ext + parfum };
+                }),
                 rank: skip + index + 1,
                 name_grouping: row.name_grouping,
                 products: typeof row.products === "string" ? JSON.parse(row.products) : row.products,
@@ -456,6 +469,7 @@ export class IssuanceService {
                 total: Number(row.total),
             })),
             len: total,
+            periods,
         };
     }
 
@@ -467,12 +481,17 @@ export class IssuanceService {
             { header: "RANK", key: "rank", width: 10 },
             { header: "NAME GROUPING", key: "name_grouping", width: 35 },
             { header: "FG", key: "products", width: 60 },
-            { header: "EXT", key: "ext", width: 15 },
+            ...result.periods.flatMap(({ year, month }) => ["ext", "parfum", "total"].map((field) => ({
+                header: `${year}-${String(month).padStart(2, "0")} ${field.toUpperCase()}`,
+                key: `${year}-${month}-${field}`, width: 18,
+            }))),
+            { header: "TOTAL EXT", key: "ext", width: 15 },
             { header: "PARFUM", key: "parfum", width: 15 },
             { header: "TOTAL", key: "total", width: 15 },
         ];
         result.data.forEach((row) => sheet.addRow({
             ...row,
+            ...Object.fromEntries(row.months.flatMap((month) => (["ext", "parfum", "total"] as const).map((field) => [`${month.year}-${month.month}-${field}`, month[field]]))),
             products: row.products.map((product) => `${product.code} · ${product.type} · ${product.size ?? "-"} ML`).join(" | "),
         }));
         return workbook.csv.writeBuffer();
