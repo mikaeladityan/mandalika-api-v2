@@ -18,7 +18,7 @@ export const QueryForecastSchema = z.object({
     status: z.enum(["DRAFT", "FINALIZED", "ADJUSTED"]).optional(),
     page: z.coerce.number().int().positive().default(1).optional(),
     take: z.coerce.number().int().positive().max(1000).default(25).optional(),
-    horizon: z.coerce.number().int().min(3).max(12).default(12).optional(),
+    horizon: z.coerce.number().int().min(1).max(12).default(4).optional(),
     is_others: z.coerce.boolean().optional(),
     type_id: z.coerce.number().optional(),
     size_id: z.coerce.number().optional(),

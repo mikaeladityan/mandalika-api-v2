@@ -8,7 +8,7 @@ export const QueryRecomendationV2Schema = z.object({
     month: z.coerce.number().min(1).max(12).optional(),
     year: z.coerce.number().min(2000).optional(),
     sales_months: z.coerce.number().min(0).max(12).optional().default(3),
-    forecast_months: z.coerce.number().min(0).max(12).optional().default(3),
+    forecast_months: z.coerce.number().min(0).max(12).optional().default(4),
     po_months: z.coerce.number().min(0).max(12).optional().default(3),
     type: z.enum(["ffo", "lokal", "impor", "tester"]).optional(),
     sortBy: z.enum(["material_name", "barcode", "current_stock", "forecast_needed", "recommendation_quantity"]).optional(),
