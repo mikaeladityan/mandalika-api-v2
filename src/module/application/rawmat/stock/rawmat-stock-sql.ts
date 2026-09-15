@@ -11,7 +11,7 @@ export function rawMaterialStockCtes(
         WITH rm_periods AS (
             SELECT raw_material_id, warehouse_id, quantity,
                 ROW_NUMBER() OVER (
-                    PARTITION BY raw_material_id, warehouse_id ORDER BY date DESC, id DESC
+                    PARTITION BY raw_material_id, warehouse_id ORDER BY date DESC, updated_at DESC, id DESC
                 ) AS period_rank
             FROM raw_material_inventories
             WHERE year = ${year} AND month = ${month}
@@ -25,7 +25,7 @@ export function rawMaterialStockCtes(
         ), fg_periods AS (
             SELECT product_id, warehouse_id, quantity,
                 ROW_NUMBER() OVER (
-                    PARTITION BY product_id, warehouse_id ORDER BY date DESC, id DESC
+                    PARTITION BY product_id, warehouse_id ORDER BY date DESC, updated_at DESC, id DESC
                 ) AS period_rank
             FROM product_inventories
             WHERE year = ${year} AND month = ${month}
@@ -39,8 +39,15 @@ export function rawMaterialStockCtes(
                     THEN 'FG' ELSE 'RM' END AS stock_source
             FROM raw_materials rm
             LEFT JOIN rm_totals rt ON rt.raw_material_id = rm.id
-            LEFT JOIN products p ON BTRIM(UPPER(p.code)) = BTRIM(UPPER(rm.barcode))
-                AND NULLIF(BTRIM(rm.barcode), '') IS NOT NULL AND p.deleted_at IS NULL
+            LEFT JOIN LATERAL (
+                SELECT p.id
+                FROM products p
+                WHERE BTRIM(UPPER(p.code)) = BTRIM(UPPER(rm.barcode))
+                  AND NULLIF(BTRIM(rm.barcode), '') IS NOT NULL
+                  AND p.deleted_at IS NULL
+                ORDER BY p.status ASC, p.updated_at DESC, p.id DESC
+                LIMIT 1
+            ) p ON TRUE
             WHERE rm.deleted_at IS NULL
         ), effective_inventory AS (
             SELECT ri.raw_material_id, ri.warehouse_id, ri.quantity
