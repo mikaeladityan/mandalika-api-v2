@@ -10,6 +10,7 @@ import BardatRoutes from "./bardat/bardat.routes.js";
 import { BardatCycleRoutes } from "./bardat/cycle/bardat.cycle.routes.js";
 import IssuanceImportRoutes from "./issuance/import/import.routes.js";
 import IssuanceRoutes from "./issuance/issuance.routes.js";
+import { StockResilienceRoutes } from "./stock-resilience/stock-resilience.routes.js";
 
 export const OutletRoutes = new Hono();
 
@@ -20,6 +21,7 @@ OutletRoutes.route("/bardat/cycle", BardatCycleRoutes);
 OutletRoutes.route("/bardat", BardatRoutes);
 OutletRoutes.route("/issuance/import", IssuanceImportRoutes);
 OutletRoutes.route("/issuance", IssuanceRoutes);
+OutletRoutes.route("/stock-resilience", StockResilienceRoutes);
 
 // ─── Outlet CRUD ──────────────────────────────────────────────────────────────
 OutletRoutes.get("/", OutletController.list);
