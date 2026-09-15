@@ -1,3 +1,4 @@
+import { rawMaterialStockCtes } from "./rawmat-stock-sql.js";
 import prisma from "../../../../config/prisma.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { GetPagination } from "../../../../lib/utils/pagination.js";
@@ -136,66 +137,31 @@ export class RawMaterialStockService {
             SELECT COUNT(DISTINCT rm.id)::bigint AS total
             FROM raw_materials rm
             LEFT JOIN raw_mat_categories c ON rm.raw_mat_categories_id = c.id
-            LEFT JOIN (
-                SELECT raw_material_id, warehouse_id, SUM(quantity) as quantity
-                FROM raw_material_inventories
-                WHERE month = ${month} AND year = ${year}
-                ${query.warehouse_id ? Prisma.sql`AND warehouse_id = ${query.warehouse_id}` : Prisma.sql``}
-                GROUP BY raw_material_id, warehouse_id
-            ) ri ON rm.id = ri.raw_material_id
             ${whereClause}
         `,
-            prisma.$queryRaw<any[]>`
-            SELECT 
-                rm.barcode, 
-                rm.name, 
-                COALESCE(c.name, 'Unknown') AS category, 
+            prisma.$queryRaw<Array<Omit<ResponseRawMaterialStockDTO, "amount" | "booked" | "avail"> & {
+                amount: Prisma.Decimal; booked: Prisma.Decimal; avail: Prisma.Decimal;
+            }>>`
+            ${rawMaterialStockCtes(month, year, prdWhId, query.warehouse_id)}
+            SELECT
+                rm.id, rm.barcode, rm.name,
+                COALESCE(c.name, 'Unknown') AS category,
                 COALESCE(u.name, 'Unknown') AS uom,
-                COALESCE(SUM(ri.quantity), 0) AS amount,
-                COALESCE(SUM(bi.booked_qty), 0) AS booked,
-                COALESCE(SUM(ri.quantity), 0) - COALESCE(SUM(bi.booked_qty), 0) AS avail,
-                COALESCE(
-                    JSONB_OBJECT_AGG(
-                        COALESCE(w_ri.name, w_bi.name), 
-                        COALESCE(ri.quantity, 0)
-                    ) FILTER (WHERE w_ri.name IS NOT NULL OR w_bi.name IS NOT NULL),
-                    '{}'::JSONB
-                ) AS stocks,
-                COALESCE(
-                    JSONB_OBJECT_AGG(
-                        COALESCE(w_ri.name, w_bi.name), 
-                        JSONB_BUILD_OBJECT(
-                            'on_hand', COALESCE(ri.quantity, 0),
-                            'booked', COALESCE(bi.booked_qty, 0),
-                            'avail', COALESCE(ri.quantity, 0) - COALESCE(bi.booked_qty, 0)
-                        )
-                    ) FILTER (WHERE w_ri.name IS NOT NULL OR w_bi.name IS NOT NULL),
-                    '{}'::JSONB
-                ) AS details
+                COALESCE(st.amount, 0) AS amount,
+                COALESCE(st.booked, 0) AS booked,
+                COALESCE(st.avail, 0) AS avail,
+                ss.stock_source,
+                COALESCE(sw.warehouses, '[]'::jsonb) AS source_warehouses,
+                COALESCE(sd.stocks, '{}'::jsonb) AS stocks,
+                COALESCE(sd.details, '{}'::jsonb) AS details
             FROM raw_materials rm
             LEFT JOIN raw_mat_categories c ON rm.raw_mat_categories_id = c.id
             LEFT JOIN unit_raw_materials u ON rm.unit_id = u.id
-            LEFT JOIN (
-                SELECT raw_material_id, warehouse_id, SUM(quantity) as quantity
-                FROM raw_material_inventories
-                WHERE month = ${month} AND year = ${year}
-                ${query.warehouse_id ? Prisma.sql`AND warehouse_id = ${query.warehouse_id}` : Prisma.sql``}
-                GROUP BY raw_material_id, warehouse_id
-            ) ri ON rm.id = ri.raw_material_id
-            LEFT JOIN (
-                SELECT poi.raw_material_id,
-                       COALESCE(poi.warehouse_id, ${prdWhId}) as warehouse_id,
-                       SUM(poi.quantity_planned) as booked_qty
-                FROM production_order_items poi
-                JOIN production_orders po ON poi.production_order_id = po.id
-                WHERE po.status IN ('PLANNING', 'RELEASED')
-                ${query.warehouse_id ? Prisma.sql`AND COALESCE(poi.warehouse_id, ${prdWhId}) = ${query.warehouse_id}` : Prisma.sql``}
-                GROUP BY poi.raw_material_id, 2
-            ) bi ON rm.id = bi.raw_material_id AND (ri.warehouse_id = bi.warehouse_id OR ri.warehouse_id IS NULL)
-            LEFT JOIN warehouses w_ri ON ri.warehouse_id = w_ri.id
-            LEFT JOIN warehouses w_bi ON bi.warehouse_id = w_bi.id
+            JOIN stock_sources ss ON ss.raw_material_id = rm.id
+            LEFT JOIN stock_totals st ON st.raw_material_id = rm.id
+            LEFT JOIN stock_details sd ON sd.raw_material_id = rm.id
+            LEFT JOIN source_warehouses sw ON sw.raw_material_id = rm.id
             ${whereClause}
-            GROUP BY rm.id, c.name, u.name
             ${orderByClause}
             LIMIT ${limit} OFFSET ${skip}
         `,
@@ -206,7 +172,10 @@ export class RawMaterialStockService {
             month: month as number,
             year: year as number,
             data: result.map((p) => ({
+                id: p.id,
                 barcode: p.barcode,
+                stock_source: p.stock_source,
+                source_warehouses: p.source_warehouses,
                 name: p.name,
                 category: p.category,
                 uom: p.uom,
@@ -248,6 +217,8 @@ export class RawMaterialStockService {
             { header: "MATERIAL NAME", key: "name", width: 40 },
             { header: "CATEGORY", key: "category", width: 25 },
             { header: "UNIT", key: "unit", width: 15 },
+            { header: "SUMBER STOK", key: "stock_source", width: 15 },
+            { header: "GUDANG SUMBER (JUMLAH)", key: "source_warehouses", width: 60 },
             { header: "ON HAND (FISIK)", key: "on_hand", width: 20 },
             { header: "BOOKED (BOOKING)", key: "booked", width: 20 },
             { header: "AVAILABLE (SIAP)", key: "avail", width: 20 },
@@ -259,6 +230,8 @@ export class RawMaterialStockService {
                 name: item.name,
                 category: item.category || "-",
                 unit: item.uom,
+                stock_source: item.stock_source,
+                source_warehouses: item.source_warehouses.map((w) => `${w.warehouse_name}: ${w.quantity}`).join("; "),
                 on_hand: item.amount,
                 booked: item.booked,
                 avail: item.avail,

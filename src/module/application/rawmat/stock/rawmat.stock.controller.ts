@@ -10,6 +10,7 @@ export class RawMaterialStockController {
             page: query.page ? Number(query.page) : undefined,
             take: query.take ? Number(query.take) : undefined,
             search: query.search,
+            warehouse_id: query.warehouse_id ? Number(query.warehouse_id) : undefined,
             sortBy: query.sortBy as QueryRawMaterialStockDTO["sortBy"],
             sortOrder: query.sortOrder as QueryRawMaterialStockDTO["sortOrder"],
             category_id: query.category_id ? Number(query.category_id) : undefined,
@@ -20,7 +21,7 @@ export class RawMaterialStockController {
 
         const result = await RawMaterialStockService.listRawMaterialStock(params);
 
-        return ApiResponse.sendSuccess(c, { data: result.data, len: result.len }, 200, {
+        return ApiResponse.sendSuccess(c, result, 200, {
             ...params,
             month: result.month,
             year: result.year,
