@@ -25,7 +25,7 @@ describe("Discontinue loss check", () => {
         try {
             const result = await DiscontinueLossService.check({ product_id: 1, material_id: 1, month: 9, year: 2026 });
             expect(result.rows).toHaveLength(1);
-            expect(result.rows[0]).toMatchObject({ material_id: 1, need_buy: 20, remaining_value: 120000 });
+            expect(result.rows[0]).toMatchObject({ material_id: 1, need_buy: 20, remaining_value: 0 });
             await expect(DiscontinueLossService.check({ product_id: 1, material_id: 99, month: 9, year: 2026 })).rejects.toThrow("RM tidak memiliki recipe aktif");
         } finally {
             needs.mockRestore();
@@ -58,12 +58,16 @@ describe("Discontinue loss check", () => {
             check.mockRestore();
         }
     });
-    it("values stock minus the purchase recommendation and separately values purchases", () => {
+    it("values stock after the full need and separately values purchases", () => {
         const result = calculateDiscontinueLoss([material(100, 1500)], [need(120)]);
-        expect(result.rows[0]).toMatchObject({ stock: 100, need_buy: 20, remaining: 80, remaining_value: 120000, purchase_value: 30000 });
-        expect(result.remaining_value).toBe(120000);
+        expect(result.rows[0]).toMatchObject({ stock: 100, need_buy: 20, remaining: 0, remaining_value: 0, purchase_value: 30000 });
+        expect(result.remaining_value).toBe(0);
         expect(result.purchase_value).toBe(30000);
         expect(result.rows[0]).not.toHaveProperty("unit_price");
+    });
+    it("keeps stock above the full need as remaining stock", () => {
+        const result = calculateDiscontinueLoss([material(200, 1500)], [need(120)]);
+        expect(result.rows[0]).toMatchObject({ stock: 200, need_buy: 0, remaining: 80, remaining_value: 120000, purchase_value: 0 });
     });
     it("clamps negative remaining stock and retains decimal money precision", () => {
         const result = calculateDiscontinueLoss([material(0.1, 2.55)], [need(0.4)]);
