@@ -36,7 +36,8 @@ export function recommendationStockSql(
         END
         FROM (SELECT 1) seed
         LEFT JOIN products matched
-            ON matched.code = ${barcode} AND ${barcode} <> '' AND matched.deleted_at IS NULL
+            ON BTRIM(UPPER(matched.code)) = BTRIM(UPPER(${barcode}))
+                AND NULLIF(BTRIM(${barcode}), '') IS NOT NULL AND matched.deleted_at IS NULL
     )`;
 }
 
@@ -61,7 +62,7 @@ export function recommendationForecastSql(
     materialId: Prisma.Sql, barcode: Prisma.Sql, rmYear: number, rmMonth: number,
 ): Prisma.Sql {
     return Prisma.sql`CASE
-        WHEN p.code = ${barcode} AND ${barcode} <> ''
+        WHEN BTRIM(UPPER(p.code)) = BTRIM(UPPER(${barcode})) AND NULLIF(BTRIM(${barcode}), '') IS NOT NULL
             AND COALESCE(${rawMaterialPhysicalStockSql(materialId, rmYear, rmMonth)}, 0) = 0
         THEN COALESCE(f.net_forecast, f.final_forecast)
         ELSE f.final_forecast

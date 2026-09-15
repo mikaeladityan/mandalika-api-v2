@@ -102,9 +102,15 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
         expect(await stock()).toMatchObject({ stock_source: "FG", amount: 100 });
     });
 
-    it.each(["OTHER", "same", "", null])("does not match a different or empty barcode: %s", async (barcode) => {
+    it.each(["OTHER", "", null])("does not match a different or empty barcode: %s", async (barcode) => {
         await client.query("UPDATE pg_temp.raw_materials SET barcode = $1", [barcode]);
         expect(await stock()).toMatchObject({ stock_source: "RM", amount: 0, source_warehouses: [] });
+    });
+
+    it("matches business-identical codes despite case and surrounding whitespace", async () => {
+        await client.query("UPDATE pg_temp.raw_materials SET barcode = '  same  '");
+        const row = await stock();
+        expect(row).toMatchObject({ stock_source: "FG", amount: 100 });
     });
 
     it("ignores deleted FG and keeps zero when FG has no stock", async () => {
