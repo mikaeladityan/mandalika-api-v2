@@ -35,7 +35,7 @@ export class RecomendationV2Service {
             year,
             type,
             sales_months = 4,
-            forecast_months = 3,
+            forecast_months = 4,
             po_months = 3,
         } = query;
         const discontinue = query.product_status === "PENDING";
@@ -171,9 +171,8 @@ export class RecomendationV2Service {
         const fcStart = fcStartY * 12 + fcStartM;
         const fcEnd = fcEndY * 12 + fcEndM;
 
-        // Safety Stock uses the first four forecast months (M+0..M+3),
-        // independently from the user-selected recommendation horizon.
-        const SAFETY_STOCK_MONTHS = 4;
+        // Safety Stock follows the selected forecast horizon (M+0..M+n).
+        const SAFETY_STOCK_MONTHS = Math.max(1, forecast_months);
         const ssStart = currentYear * 12 + currentMonth;
         const ssEnd = ssStart + SAFETY_STOCK_MONTHS - 1;
 
@@ -1680,7 +1679,7 @@ export class RecomendationV2Service {
         const fcStart = fcStartY * 12 + fcStartM;
         const fcEnd = fcEndY * 12 + fcEndM;
 
-        const SAFETY_STOCK_MONTHS = 4;
+        const SAFETY_STOCK_MONTHS = Math.max(1, horizon);
         const ssStart = year * 12 + month;
         const ssEnd = ssStart + SAFETY_STOCK_MONTHS - 1;
 

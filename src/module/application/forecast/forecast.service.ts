@@ -111,13 +111,17 @@ export class ForecastService {
         return size === 100 || size === 110 || size === 120;
     }
 
-    static calculateSafetyStock(averageForecast: number, safetyPercentage: number) {
-        const horizon = 4;
+    static calculateSafetyStock(
+        averageForecast: number,
+        safetyPercentage: number,
+        horizon = 4,
+    ) {
+        const safeHorizon = Math.max(1, horizon);
         const average = Math.max(0, averageForecast);
         return {
-            horizon,
+            horizon: safeHorizon,
             average,
-            total: average * horizon,
+            total: average * safeHorizon,
             quantity: average * Math.max(0, safetyPercentage),
         };
     }
@@ -1333,13 +1337,18 @@ export class ForecastService {
         for (const p of products) {
             const safetyPct = Number(p.safety_percentage ?? 0) || (body.is_others ? 0.25 : 0);
             const pBatch = forecastsByProduct.get(p.id) ?? [];
-            if (pBatch.length < 4) continue;
+            const ssHorizon = Math.max(1, horizon);
+            if (pBatch.length < ssHorizon) continue;
 
-            for (let i = 0; i <= pBatch.length - 4; i++) {
+            for (let i = 0; i <= pBatch.length - ssHorizon; i++) {
                 const totalForecast = pBatch
-                    .slice(i, i + 4)
+                    .slice(i, i + ssHorizon)
                     .reduce((sum, forecast) => sum + forecast.final_forecast, 0);
-                const safety = ForecastService.calculateSafetyStock(totalForecast / 4, safetyPct);
+                const safety = ForecastService.calculateSafetyStock(
+                    totalForecast / ssHorizon,
+                    safetyPct,
+                    ssHorizon,
+                );
                 const forecast = pBatch[i]!;
                 safetyStockBatch.push({
                     product_id: p.id,
@@ -1760,7 +1769,7 @@ export class ForecastService {
         query: QueryForecastDTO,
     ): Promise<{ data: ResponseForecastDTO[]; len: number }> {
         const now = new Date();
-        const monthsWindow = ForecastService.resolveHorizonMonths(now, query.horizon ?? 12, {
+        const monthsWindow = ForecastService.resolveHorizonMonths(now, query.horizon ?? 4, {
             month: query.start_month,
             year: query.start_year,
         });
@@ -2283,12 +2292,13 @@ export class ForecastService {
                     : p.safety_stock_data;
 
             let safety_stock_summary = null;
-            const ssMonths = monthly_data.slice(0, 4);
+            const ssHorizon = Math.max(1, Number(query.horizon ?? 4));
+            const ssMonths = monthly_data.slice(0, ssHorizon);
             const totalForecast = ssMonths.reduce(
                 (total, forecast) => total + Number(forecast.final_forecast ?? 0),
                 0,
             );
-            const avgForecast = totalForecast / 4;
+            const avgForecast = totalForecast / ssHorizon;
 
             // If safety_percentage is missing and it's an "others" product, use 25% (0.25)
             const ratio =
