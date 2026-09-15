@@ -18,8 +18,8 @@ export function recommendationStockSql(
                 COALESCE(NULLIF(${rawMaterialPhysicalStockSql(materialId, rmYear, rmMonth)}, 0), (
                     SELECT SUM(latest.quantity)
                     FROM (
-                        SELECT quantity, DENSE_RANK() OVER (
-                            PARTITION BY warehouse_id ORDER BY year DESC, month DESC
+                        SELECT quantity, ROW_NUMBER() OVER (
+                            PARTITION BY warehouse_id ORDER BY year DESC, month DESC, date DESC, id DESC
                         ) AS period_rank
                         FROM product_inventories
                         WHERE product_id = matched.id
@@ -45,8 +45,8 @@ export function recommendationStockSql(
 function rawMaterialPhysicalStockSql(materialId: Prisma.Sql, year: number, month: number): Prisma.Sql {
     return Prisma.sql`(
         SELECT SUM(latest.quantity) FROM (
-            SELECT quantity, DENSE_RANK() OVER (
-                PARTITION BY warehouse_id ORDER BY year DESC, month DESC
+            SELECT quantity, ROW_NUMBER() OVER (
+                PARTITION BY warehouse_id ORDER BY year DESC, month DESC, date DESC, id DESC
             ) AS period_rank
             FROM raw_material_inventories
             WHERE raw_material_id = ${materialId} AND year * 12 + month <= ${year * 12 + month}

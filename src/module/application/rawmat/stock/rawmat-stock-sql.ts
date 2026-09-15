@@ -10,11 +10,11 @@ export function rawMaterialStockCtes(
     return Prisma.sql`
         WITH rm_periods AS (
             SELECT raw_material_id, warehouse_id, quantity,
-                DENSE_RANK() OVER (
-                    PARTITION BY raw_material_id, warehouse_id ORDER BY year DESC, month DESC
+                ROW_NUMBER() OVER (
+                    PARTITION BY raw_material_id, warehouse_id ORDER BY date DESC, id DESC
                 ) AS period_rank
             FROM raw_material_inventories
-            WHERE year * 12 + month <= ${year * 12 + month}
+            WHERE year = ${year} AND month = ${month}
         ), rm_inventory AS (
             SELECT raw_material_id, warehouse_id, COALESCE(SUM(quantity), 0) AS quantity
             FROM rm_periods WHERE period_rank = 1
@@ -24,11 +24,11 @@ export function rawMaterialStockCtes(
             FROM rm_inventory GROUP BY raw_material_id
         ), fg_periods AS (
             SELECT product_id, warehouse_id, quantity,
-                DENSE_RANK() OVER (
-                    PARTITION BY product_id, warehouse_id ORDER BY year DESC, month DESC
+                ROW_NUMBER() OVER (
+                    PARTITION BY product_id, warehouse_id ORDER BY date DESC, id DESC
                 ) AS period_rank
             FROM product_inventories
-            WHERE year * 12 + month <= ${year * 12 + month}
+            WHERE year = ${year} AND month = ${month}
         ), fg_inventory AS (
             SELECT product_id, warehouse_id, COALESCE(SUM(quantity), 0) AS quantity
             FROM fg_periods WHERE period_rank = 1

@@ -16,8 +16,8 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
             CREATE TEMP TABLE raw_materials(id int, barcode text, deleted_at timestamp);
             CREATE TEMP TABLE products(id int, code text, deleted_at timestamp);
             CREATE TEMP TABLE warehouses(id int, name text);
-            CREATE TEMP TABLE raw_material_inventories(raw_material_id int, warehouse_id int, quantity numeric, year int, month int);
-            CREATE TEMP TABLE product_inventories(product_id int, warehouse_id int, quantity numeric, year int, month int);
+            CREATE TEMP TABLE raw_material_inventories(raw_material_id int, warehouse_id int, quantity numeric, year int, month int, date int DEFAULT 1, id int GENERATED ALWAYS AS IDENTITY);
+            CREATE TEMP TABLE product_inventories(product_id int, warehouse_id int, quantity numeric, year int, month int, date int DEFAULT 1, id int GENERATED ALWAYS AS IDENTITY);
             CREATE TEMP TABLE production_orders(id int, status text);
             CREATE TEMP TABLE production_order_items(production_order_id int, raw_material_id int, warehouse_id int, quantity_planned numeric);
         `);
@@ -34,8 +34,8 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
             INSERT INTO pg_temp.products VALUES (11, 'SAME', NULL);
             INSERT INTO pg_temp.warehouses VALUES (1, 'RM Production'), (2, 'FG Surabaya'), (3, 'FG Jakarta'), (4, 'RM Other');
             INSERT INTO pg_temp.product_inventories VALUES
-                (11, 2, 40, 2026, 9), (11, 2, 30, 2026, 9),
-                (11, 2, 999, 2026, 8), (11, 2, 999, 2026, 10), (11, 3, 30, 2026, 8);
+                (11, 2, 40, 2026, 9, 2), (11, 2, 30, 2026, 9, 1),
+                (11, 2, 999, 2026, 8, 1), (11, 2, 999, 2026, 10, 1), (11, 3, 30, 2026, 9, 1);
             INSERT INTO pg_temp.production_orders VALUES (1, 'PLANNING'), (2, 'RELEASED'), (3, 'CANCELLED');
             INSERT INTO pg_temp.production_order_items VALUES
                 (1, 1, NULL, 10), (2, 1, 2, 20), (3, 1, 2, 999);
@@ -69,18 +69,18 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
     it.each([null, 0])("uses all FG warehouses when RM is %s", async (quantity) => {
         await client.query("INSERT INTO pg_temp.raw_material_inventories VALUES (1, 1, $1, 2026, 9)", [quantity]);
         const row = await stock();
-        expect(row).toMatchObject({ stock_source: "FG", amount: 100, booked: 30, avail: 70 });
+        expect(row).toMatchObject({ stock_source: "FG", amount: 70, booked: 30, avail: 40 });
         expect(row.source_warehouses).toEqual([
             { warehouse_id: 3, warehouse_name: "FG Jakarta", quantity: 30 },
-            { warehouse_id: 2, warehouse_name: "FG Surabaya", quantity: 70 },
+            { warehouse_id: 2, warehouse_name: "FG Surabaya", quantity: 40 },
         ]);
         expect(row.details["RM Production"]).toEqual({ on_hand: 0, booked: 10, avail: -10 });
-        expect(row.details["FG Surabaya"]).toEqual({ on_hand: 70, booked: 20, avail: 50 });
+        expect(row.details["FG Surabaya"]).toEqual({ on_hand: 40, booked: 20, avail: 20 });
         expect(Object.values(row.details).reduce((sum, value) => sum + value.avail, 0)).toBe(row.avail);
     });
 
     it("uses FG when no RM snapshot exists, including on a selected RM warehouse page", async () => {
-        expect(await stock(1)).toMatchObject({ stock_source: "FG", amount: 100, booked: 30, avail: 70 });
+        expect(await stock(1)).toMatchObject({ stock_source: "FG", amount: 70, booked: 30, avail: 40 });
     });
 
     it("keeps RM even when booking exhausts the RM balance", async () => {
@@ -99,7 +99,7 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
     it("uses the latest RM period per warehouse and excludes future snapshots", async () => {
         await client.query(`INSERT INTO pg_temp.raw_material_inventories VALUES
             (1, 1, 999, 2026, 8), (1, 1, 0, 2026, 9), (1, 1, 999, 2026, 10)`);
-        expect(await stock()).toMatchObject({ stock_source: "FG", amount: 100 });
+        expect(await stock()).toMatchObject({ stock_source: "FG", amount: 70 });
     });
 
     it.each(["OTHER", "", null])("does not match a different or empty barcode: %s", async (barcode) => {
@@ -110,7 +110,7 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
     it("matches business-identical codes despite case and surrounding whitespace", async () => {
         await client.query("UPDATE pg_temp.raw_materials SET barcode = '  same  '");
         const row = await stock();
-        expect(row).toMatchObject({ stock_source: "FG", amount: 100 });
+        expect(row).toMatchObject({ stock_source: "FG", amount: 70 });
     });
 
     it("ignores deleted FG and keeps zero when FG has no stock", async () => {
@@ -121,9 +121,9 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
     });
 
     it.each([
-        { rmStock: 0, productCode: "SAME", gross: 150, operational: 50, expectedNeed: 150, expectedStock: 100, expectedBuy: 50 },
+        { rmStock: 0, productCode: "SAME", gross: 150, operational: 50, expectedNeed: 150, expectedStock: 70, expectedBuy: 80 },
         { rmStock: 20, productCode: "SAME", gross: 150, operational: 50, expectedNeed: 50, expectedStock: 20, expectedBuy: 30 },
-        { rmStock: 0, productCode: "OTHER", gross: 150, operational: 50, expectedNeed: 50, expectedStock: 100, expectedBuy: 0 },
+        { rmStock: 0, productCode: "OTHER", gross: 150, operational: 50, expectedNeed: 50, expectedStock: 70, expectedBuy: 0 },
     ])("deducts FG only once (RM=$rmStock, recipe FG=$productCode)", async (scenario) => {
         await client.query("DELETE FROM pg_temp.production_order_items");
         await client.query("INSERT INTO pg_temp.raw_material_inventories VALUES (1, 1, $1, 2026, 9)", [scenario.rmStock]);
