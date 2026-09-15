@@ -191,8 +191,14 @@ export class RecomendationV2Service {
                     FROM "raw_materials" rm
                     LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
                     LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-                    LEFT JOIN "supplier_materials" sm ON sm.raw_material_id = rm.id AND sm.is_preferred = true
-                    LEFT JOIN "suppliers" s ON s.id = sm.supplier_id
+                    LEFT JOIN LATERAL (
+                        SELECT sm.min_buy, sm.lead_time
+                        FROM "supplier_materials" sm
+                        WHERE sm.raw_material_id = rm.id
+                          AND sm.is_preferred = true
+                        ORDER BY sm.supplier_id ASC
+                        LIMIT 1
+                    ) sm ON TRUE
                     WHERE ${typeFilter}
                       AND rm.deleted_at IS NULL
                       AND (rm.barcode IS NULL OR rm.barcode NOT LIKE 'DP120V1-%')

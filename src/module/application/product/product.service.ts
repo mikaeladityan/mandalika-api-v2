@@ -311,7 +311,7 @@ export class ProductService {
         try {
             const existing = await prisma.product.findUnique({
                 where: { id },
-                select: { code: true },
+                select: { code: true, product_type: { select: { slug: true } } },
             });
             if (!existing)
                 throw new ApiError(404, `Produk dengan kode ${id} tidak ditemukan`);
@@ -344,6 +344,58 @@ export class ProductService {
                 });
             } else {
                 await enqueueProductSheetSync({ action: "upsert", productId: id });
+            }
+            if (status === "PENDING") {
+                const productTypeSlug = existing.product_type?.slug?.toLowerCase() ?? "";
+                const isManualForecastProduct = [
+                    "display",
+                    "kertas",
+                    "botol",
+                    "paper-bag",
+                    "kartu-garansi",
+                    "canvas-bag",
+                    "box-uk",
+                    "others",
+                ].some((type) => productTypeSlug.includes(type));
+
+                if (isManualForecastProduct) {
+                    const now = new Date();
+                    await prisma.forecast.updateMany({
+                        where: {
+                            product_id: id,
+                            OR: [
+                                { year: { gt: now.getFullYear() } },
+                                {
+                                    year: now.getFullYear(),
+                                    month: { gte: now.getMonth() + 1 },
+                                },
+                            ],
+                        },
+                        data: {
+                            base_forecast: 0,
+                            final_forecast: 0,
+                            net_forecast: 0,
+                            trend: "STABLE",
+                        },
+                    });
+                    await prisma.safetyStock.updateMany({
+                        where: {
+                            product_id: id,
+                            OR: [
+                                { year: { gt: now.getFullYear() } },
+                                {
+                                    year: now.getFullYear(),
+                                    month: { gte: now.getMonth() + 1 },
+                                },
+                            ],
+                        },
+                        data: {
+                            avg_forecast: 0,
+                            total_forecast: 0,
+                            safety_stock_quantity: 0,
+                        },
+                    });
+                }
             }
             if (status === "PENDING") await this.rerunForecast(id, period);
         } catch (e) {
