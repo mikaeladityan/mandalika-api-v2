@@ -5,11 +5,15 @@ import { validateBody } from "../../../middleware/validation.js";
 import { BulkDeleteSchema, BulkStatusSchema, RequestOutletSchema, UpdateOutletSchema } from "./outlet.schema.js";
 
 import { OutletImportRoutes } from "./import/import.routes.js";
+import BardatImportRoutes from "./bardat/import/import.routes.js";
+import BardatRoutes from "./bardat/bardat.routes.js";
 
 export const OutletRoutes = new Hono();
 
 // ─── Sub-Modules ──────────────────────────────────────────────────────────────
 OutletRoutes.route("/import", OutletImportRoutes);
+OutletRoutes.route("/bardat/import", BardatImportRoutes);
+OutletRoutes.route("/bardat", BardatRoutes);
 
 // ─── Outlet CRUD ──────────────────────────────────────────────────────────────
 OutletRoutes.get("/", OutletController.list);

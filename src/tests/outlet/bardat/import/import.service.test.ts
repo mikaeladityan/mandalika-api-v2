@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BardatService } from "../../../../module/application/inventory-v2/bardat/import/import.service.js";
-import { BardatImportCacheService } from "../../../../module/application/inventory-v2/bardat/import/import.cache.js";
+import { BardatService } from "../../../../module/application/outlet/bardat/import/import.service.js";
+import { BardatImportCacheService } from "../../../../module/application/outlet/bardat/import/import.cache.js";
 import prisma from "../../../../config/prisma.js";
 
 vi.mock("../../../../config/prisma.js", () => ({
@@ -11,7 +11,7 @@ vi.mock("../../../../config/prisma.js", () => ({
     },
 }));
 
-vi.mock("../../../../module/application/inventory-v2/bardat/import/import.cache.js", () => ({
+vi.mock("../../../../module/application/outlet/bardat/import/import.cache.js", () => ({
     BardatImportCacheService: { save: vi.fn(), get: vi.fn(), remove: vi.fn() },
 }));
 
