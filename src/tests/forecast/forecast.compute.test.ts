@@ -332,11 +332,11 @@ describe("ForecastService.applyOpeningStockToForecastBatch", () => {
 });
 
 describe("ForecastService.calculateSafetyStock", () => {
-    it("uses the 3-month actual issuance average instead of forecast", () => {
+    it("uses the 4-month forecast average for safety stock", () => {
         expect(ForecastService.calculateSafetyStock(120, 0.25)).toEqual({
-            horizon: 3,
+            horizon: 4,
             average: 120,
-            total: 360,
+            total: 480,
             quantity: 30,
         });
     });

@@ -171,9 +171,11 @@ export class RecomendationV2Service {
         const fcStart = fcStartY * 12 + fcStartM;
         const fcEnd = fcEndY * 12 + fcEndM;
 
-        const SAFETY_STOCK_MONTHS = 3;
-        const ssStart = currentYear * 12 + currentMonth - SAFETY_STOCK_MONTHS;
-        const ssEnd = currentYear * 12 + currentMonth - 1;
+        // Safety Stock uses the first four forecast months (M+0..M+3),
+        // independently from the user-selected recommendation horizon.
+        const SAFETY_STOCK_MONTHS = 4;
+        const ssStart = currentYear * 12 + currentMonth;
+        const ssEnd = ssStart + SAFETY_STOCK_MONTHS - 1;
 
         const rows = await prisma.$queryRaw<any[]>`
             WITH
@@ -235,7 +237,7 @@ export class RecomendationV2Service {
                 prod_stats AS (
                     SELECT
                         p.id AS product_id,
-                        COALESCE(SUM(actual.month_qty), 0) AS total_actual_issuance,
+                        COALESCE(SUM(f.final_forecast), 0) AS total_forecast,
                         CASE
                             WHEN (pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%' OR pt.slug ILIKE '%box-uk%' OR pt.slug ILIKE '%others%')
                                  AND COALESCE(p.safety_percentage, 0) = 0
@@ -244,16 +246,9 @@ export class RecomendationV2Service {
                         END as safety_percentage
                     FROM "products" p
                     LEFT JOIN "product_types" pt ON pt.id = p.type_id
-                    LEFT JOIN (
-                        SELECT product_id, year, month,
-                            COALESCE(
-                                NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
-                                SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
-                            ) AS month_qty
-                        FROM "product_issuances"
-                        WHERE (year * 12 + month) BETWEEN ${ssStart} AND ${ssEnd}
-                        GROUP BY product_id, year, month
-                    ) actual ON actual.product_id = p.id
+                    LEFT JOIN "forecasts" f
+                        ON f.product_id = p.id
+                       AND (f.year * 12 + f.month) BETWEEN ${ssStart} AND ${ssEnd}
                     WHERE p.status = ${productStatus} AND p.deleted_at IS NULL
                       AND EXISTS (
                           SELECT 1 FROM "recipes" rec 
@@ -266,7 +261,7 @@ export class RecomendationV2Service {
                 prod_dynamic_ss AS (
                     SELECT 
                         product_id,
-                        ROUND(total_actual_issuance / ${SAFETY_STOCK_MONTHS}::numeric * safety_percentage) as dynamic_ss_qty
+                        ROUND(total_forecast / ${SAFETY_STOCK_MONTHS}::numeric * safety_percentage) as dynamic_ss_qty
                     FROM prod_stats
                 ),
                 rm_forecast_agg AS (
@@ -1685,9 +1680,9 @@ export class RecomendationV2Service {
         const fcStart = fcStartY * 12 + fcStartM;
         const fcEnd = fcEndY * 12 + fcEndM;
 
-        const SAFETY_STOCK_MONTHS = 3;
-        const ssStart = year * 12 + month - SAFETY_STOCK_MONTHS;
-        const ssEnd = year * 12 + month - 1;
+        const SAFETY_STOCK_MONTHS = 4;
+        const ssStart = year * 12 + month;
+        const ssEnd = ssStart + SAFETY_STOCK_MONTHS - 1;
 
         return await prisma.$executeRaw`
             WITH
@@ -1709,18 +1704,10 @@ export class RecomendationV2Service {
                         rec.raw_mat_id,
                         SUM(FLOOR(
                             ROUND((
-                                (SELECT COALESCE(SUM(actual.month_qty), 0)
-                                 FROM (
-                                     SELECT year, month,
-                                         COALESCE(
-                                             NULLIF(SUM(CASE WHEN (year * 12 + month) > ${ISSUANCE_THRESHOLD_PERIOD} AND type != 'ALL' THEN quantity ELSE 0 END), 0),
-                                             SUM(CASE WHEN (year * 12 + month) <= ${ISSUANCE_THRESHOLD_PERIOD} AND type = 'ALL' THEN quantity ELSE 0 END)
-                                         ) AS month_qty
-                                     FROM "product_issuances"
-                                     WHERE product_id = p.id
-                                       AND (year * 12 + month) BETWEEN ${ssStart} AND ${ssEnd}
-                                     GROUP BY year, month
-                                 ) actual
+                                (SELECT COALESCE(SUM(f2.final_forecast), 0)
+                                 FROM "forecasts" f2
+                                 WHERE f2.product_id = p.id
+                                   AND (f2.year * 12 + f2.month) BETWEEN ${ssStart} AND ${ssEnd}
                                 ) / ${SAFETY_STOCK_MONTHS}::numeric *
                                 CASE
                                     WHEN (pt.slug ILIKE '%display%' OR pt.slug ILIKE '%kertas%' OR pt.slug ILIKE '%botol%' OR pt.slug ILIKE '%paper-bag%' OR pt.slug ILIKE '%kartu-garansi%' OR pt.slug ILIKE '%canvas-bag%' OR pt.slug ILIKE '%box-uk%' OR pt.slug ILIKE '%others%')
