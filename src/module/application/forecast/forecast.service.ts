@@ -2040,6 +2040,7 @@ export class ForecastService {
                         p.id ASC
                     `
                         : Prisma.sql`
+                        CASE WHEN p.code ILIKE 'KEM-%' OR p.code ILIKE 'KT%-%' THEN 1 ELSE 0 END ASC,
                         group_sort_priority DESC,
                         p.name ASC, 
                         CASE 
