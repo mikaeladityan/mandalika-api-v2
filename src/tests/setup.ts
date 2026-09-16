@@ -425,6 +425,7 @@ vi.mock("../config/prisma.js", () => ({
             deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
             update: vi.fn().mockResolvedValue({ id: 1, quantity: 450 }),
             create: vi.fn().mockResolvedValue({ id: 2, quantity: 50 }),
+            upsert: vi.fn().mockResolvedValue({ id: 1, quantity: 450 }),
             groupBy: vi.fn().mockResolvedValue([]),
         },
         safetyStock: {
