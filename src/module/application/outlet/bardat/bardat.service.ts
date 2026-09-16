@@ -69,8 +69,16 @@ export class BardatService {
 
     static async grid(query: QueryBardatDTO) {
         const { page = 1, take = 25 } = query;
-        const records = await prisma.outletGoodsReceipt.findMany({ where: this.whereOf(query), orderBy: [{ outlet: { code: "asc" } }, { date: "asc" }, { product: { code: "asc" } }], include: BARDAT_INCLUDE });
-        const columns = [...new Map(records.map((record) => {
+        const where = this.whereOf(query);
+        const productIds = await prisma.outletGoodsReceipt.findMany({ where, distinct: ["product_id"], select: { product_id: true } });
+        const orderedProductIds = await orderProductIdsByForecast(productIds.map((item) => item.product_id));
+        const start = (page - 1) * take;
+        const pageProductIds = orderedProductIds.slice(start, start + take);
+        const [columnRecords, records] = await Promise.all([
+            prisma.outletGoodsReceipt.findMany({ where, distinct: ["outlet_id", "date"], orderBy: [{ outlet: { code: "asc" } }, { date: "asc" }], select: { outlet_id: true, date: true, outlet: { select: { code: true, name: true } } } }),
+            prisma.outletGoodsReceipt.findMany({ where: { ...where, product_id: { in: pageProductIds } }, orderBy: [{ outlet: { code: "asc" } }, { date: "asc" }, { product: { code: "asc" } }], include: BARDAT_INCLUDE }),
+        ]);
+        const columns = [...new Map(columnRecords.map((record) => {
             const date = record.date.toISOString().slice(0, 10);
             return [`${record.outlet_id}|${date}`, { key: `${record.outlet_id}|${date}`, outlet_id: record.outlet_id, outlet_code: record.outlet.code, outlet_name: record.outlet.name, date }];
         })).values()];
@@ -81,11 +89,9 @@ export class BardatService {
             if (row) row.values[`${record.outlet_id}|${record.date.toISOString().slice(0, 10)}`] = Number(record.quantity);
             if (row) row.ids[`${record.outlet_id}|${record.date.toISOString().slice(0, 10)}`] = record.id;
         }
-        const orderedProductIds = await orderProductIdsByForecast(rows.map((row) => row.product_id));
         const rank = new Map(orderedProductIds.map((productId, index) => [productId, index]));
         rows.sort((left, right) => (rank.get(left.product_id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.product_id) ?? Number.MAX_SAFE_INTEGER));
-        const start = (page - 1) * take;
-        return { columns, rows: rows.slice(start, start + take), len: rows.length, page, take, has_more: start + take < rows.length };
+        return { columns, rows, len: orderedProductIds.length, page, take, has_more: start + take < orderedProductIds.length };
     }
 
     static async detail(id: number) {
