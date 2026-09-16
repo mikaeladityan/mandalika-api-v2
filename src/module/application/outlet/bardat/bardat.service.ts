@@ -68,6 +68,7 @@ export class BardatService {
     }
 
     static async grid(query: QueryBardatDTO) {
+        const { page = 1, take = 25 } = query;
         const records = await prisma.outletGoodsReceipt.findMany({ where: this.whereOf(query), orderBy: [{ outlet: { code: "asc" } }, { date: "asc" }, { product: { code: "asc" } }], include: BARDAT_INCLUDE });
         const columns = [...new Map(records.map((record) => {
             const date = record.date.toISOString().slice(0, 10);
@@ -83,7 +84,8 @@ export class BardatService {
         const orderedProductIds = await orderProductIdsByForecast(rows.map((row) => row.product_id));
         const rank = new Map(orderedProductIds.map((productId, index) => [productId, index]));
         rows.sort((left, right) => (rank.get(left.product_id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.product_id) ?? Number.MAX_SAFE_INTEGER));
-        return { columns, rows };
+        const start = (page - 1) * take;
+        return { columns, rows: rows.slice(start, start + take), len: rows.length, page, take, has_more: start + take < rows.length };
     }
 
     static async detail(id: number) {
