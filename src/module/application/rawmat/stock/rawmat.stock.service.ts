@@ -38,13 +38,42 @@ export class RawMaterialStockService {
         });
     }
 
+    /**
+     * Day-of-month of the snapshot the stock views actually read for this period.
+     * They rank rows with `ORDER BY date DESC, updated_at DESC, id DESC` and take
+     * the first one (see rawMaterialStockCtes), so a manual entry written to any
+     * other `date` stays invisible behind an imported snapshot. When the period has
+     * no row yet, today's day-of-month matches what the CSV import writes.
+     */
+    private static async getTargetDate(
+        raw_material_id: number,
+        warehouse_id: number,
+        month: number,
+        year: number,
+    ) {
+        const current = await prisma.rawMaterialInventory.findFirst({
+            where: { raw_material_id, warehouse_id, month, year },
+            orderBy: [{ date: "desc" }, { updated_at: "desc" }, { id: "desc" }],
+            select: { date: true },
+        });
+
+        return current?.date ?? new Date().getUTCDate();
+    }
+
     static async upsertStock(data: RequestUpsertRawMaterialStockDTO) {
+        const date = await this.getTargetDate(
+            data.raw_material_id,
+            data.warehouse_id,
+            data.month,
+            data.year,
+        );
+
         return prisma.rawMaterialInventory.upsert({
             where: {
                 raw_material_id_warehouse_id_date_month_year: {
                     raw_material_id: data.raw_material_id,
                     warehouse_id: data.warehouse_id,
-                    date: 1,
+                    date,
                     month: data.month,
                     year: data.year,
                 },
@@ -58,7 +87,7 @@ export class RawMaterialStockService {
                 warehouse_id: data.warehouse_id,
                 quantity: data.quantity,
                 min_stock: data.min_stock ?? null,
-                date: 1,
+                date,
                 month: data.month,
                 year: data.year,
             },
