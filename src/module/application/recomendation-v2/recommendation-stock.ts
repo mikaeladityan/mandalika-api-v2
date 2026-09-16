@@ -47,7 +47,9 @@ export function recommendationStockSql(
     )`;
 }
 
-/** Shared physical balance used to decide fallback before production reservations. */
+/** Shared physical balance used to decide fallback before production reservations.
+ * Keep selected period semantics aligned with Inventory stock projection.
+ */
 function rawMaterialPhysicalStockSql(materialId: Prisma.Sql, year: number, month: number): Prisma.Sql {
     return Prisma.sql`(
         SELECT SUM(latest.quantity) FROM (
@@ -55,7 +57,9 @@ function rawMaterialPhysicalStockSql(materialId: Prisma.Sql, year: number, month
                 PARTITION BY warehouse_id ORDER BY year DESC, month DESC, date DESC, updated_at DESC, id DESC
             ) AS period_rank
             FROM raw_material_inventories
-            WHERE raw_material_id = ${materialId} AND year * 12 + month <= ${year * 12 + month}
+            WHERE raw_material_id = ${materialId}
+              AND year = ${year}
+              AND month = ${month}
         ) latest WHERE latest.period_rank = 1
     )`;
 }

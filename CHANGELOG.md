@@ -7,6 +7,7 @@ Semua perubahan utama pada sisi server dicatat di sini.
 ### Fixed
 
 - **Recomendation-v2 / FG Discontinue**: Kebutuhan FG Discontinue kini tetap dihitung dari recipe FG→RM, diagregasi per RM, lalu stok dan Open PO dikurangi satu kali bersama kebutuhan General. Mencegah stok RM terpakai berulang untuk beberapa anchor atau terpotong dua kali antara General dan Discontinue.
+- **Recomendation-v2 / Raw Material Stock Period**: Stok RM Recommendation kini dikunci ke periode inventory terpilih, sama dengan Inventory. Snapshot gudang dari periode lama tidak lagi ikut terhitung sebagai stok aktif.
 
 ## [2026-08-05]
 

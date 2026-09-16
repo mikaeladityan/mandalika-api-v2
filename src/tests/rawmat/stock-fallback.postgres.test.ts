@@ -14,10 +14,10 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
         await client.connect();
         await client.query(`BEGIN;
             CREATE TEMP TABLE raw_materials(id int, barcode text, deleted_at timestamp);
-            CREATE TEMP TABLE products(id int, code text, deleted_at timestamp);
+            CREATE TEMP TABLE products(id int, code text, status text DEFAULT 'ACTIVE', deleted_at timestamp, updated_at timestamp DEFAULT NOW());
             CREATE TEMP TABLE warehouses(id int, name text);
-            CREATE TEMP TABLE raw_material_inventories(raw_material_id int, warehouse_id int, quantity numeric, year int, month int, date int DEFAULT 1, id int GENERATED ALWAYS AS IDENTITY);
-            CREATE TEMP TABLE product_inventories(product_id int, warehouse_id int, quantity numeric, year int, month int, date int DEFAULT 1, id int GENERATED ALWAYS AS IDENTITY);
+            CREATE TEMP TABLE raw_material_inventories(raw_material_id int, warehouse_id int, quantity numeric, year int, month int, date int DEFAULT 1, updated_at timestamp DEFAULT NOW(), id int GENERATED ALWAYS AS IDENTITY);
+            CREATE TEMP TABLE product_inventories(product_id int, warehouse_id int, quantity numeric, year int, month int, date int DEFAULT 1, updated_at timestamp DEFAULT NOW(), id int GENERATED ALWAYS AS IDENTITY);
             CREATE TEMP TABLE production_orders(id int, status text);
             CREATE TEMP TABLE production_order_items(production_order_id int, raw_material_id int, warehouse_id int, quantity_planned numeric);
         `);
@@ -31,9 +31,9 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
     beforeEach(async () => {
         await client.query(`SAVEPOINT fixture;
             INSERT INTO pg_temp.raw_materials VALUES (1, 'SAME', NULL);
-            INSERT INTO pg_temp.products VALUES (11, 'SAME', NULL);
+            INSERT INTO pg_temp.products(id, code, deleted_at) VALUES (11, 'SAME', NULL);
             INSERT INTO pg_temp.warehouses VALUES (1, 'RM Production'), (2, 'FG Surabaya'), (3, 'FG Jakarta'), (4, 'RM Other');
-            INSERT INTO pg_temp.product_inventories VALUES
+            INSERT INTO pg_temp.product_inventories(product_id, warehouse_id, quantity, year, month, date) VALUES
                 (11, 2, 40, 2026, 9, 2), (11, 2, 30, 2026, 9, 1),
                 (11, 2, 999, 2026, 8, 1), (11, 2, 999, 2026, 10, 1), (11, 3, 30, 2026, 9, 1);
             INSERT INTO pg_temp.production_orders VALUES (1, 'PLANNING'), (2, 'RELEASED'), (3, 'CANCELLED');
@@ -67,7 +67,7 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
     }
 
     it.each([null, 0])("uses all FG warehouses when RM is %s", async (quantity) => {
-        await client.query("INSERT INTO pg_temp.raw_material_inventories VALUES (1, 1, $1, 2026, 9)", [quantity]);
+        await client.query("INSERT INTO pg_temp.raw_material_inventories(raw_material_id, warehouse_id, quantity, year, month) VALUES (1, 1, $1, 2026, 9)", [quantity]);
         const row = await stock();
         expect(row).toMatchObject({ stock_source: "FG", amount: 70, booked: 30, avail: 40 });
         expect(row.source_warehouses).toEqual([
@@ -84,22 +84,36 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
     });
 
     it("keeps RM even when booking exhausts the RM balance", async () => {
-        await client.query("INSERT INTO pg_temp.raw_material_inventories VALUES (1, 1, 15, 2026, 9)");
+        await client.query("INSERT INTO pg_temp.raw_material_inventories(raw_material_id, warehouse_id, quantity, year, month) VALUES (1, 1, 15, 2026, 9)");
         const row = await stock();
         expect(row).toMatchObject({ stock_source: "RM", amount: 15, booked: 30, avail: -15 });
         expect(row.source_warehouses).toEqual([{ warehouse_id: 1, warehouse_name: "RM Production", quantity: 15 }]);
     });
 
     it("checks all RM warehouses before fallback, then applies the RM warehouse filter", async () => {
-        await client.query("INSERT INTO pg_temp.raw_material_inventories VALUES (1, 4, 15, 2026, 9)");
+        await client.query("INSERT INTO pg_temp.raw_material_inventories(raw_material_id, warehouse_id, quantity, year, month) VALUES (1, 4, 15, 2026, 9)");
         expect(await stock(1)).toMatchObject({ stock_source: "RM", amount: 0, booked: 10, avail: -10 });
         expect(await stock(4)).toMatchObject({ stock_source: "RM", amount: 15, booked: 0, avail: 15 });
     });
 
-    it("uses the latest RM period per warehouse and excludes future snapshots", async () => {
-        await client.query(`INSERT INTO pg_temp.raw_material_inventories VALUES
+    it("uses selected RM period and excludes future snapshots", async () => {
+        await client.query(`INSERT INTO pg_temp.raw_material_inventories(raw_material_id, warehouse_id, quantity, year, month) VALUES
             (1, 1, 999, 2026, 8), (1, 1, 0, 2026, 9), (1, 1, 999, 2026, 10)`);
         expect(await stock()).toMatchObject({ stock_source: "FG", amount: 70 });
+    });
+
+    it("keeps Recommendation stock on selected period across warehouses", async () => {
+        await client.query("DELETE FROM pg_temp.production_order_items");
+        await client.query(`INSERT INTO pg_temp.raw_material_inventories(raw_material_id, warehouse_id, quantity, year, month) VALUES
+            (1, 1, 20, 2026, 9), (1, 4, 500, 2026, 8)`);
+        const query = Prisma.sql`
+            SELECT ${recommendationStockSql(
+                Prisma.sql`rm.id`, Prisma.sql`rm.barcode`, 2026, 9, 2026, 9,
+            )} AS stock
+            FROM raw_materials rm
+            WHERE rm.id = 1`;
+        const result = await client.query<{ stock: string }>(query.text, query.values);
+        expect(Number(result.rows[0]!.stock)).toBe(20);
     });
 
     it.each(["OTHER", "", null])("does not match a different or empty barcode: %s", async (barcode) => {
@@ -126,7 +140,7 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
         { rmStock: 0, productCode: "OTHER", gross: 150, operational: 50, expectedNeed: 50, expectedStock: 70, expectedBuy: 0 },
     ])("deducts FG only once (RM=$rmStock, recipe FG=$productCode)", async (scenario) => {
         await client.query("DELETE FROM pg_temp.production_order_items");
-        await client.query("INSERT INTO pg_temp.raw_material_inventories VALUES (1, 1, $1, 2026, 9)", [scenario.rmStock]);
+        await client.query("INSERT INTO pg_temp.raw_material_inventories(raw_material_id, warehouse_id, quantity, year, month) VALUES (1, 1, $1, 2026, 9)", [scenario.rmStock]);
         const query = Prisma.sql`
             SELECT ${recommendationForecastSql(Prisma.sql`rm.id`, Prisma.sql`rm.barcode`, 2026, 9)} AS need,
                 ${recommendationStockSql(Prisma.sql`rm.id`, Prisma.sql`rm.barcode`, 2026, 9, 2026, 9)} AS stock
