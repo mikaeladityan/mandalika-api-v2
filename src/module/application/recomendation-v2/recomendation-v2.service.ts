@@ -1978,9 +1978,11 @@ export class RecomendationV2Service {
                 current_stock: currentStock,
                 safety_stock_x_resep: Math.round(row.safety_stock_x_resep || 0),
                 recommendation_quantity:
-                    row.discontinue_recommendation_quantity > 0
-                        ? `Beli ${row.general_recommendation_quantity} + Discontinue ${row.discontinue_recommendation_quantity} = ${row.recommendation_quantity}`
-                        : query.product_status === "PENDING" ? row.recommendation_quantity ?? 0 : h > 0 ? Math.round(row.recommendation_quantity || 0) : null,
+                    // Sementara nonaktif: rincian tambahan FG Discontinue pada export General.
+                    // row.discontinue_recommendation_quantity > 0
+                    //     ? `Beli ${row.general_recommendation_quantity} + Discontinue ${row.discontinue_recommendation_quantity} = ${row.recommendation_quantity}`
+                    //     :
+                    query.product_status === "PENDING" ? row.recommendation_quantity ?? 0 : h > 0 ? Math.round(row.recommendation_quantity || 0) : null,
                 open_po: openPo,
                 total_stock: currentStock + openPo,
                 total_needed: totalNeeded !== null ? Math.round(totalNeeded) : null,
