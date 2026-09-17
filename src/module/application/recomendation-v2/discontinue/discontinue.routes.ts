@@ -4,8 +4,10 @@ import { DiscontinueAnchorKeySchema, SaveDiscontinueAnchorSchema } from "./disco
 import { DiscontinueService } from "./discontinue.service.js";
 import { DiscontinueLossService } from "./discontinue-loss.service.js";
 import { DiscontinueLossKeySchema } from "./discontinue-loss.schema.js";
+import { DiscontinueMaterialRecommendationController } from "./material-recommendation.controller.js";
 
 const routes = new Hono();
+routes.get("/materials", DiscontinueMaterialRecommendationController.list);
 routes.get("/loss", async (c) => {
     const key = DiscontinueLossKeySchema.parse(c.req.query());
     return ApiResponse.sendSuccess(c, await DiscontinueLossService.check(key), 200);

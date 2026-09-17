@@ -3,11 +3,23 @@ import { Hono } from "hono";
 import routes from "../module/application/recomendation-v2/recomendation-v2.routes.js";
 import { RecomendationV2Service } from "../module/application/recomendation-v2/recomendation-v2.service.js";
 import { DiscontinueService } from "../module/application/recomendation-v2/discontinue/discontinue.service.js";
+import { DiscontinueMaterialRecommendationService } from "../module/application/recomendation-v2/discontinue/material-recommendation.service.js";
 
 const app = new Hono().route("/recommendations", routes);
 afterEach(() => vi.restoreAllMocks());
 
 describe("Discontinue recommendation HTTP contracts", () => {
+    it("serves aggregated RM recommendations from a dedicated endpoint", async () => {
+        const list = vi.spyOn(DiscontinueMaterialRecommendationService, "list").mockResolvedValue({
+            data: [], len: 0, periods: { sales_periods: [], forecast_periods: [], po_periods: [] },
+        });
+        const res = await app.request("/recommendations/discontinue/materials?page=2&take=25&month=9&year=2026&type=ffo");
+        expect(res.status).toBe(200);
+        expect(list).toHaveBeenCalledWith(expect.objectContaining({
+            page: 2, take: 25, month: 9, year: 2026, type: "ffo",
+        }));
+    });
+
     it("saves a scoped recipe anchor using the dedicated endpoint", async () => {
         const save = vi.spyOn(DiscontinueService, "save").mockResolvedValue([]);
         const body = { product_id: 1, month: 9, year: 2026, anchor_material_id: 7, quantity: 12.5 };
