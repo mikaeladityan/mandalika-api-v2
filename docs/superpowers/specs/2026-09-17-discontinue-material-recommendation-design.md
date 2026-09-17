@@ -2,11 +2,13 @@
 
 ## Goal
 
-Tampilkan kebutuhan FG Discontinue sebagai satu rekomendasi per raw material. Jika satu raw material dipakai beberapa FG Discontinue, semua kebutuhan digabung sebelum pengurangan stok dan Open PO.
+Sediakan module dan page baru untuk rekomendasi pembelian raw material FG Discontinue tanpa mengubah list FG Discontinue existing. Jika satu raw material dipakai beberapa FG Discontinue, semua kebutuhan digabung sebelum pengurangan stok dan Open PO.
 
 ## Scope
 
-- Recomendation-v2 Discontinue memakai satu row per raw material.
+- Page existing `/recomendation-v2/discontinue` tetap memakai list FG × RM untuk anchor dan analisis loss.
+- Page baru `/recomendation-v2/discontinue/material` memakai satu row per raw material.
+- Endpoint baru `GET /api/app/recomendations/discontinue/materials` melayani page agregat.
 - Filter sumber supplier mengikuti General: FFO, FP Import, FP Local, dan Semua.
 - Work Order Discontinue tetap memakai flow existing dengan `product_status = PENDING`.
 - Work Order General tetap `product_status = ACTIVE`.
@@ -19,7 +21,7 @@ Tampilkan kebutuhan FG Discontinue sebagai satu rekomendasi per raw material. Ji
 3. Aggregate gross need berdasarkan `material_id`.
 4. Resolve current stock dan Open PO satu kali per RM.
 5. Hitung recommendation quantity: `max(0, gross_need - stock - open_po)`.
-6. Return satu row per RM dengan `finished_goods`/breakdown sebagai audit detail.
+6. Return satu row per RM dari endpoint khusus dengan `finished_goods`/breakdown sebagai audit detail.
 7. Save Work Order menggunakan key existing dengan `product_status = PENDING`.
 
 `discontinue_breakdown` memuat `product_id`, `fg_code`, `fg_name`, `contribution_quantity`,
@@ -27,7 +29,9 @@ Tampilkan kebutuhan FG Discontinue sebagai satu rekomendasi per raw material. Ji
 
 ## API contract
 
-Recommendation response menambah breakdown Discontinue per RM. Breakdown minimal memuat FG ID, FG code/name, anchor material, gross need, dan contribution quantity.
+Endpoint existing Recommendation-v2 tidak mengubah shape atau pagination list FG Discontinue.
+
+Endpoint material Discontinue mengembalikan breakdown per RM. Breakdown minimal memuat FG ID, FG code/name, anchor material, gross need, dan contribution quantity.
 
 Query `type` memakai nilai existing:
 
@@ -38,7 +42,13 @@ Query `type` memakai nilai existing:
 
 ## UI behavior
 
-Page `/recomendation-v2/discontinue` memakai layout/fitur tabel General: search, period filter, source filter, sort, export, print, Work Order, hide/unhide, dan bulk horizon bila relevan. Row RM menampilkan breakdown FG melalui detail UI.
+Page `/recomendation-v2/discontinue/material` memakai layout/fitur tabel General: search, period filter, source filter, sort, export, print, Work Order, hide/unhide, dan bulk horizon bila relevan. Row RM menampilkan breakdown FG melalui detail UI.
+
+Layout Discontinue menambah navigasi `Rekomendasi RM`. Page existing tetap menjadi tempat pengaturan anchor dan analisis per FG.
+
+## Module boundary
+
+Backend mengikuti urutan `schema.ts` → `services.ts` → `controller.ts` → `routes.ts` → registration. Service material Discontinue memiliki query dan kalkulasi sendiri; `RecomendationV2Service.list()` tidak melakukan agregasi RM Discontinue.
 
 ## Consolidation
 
