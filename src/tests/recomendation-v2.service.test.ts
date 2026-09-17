@@ -30,7 +30,7 @@ describe("RecomendationV2Service - Override Features", () => {
             year: 2026,
             quantity: 25,
             horizon: 1,
-            total_needed: 0,
+            total_needed: 90,
             current_stock: 0,
             stock_fg_x_resep: 0,
             safety_stock_x_resep: 0,
@@ -45,8 +45,8 @@ describe("RecomendationV2Service - Override Features", () => {
                     product_status: "PENDING",
                 },
             },
-            create: expect.objectContaining({ product_status: "PENDING" }),
-            update: expect.objectContaining({ product_status: "PENDING" }),
+            create: expect.objectContaining({ product_status: "PENDING", total_needed: 90 }),
+            update: expect.objectContaining({ product_status: "PENDING", total_needed: 90 }),
         }));
     });
 

@@ -6,6 +6,7 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Recomendation-v2 / FG Discontinue Material Bulk**: Bulk Horizon kini menyimpan quantity dan total kebutuhan agregat per RM melalui endpoint khusus, melewati rekomendasi nol/Work Order `ACC`, mengurutkan hasil setelah agregasi, dan menghapus kolom FG dari CSV material.
 - **Recomendation-v2 / FG Discontinue Work Order**: Work Order `ACTIVE` dan `PENDING` sekarang tersimpan terpisah untuk RM dan periode yang sama. Kebutuhan Discontinue kembali masuk kalkulasi kategori FFO/FP Import/FP Local tanpa menimpa Work Order General.
 - **Consolidation Discontinue**: Filter sekarang membaca `material_purchase_drafts.product_status`, bukan status recipe RM. RM shared tidak lagi bocor antara Consolidation General dan Discontinue.
 

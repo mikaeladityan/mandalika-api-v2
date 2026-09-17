@@ -1147,7 +1147,7 @@ export class RecomendationV2Service {
         } = body;
         const product_status = body.product_status ?? "ACTIVE";
 
-        const total_needed = body.product_status === "PENDING" ? 0 : body.total_needed;
+        const total_needed = body.total_needed;
         const safety_stock_x_resep = body.product_status === "PENDING" ? 0 : body.safety_stock_x_resep;
 
         return await prisma.$transaction(async (tx) => {

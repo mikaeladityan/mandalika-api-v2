@@ -1,6 +1,10 @@
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { RecomendationV2Service } from "../recomendation-v2.service.js";
-import { QueryDiscontinueMaterialRecommendationDTO } from "./material-recommendation.schema.js";
+import {
+    QueryDiscontinueMaterialRecommendationDTO,
+    QueryDiscontinueMaterialRecommendationSchema,
+    RequestBulkSaveDiscontinueMaterialDTO,
+} from "./material-recommendation.schema.js";
 
 type RecommendationRow = Awaited<ReturnType<typeof RecomendationV2Service.list>>["data"][number];
 
@@ -54,6 +58,25 @@ export function aggregateDiscontinueMaterialRows(rows: RecommendationRow[]) {
     });
 }
 
+function sortDiscontinueMaterialRows(
+    rows: ReturnType<typeof aggregateDiscontinueMaterialRows>,
+    sortBy: QueryDiscontinueMaterialRecommendationDTO["sortBy"],
+    order: QueryDiscontinueMaterialRecommendationDTO["order"],
+) {
+    if (!sortBy) return rows;
+    const direction = order === "desc" ? -1 : 1;
+    return [...rows].sort((left, right) => {
+        const leftValue = left[sortBy] ?? "";
+        const rightValue = right[sortBy] ?? "";
+        const compared = typeof leftValue === "number" && typeof rightValue === "number"
+            ? leftValue - rightValue
+            : String(leftValue).localeCompare(String(rightValue), "id");
+        return compared === 0
+            ? (Number(left.material_id) - Number(right.material_id)) * direction
+            : compared * direction;
+    });
+}
+
 export class DiscontinueMaterialRecommendationService {
     static async list(query: QueryDiscontinueMaterialRecommendationDTO) {
         const source = await RecomendationV2Service.list({
@@ -62,13 +85,44 @@ export class DiscontinueMaterialRecommendationService {
             take: 1_000_000,
             product_status: "PENDING",
         });
-        const rows = aggregateDiscontinueMaterialRows(source.data);
+        const rows = sortDiscontinueMaterialRows(
+            aggregateDiscontinueMaterialRows(source.data),
+            query.sortBy,
+            query.order,
+        );
         const skip = (query.page - 1) * query.take;
         return {
             ...source,
             data: rows.slice(skip, skip + query.take),
             len: rows.length,
         };
+    }
+
+    static async bulkSave(body: RequestBulkSaveDiscontinueMaterialDTO) {
+        const query = QueryDiscontinueMaterialRecommendationSchema.parse({
+            page: 1,
+            take: 1_000_000,
+            month: body.month,
+            year: body.year,
+            type: body.type,
+        });
+        const result = await this.list(query);
+        const rows = result.data.filter((row) =>
+            row.work_order_status !== "ACC" && row.recommendation_quantity > 0
+        );
+        await Promise.all(rows.map((row) => RecomendationV2Service.saveWorkOrder({
+            raw_mat_id: Number(row.material_id),
+            product_status: "PENDING",
+            month: body.month,
+            year: body.year,
+            quantity: row.recommendation_quantity,
+            horizon: body.horizon,
+            total_needed: row.total_needed_horizon ?? 0,
+            current_stock: row.current_stock,
+            stock_fg_x_resep: row.stock_fg_x_resep,
+            safety_stock_x_resep: 0,
+        })));
+        return rows.length;
     }
 
     static async export(query: QueryDiscontinueMaterialRecommendationDTO) {
@@ -81,11 +135,10 @@ export class DiscontinueMaterialRecommendationService {
             : result.data;
         const escapeCsv = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
         const csv = [
-            ["Barcode", "Material", "FG Discontinue", "Total Need", "Current Stock", "Open PO", "Recommendation", "UOM"],
+            ["Barcode", "Material", "Total Need", "Current Stock", "Open PO", "Recommendation", "UOM"],
             ...rows.map((row) => [
                 row.barcode,
                 row.material_name,
-                row.finished_goods.map((fg) => `${fg.code} - ${fg.name}`).join("; "),
                 row.total_needed_horizon ?? 0,
                 row.current_stock,
                 row.open_po,

@@ -9,6 +9,7 @@ import { DiscontinueMaterialRecommendationController } from "./material-recommen
 const routes = new Hono();
 routes.get("/materials/export", DiscontinueMaterialRecommendationController.export);
 routes.get("/materials", DiscontinueMaterialRecommendationController.list);
+routes.post("/materials/bulk", DiscontinueMaterialRecommendationController.bulkSave);
 routes.get("/loss", async (c) => {
     const key = DiscontinueLossKeySchema.parse(c.req.query());
     return ApiResponse.sendSuccess(c, await DiscontinueLossService.check(key), 200);

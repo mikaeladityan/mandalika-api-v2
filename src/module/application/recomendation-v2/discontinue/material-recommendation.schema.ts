@@ -7,6 +7,15 @@ export const QueryDiscontinueMaterialRecommendationSchema = QueryRecomendationV2
 
 export type QueryDiscontinueMaterialRecommendationDTO = z.infer<typeof QueryDiscontinueMaterialRecommendationSchema>;
 
+export const RequestBulkSaveDiscontinueMaterialSchema = z.object({
+    month: z.coerce.number().min(1, "Bulan minimal 1").max(12, "Bulan maksimal 12"),
+    year: z.coerce.number().min(2000, "Tahun minimal 2000"),
+    horizon: z.coerce.number().min(1, "Horizon minimal 1").max(12, "Horizon maksimal 12").default(3),
+    type: z.enum(["ffo", "lokal", "impor", "tester"]).optional(),
+});
+
+export type RequestBulkSaveDiscontinueMaterialDTO = z.infer<typeof RequestBulkSaveDiscontinueMaterialSchema>;
+
 export const DiscontinueBreakdownSchema = z.object({
     product_id: z.number(),
     fg_code: z.string(),

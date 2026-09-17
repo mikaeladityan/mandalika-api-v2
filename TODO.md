@@ -5,3 +5,5 @@
 - [x] Perbaiki filter Consolidation berdasarkan scope Work Order.
 - [x] Buat module/page khusus agregasi kebutuhan FG Discontinue per RM shared.
 - [x] Tampilkan breakdown kontribusi setiap FG pada page Rekomendasi RM Discontinue.
+- [x] Arahkan Bulk Horizon page RM Discontinue ke Work Order agregat per RM.
+- [x] Hapus informasi FG dari export CSV page material.

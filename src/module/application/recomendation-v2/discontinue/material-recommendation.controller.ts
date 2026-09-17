@@ -1,9 +1,18 @@
 import { Context } from "hono";
 import { ApiResponse } from "../../../../lib/api.response.js";
-import { QueryDiscontinueMaterialRecommendationSchema } from "./material-recommendation.schema.js";
+import {
+    QueryDiscontinueMaterialRecommendationSchema,
+    RequestBulkSaveDiscontinueMaterialSchema,
+} from "./material-recommendation.schema.js";
 import { DiscontinueMaterialRecommendationService } from "./material-recommendation.service.js";
 
 export class DiscontinueMaterialRecommendationController {
+    static async bulkSave(c: Context) {
+        const body = RequestBulkSaveDiscontinueMaterialSchema.parse(await c.req.json());
+        const result = await DiscontinueMaterialRecommendationService.bulkSave(body);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
     static async export(c: Context) {
         const query = QueryDiscontinueMaterialRecommendationSchema.parse({
             ...c.req.query(),
