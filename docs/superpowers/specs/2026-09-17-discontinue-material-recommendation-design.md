@@ -22,6 +22,9 @@ Tampilkan kebutuhan FG Discontinue sebagai satu rekomendasi per raw material. Ji
 6. Return satu row per RM dengan `finished_goods`/breakdown sebagai audit detail.
 7. Save Work Order menggunakan key existing dengan `product_status = PENDING`.
 
+`discontinue_breakdown` memuat `product_id`, `fg_code`, `fg_name`, `contribution_quantity`,
+`anchor_material_id`, dan `anchor_material_name` untuk audit kebutuhan per FG.
+
 ## API contract
 
 Recommendation response menambah breakdown Discontinue per RM. Breakdown minimal memuat FG ID, FG code/name, anchor material, gross need, dan contribution quantity.

@@ -79,6 +79,14 @@ export const ResponseRecomendationV2Schema = z.object({
     safety_stock_x_resep: z.number(),
     forecast_needed: z.number(),
     total_needed_horizon: z.number().optional(),
+    discontinue_breakdown: z.array(z.object({
+        product_id: z.number(),
+        fg_code: z.string(),
+        fg_name: z.string(),
+        contribution_quantity: z.number(),
+        anchor_material_id: z.number().nullable(),
+        anchor_material_name: z.string().nullable(),
+    })).optional(),
 
     // Work Order Info
     work_order_id: z.number().optional().nullable(),

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "../../generated/prisma/client.js";
-import { calculateDiscontinueNeeds, DiscontinueService } from "../../module/application/recomendation-v2/discontinue/discontinue.service.js";
+import { aggregateDiscontinueNeeds, calculateDiscontinueNeeds, DiscontinueService } from "../../module/application/recomendation-v2/discontinue/discontinue.service.js";
 
 const db = vi.hoisted(() => ({
     $queryRaw: vi.fn(),
@@ -91,6 +91,18 @@ describe("Discontinue recipe anchor", () => {
         expect(result.get(20)).toBe(90); // 50 + 40; stock is deducted once by General.
         expect(result.get(30)).toBe(100);
         expect(db.discontinueNeedAnchor.findMany).toHaveBeenCalledWith({ where: { month: 9, year: 2026 } });
+    });
+
+    it("returns one aggregate per shared RM with every FG contribution", () => {
+        const needs = [
+            { product_id: 1, material_id: 20, recipe_quantity: 1, total_needed: 50, anchor_material_id: 10, anchor_quantity: 10, anchor_material_name: "Oil", equivalent_fg: 50, anchor_valid: true },
+            { product_id: 2, material_id: 20, recipe_quantity: 4, total_needed: 40, anchor_material_id: 20, anchor_quantity: 40, anchor_material_name: "Bottle", equivalent_fg: 10, anchor_valid: true },
+        ];
+
+        const aggregate = aggregateDiscontinueNeeds(needs);
+
+        expect(aggregate.get(20)).toEqual({ total_needed: 90, breakdown: needs });
+        expect(aggregate).toHaveProperty("size", 1);
     });
 
     it("removes the General addition when no anchors remain", async () => {

@@ -23,6 +23,10 @@ Query `type` opsional:
 - `impor` — FP Import
 - `lokal` — FP Local
 
+Response Discontinue satu baris per raw material. Jika satu RM dipakai beberapa FG,
+`discontinue_breakdown` berisi kontribusi kebutuhan tiap FG. Total kebutuhan diagregasi
+lebih dulu, lalu current stock dan Open PO dikurangi satu kali.
+
 ## Consolidation
 
 `GET /api/app/consolidation?product_status=PENDING`

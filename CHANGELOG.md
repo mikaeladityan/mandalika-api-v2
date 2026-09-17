@@ -11,6 +11,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Added
 
+- **Recomendation-v2 / FG Discontinue aggregation view**: Halaman Discontinue kini mengembalikan satu baris per RM, menampilkan breakdown kontribusi tiap FG, dan menghitung Work Order dari kebutuhan agregat setelah pengurangan stok/Open PO satu kali.
+
 - **Recomendation-v2 / FG Discontinue Source Filter**: Tambah filter FFO, FP Import, dan FP Local di halaman rekomendasi Discontinue.
 
 - **Recomendation-v2 / FG Discontinue**: Kebutuhan FG Discontinue kini tetap dihitung dari recipe FG→RM, diagregasi per RM, lalu stok dan Open PO dikurangi satu kali bersama kebutuhan General. Mencegah stok RM terpakai berulang untuk beberapa anchor atau terpotong dua kali antara General dan Discontinue.

@@ -16,6 +16,11 @@ type Anchor = {
     quantity: Prisma.Decimal;
 };
 
+export type DiscontinueMaterialAggregate = {
+    total_needed: number;
+    breakdown: DiscontinueNeed[];
+};
+
 // Keep calculations in decimal arithmetic; round only the final RM quantity.
 export function calculateDiscontinueNeeds(recipes: RecipeRequirement[], anchors: Anchor[]): DiscontinueNeed[] {
     const anchorByProduct = new Map(anchors.map((anchor) => [anchor.product_id, anchor]));
@@ -39,19 +44,34 @@ export function calculateDiscontinueNeeds(recipes: RecipeRequirement[], anchors:
     });
 }
 
+export function aggregateDiscontinueNeeds(needs: DiscontinueNeed[]): Map<number, DiscontinueMaterialAggregate> {
+    const aggregates = new Map<number, DiscontinueMaterialAggregate>();
+    for (const need of needs) {
+        if (!need.anchor_valid || need.total_needed <= 0) continue;
+        const current = aggregates.get(need.material_id);
+        const totalNeeded = new Prisma.Decimal(current?.total_needed ?? 0)
+            .plus(need.total_needed)
+            .toDecimalPlaces(8)
+            .toNumber();
+        aggregates.set(need.material_id, {
+            total_needed: totalNeeded,
+            breakdown: [...(current?.breakdown ?? []), need],
+        });
+    }
+    return aggregates;
+}
+
 export class DiscontinueService {
     // Aggregate recipe-derived discontinued FG needs per RM. General applies stock once
     // after adding this requirement to its own recipe-derived requirement.
     static async purchases(month: number, year: number): Promise<Map<number, number>> {
         const anchors = await prisma.discontinueNeedAnchor.findMany({ where: { month, year } });
         const recipes = await this.recipes([...new Set(anchors.map((anchor) => anchor.product_id))]);
-        const totals = new Map<number, number>();
-        for (const need of calculateDiscontinueNeeds(recipes, anchors)) {
-            if (!need.anchor_valid || need.total_needed <= 0) continue;
-            const requirement = new Prisma.Decimal(need.total_needed);
-            totals.set(need.material_id, requirement.plus(totals.get(need.material_id) ?? 0).toDecimalPlaces(8).toNumber());
-        }
-        return totals;
+        return new Map(
+            [...aggregateDiscontinueNeeds(calculateDiscontinueNeeds(recipes, anchors))].map(
+                ([materialId, aggregate]) => [materialId, aggregate.total_needed],
+            ),
+        );
     }
 
     static async recipes(productIds: number[], db: Prisma.TransactionClient = prisma): Promise<RecipeRequirement[]> {
