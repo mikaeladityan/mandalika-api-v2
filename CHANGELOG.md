@@ -7,7 +7,7 @@ Semua perubahan utama pada sisi server dicatat di sini.
 ### Fixed
 
 - **Recomendation-v2 / FG Discontinue Material Bulk**: Bulk Horizon kini menyimpan quantity dan total kebutuhan agregat per RM melalui endpoint khusus, melewati rekomendasi nol/Work Order `ACC`, mengurutkan hasil setelah agregasi, dan menghapus kolom FG dari CSV material.
-- **Recomendation-v2 / FG Discontinue Work Order**: Work Order `ACTIVE` dan `PENDING` sekarang tersimpan terpisah untuk RM dan periode yang sama. Kebutuhan Discontinue kembali masuk kalkulasi kategori FFO/FP Import/FP Local tanpa menimpa Work Order General.
+- **Recomendation-v2 / FG Discontinue Work Order**: Work Order `ACTIVE` dan `PENDING` sekarang tersimpan terpisah untuk RM dan periode yang sama. Kebutuhan Discontinue dihitung pada page khusus dengan kategori FFO/FP Import/FP Local tanpa masuk rekomendasi General.
 - **Consolidation Discontinue**: Filter sekarang membaca `material_purchase_drafts.product_status`, bukan status recipe RM. RM shared tidak lagi bocor antara Consolidation General dan Discontinue.
 
 ### Added
@@ -16,7 +16,7 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 - **Recomendation-v2 / FG Discontinue Source Filter**: Tambah filter FFO, FP Import, dan FP Local di halaman rekomendasi Discontinue.
 
-- **Recomendation-v2 / FG Discontinue**: Kebutuhan FG Discontinue kini tetap dihitung dari recipe FG→RM, diagregasi per RM, lalu stok dan Open PO dikurangi satu kali bersama kebutuhan General. Mencegah stok RM terpakai berulang untuk beberapa anchor atau terpotong dua kali antara General dan Discontinue.
+- **Recomendation-v2 / FG Discontinue**: Kebutuhan FG Discontinue kini dihitung dari recipe FG→RM pada module khusus, diagregasi per RM, lalu stok dan Open PO dikurangi satu kali. Rekomendasi General tetap hanya menghitung FG aktif.
 - **Recomendation-v2 / Raw Material Stock Period**: Stok RM Recommendation kini dikunci ke periode inventory terpilih, sama dengan Inventory. Snapshot gudang dari periode lama tidak lagi ikut terhitung sebagai stok aktif.
 
 ## [2026-08-05]

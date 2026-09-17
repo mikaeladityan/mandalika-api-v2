@@ -193,7 +193,7 @@ describe("RecomendationV2Service - Override Features", () => {
         });
     });
 
-    it.each(["ffo", "lokal", "impor"] as const)("adds discontinue needs to General recommendations for %s", async (type) => {
+    it.each(["ffo", "lokal", "impor"] as const)("keeps discontinue needs out of General recommendations for %s", async (type) => {
         vi.mocked(DiscontinueService.purchases).mockResolvedValueOnce(new Map([[7, 35]]));
         vi.mocked(prisma.$queryRaw)
             .mockResolvedValueOnce([])
@@ -211,10 +211,10 @@ describe("RecomendationV2Service - Override Features", () => {
         });
         expect(result.data[0]).toMatchObject({
             general_recommendation_quantity: 40,
-            discontinue_recommendation_quantity: 35,
-            recommendation_quantity: 75,
+            discontinue_recommendation_quantity: 0,
+            recommendation_quantity: 40,
         });
-        expect(DiscontinueService.purchases).toHaveBeenCalledWith(9, 2026);
+        expect(DiscontinueService.purchases).not.toHaveBeenCalled();
     });
 
     it("keeps General recommendation zero when stock covers General needs", async () => {
