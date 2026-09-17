@@ -329,6 +329,68 @@ describe("ConsolidationService.list — hidden filter", () => {
             where: expect.objectContaining({ product_status: "PENDING", hidden_at: null }),
         }));
     });
+
+    it.each([
+        ["DRAFT", "DRAFT"],
+        ["DRAFT", "ACC"],
+        ["ACC", "DRAFT"],
+        ["ACC", "ACC"],
+    ] as const)(
+        "adds matching General quantity to Discontinue %s when General is %s",
+        async (discontinueStatus, generalStatus) => {
+            const count = vi.fn().mockResolvedValue(1);
+            const findMany = vi
+                .fn()
+                .mockResolvedValueOnce([{
+                    id: 10, raw_mat_id: 7, month: 9, year: 2026, quantity: 25,
+                    pic_id: null, status: discontinueStatus, created_at: new Date(),
+                    raw_material: {
+                        barcode: "RM-7", name: "Shared RM", unit_raw_material: { name: "KG" },
+                        supplier_materials: [],
+                    },
+                }])
+                .mockResolvedValueOnce([{ raw_mat_id: 7, quantity: 40, status: generalStatus }]);
+            // @ts-ignore
+            prisma.materialPurchaseDraft = { count, findMany };
+
+            const result = await ConsolidationService.list({
+                page: 1, take: 10, month: 9, year: 2026, product_status: "PENDING",
+            } as any);
+
+            expect(result.data[0]).toMatchObject({
+                recommendation_id: 10,
+                status: discontinueStatus,
+                quantity: 65,
+            });
+            expect(findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+                where: expect.objectContaining({
+                    raw_mat_id: { in: [7] }, month: 9, year: 2026,
+                    product_status: "ACTIVE", status: { in: ["DRAFT", "ACC"] },
+                }),
+            }));
+        },
+    );
+
+    it("does not merge General quantities into Discontinue POSTED rows", async () => {
+        const count = vi.fn().mockResolvedValue(1);
+        const findMany = vi.fn().mockResolvedValue([{
+            id: 10, raw_mat_id: 7, month: 9, year: 2026, quantity: 25,
+            pic_id: null, status: "POSTED", created_at: new Date(),
+            raw_material: {
+                barcode: "RM-7", name: "Shared RM", unit_raw_material: { name: "KG" },
+                supplier_materials: [],
+            },
+        }]);
+        // @ts-ignore
+        prisma.materialPurchaseDraft = { count, findMany };
+
+        const result = await ConsolidationService.list({
+            page: 1, take: 10, month: 9, year: 2026, product_status: "PENDING",
+        } as any);
+
+        expect(result.data[0]?.quantity).toBe(25);
+        expect(findMany).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe("ConsolidationService.summaryBySupplier — hidden excluded", () => {

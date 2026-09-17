@@ -39,6 +39,36 @@ const escapeCsv = (val: unknown): string => {
 };
 
 export class ConsolidationService {
+    private static async generalQuantityByMaterial(
+        rows: Array<{ raw_mat_id: number; status: string }>,
+        query: QueryConsolidationDTO,
+        month: number,
+        year: number,
+    ) {
+        if (query.product_status !== "PENDING") return new Map<number, number>();
+        const materialIds = [...new Set(
+            rows
+                .filter((row) => ["DRAFT", "ACC"].includes(row.status))
+                .map((row) => row.raw_mat_id),
+        )];
+        if (materialIds.length === 0) return new Map<number, number>();
+
+        const generalRows = await prisma.materialPurchaseDraft.findMany({
+            where: {
+                raw_mat_id: { in: materialIds },
+                month,
+                year,
+                product_status: "ACTIVE",
+                status: { in: ["DRAFT", "ACC"] },
+                quantity: { gt: 0 },
+                hidden_at: null,
+            },
+            select: { raw_mat_id: true, quantity: true },
+        });
+
+        return new Map(generalRows.map((row) => [row.raw_mat_id, Number(row.quantity)]));
+    }
+
     static async list(query: QueryConsolidationDTO) {
         const { search, page, take, month, year, view } = query;
         const { skip, take: limit } = GetPagination(page, take);
@@ -132,6 +162,13 @@ export class ConsolidationService {
             ...(sortInMemoryBySupplier ? {} : { skip, take: limit }),
         });
 
+        const generalQuantityByMaterial = await this.generalQuantityByMaterial(
+            data,
+            query,
+            currentMonth,
+            currentYear,
+        );
+
         const parsedAll = data.map((item) => {
             const preferredSM = item.raw_material?.supplier_materials?.[0];
             return {
@@ -140,7 +177,8 @@ export class ConsolidationService {
                 barcode: item.raw_material?.barcode || null,
                 material_name: item.raw_material?.name || "Unknown",
                 supplier_name: obscureSupplierName(preferredSM?.supplier?.id ?? null),
-                quantity: Number(item.quantity) || 0,
+                quantity: (Number(item.quantity) || 0)
+                    + (generalQuantityByMaterial.get(item.raw_mat_id) ?? 0),
                 uom: item.raw_material?.unit_raw_material?.name || "UNIT",
                 price: Number(preferredSM?.unit_price) || 0,
                 moq: preferredSM?.min_buy ? Number(preferredSM.min_buy) : null,
@@ -214,6 +252,13 @@ export class ConsolidationService {
             orderBy: { raw_material: { name: "asc" } },
         });
 
+        const generalQuantityByMaterial = await this.generalQuantityByMaterial(
+            data,
+            query,
+            currentMonth,
+            currentYear,
+        );
+
         const grouping: Record<string, any> = {};
 
         data.forEach((item) => {
@@ -224,6 +269,8 @@ export class ConsolidationService {
             const supplierPhone = preferredSM?.supplier?.phone || "";
             const supplierCountry = preferredSM?.supplier?.country || "";
             const source = preferredSM?.supplier?.source || "LOCAL";
+            const quantity = (Number(item.quantity) || 0)
+                + (generalQuantityByMaterial.get(item.raw_mat_id) ?? 0);
 
             if (!grouping[supplierId]) {
                 grouping[supplierId] = {
@@ -240,7 +287,7 @@ export class ConsolidationService {
             }
 
             const itemPrice = Number(preferredSM?.unit_price) || 0;
-            const itemQty = Number(item.quantity) || 0;
+            const itemQty = quantity;
             const subtotal = itemPrice * itemQty;
 
             grouping[supplierId].total_amount += subtotal;

@@ -7,3 +7,4 @@
 - [x] Tampilkan breakdown kontribusi setiap FG pada page Rekomendasi RM Discontinue.
 - [x] Arahkan Bulk Horizon page RM Discontinue ke Work Order agregat per RM.
 - [x] Hapus informasi FG dari export CSV page material.
+- [x] Gabungkan quantity Work Order General DRAFT/ACC ke Consolidation Discontinue DRAFT/ACC untuk RM dan periode sama.

@@ -53,4 +53,8 @@ tidak ditimpa.
 
 `GET /api/app/consolidation?product_status=PENDING`
 
-`product_status=PENDING` hanya mengembalikan Work Order FG Discontinue. `product_status=ACTIVE` hanya mengembalikan Work Order General.
+`product_status=PENDING` hanya mengembalikan row Work Order FG Discontinue. Untuk row
+Discontinue berstatus `DRAFT` atau `ACC`, quantity ditambah dengan Work Order General
+(`ACTIVE`) berstatus `DRAFT` atau `ACC` pada RM, bulan, dan tahun sama. ID serta status row
+tetap milik Work Order Discontinue. `product_status=ACTIVE` tetap hanya mengembalikan Work
+Order General.
