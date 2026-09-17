@@ -74,7 +74,7 @@ describe("RecomendationV2Service - Override Features", () => {
             total_forecast_horizon_dynamic: 300, recommendation_quantity: 240,
             current_stock: stock, open_po: 0, safety_stock_x_resep: 10,
             stock_fg_x_resep: 0, forecast_needed: 300, ranking: 1, moq: 1,
-        }))).mockResolvedValueOnce([{ count: 1 }]).mockResolvedValueOnce([
+        }))).mockResolvedValueOnce([{ count: 2 }]).mockResolvedValueOnce([
             { product_id: 1, estimated_producible_fg: 42 },
             { product_id: 2, estimated_producible_fg: 17 },
         ]);
@@ -82,17 +82,13 @@ describe("RecomendationV2Service - Override Features", () => {
             page: 1, take: 25, month: 9, year: 2026, product_status: "PENDING",
             sales_months: 3, forecast_months: 2, po_months: 3,
         });
-        expect(result.len).toBe(1);
-        expect(result.data.map((row) => row.row_id)).toEqual(["7"]);
-        expect(result.data[0]?.finished_goods).toEqual([
-            { id: 1, code: "FG-1", name: "VAMO" },
-            { id: 2, code: "FG-2", name: "Discontinue 2" },
-        ]);
-        expect(result.data[0]?.discontinue_breakdown).toEqual(anchored
-            ? [expect.objectContaining({ product_id: 1, contribution_quantity: 10 })]
-            : []);
+        expect(result.len).toBe(2);
+        expect(result.data.map((row) => row.row_id)).toEqual(["1_7", "2_7"]);
+        expect(result.data[0]?.finished_goods).toEqual([{ id: 1, code: "FG-1", name: "VAMO" }]);
+        expect(result.data[1]?.finished_goods).toEqual([{ id: 2, code: "FG-2", name: "Discontinue 2" }]);
         expect(result.data[0]?.is_fg_named_material).toBe(true);
         expect(result.data[0]?.estimated_producible_fg).toBe(42);
+        expect(result.data[1]?.estimated_producible_fg).toBe(17);
         expect(result.data[0]?.total_needed_horizon).toBe(shortage);
         expect(result.data[0]?.discontinue_anchor?.total_needed ?? 0).toBe(anchored ? 10 : 0);
         expect(DiscontinueService.needs).toHaveBeenCalledWith([1, 2], 9, 2026);
@@ -113,7 +109,7 @@ describe("RecomendationV2Service - Override Features", () => {
         expect(sql).toContain("fg_group.fg_name ASC, fg_group.fg_id ASC");
         expect(sql.indexOf("fg_group.fg_name ASC")).toBeLessThan(sql.indexOf("CASE WHEN regexp_replace(lower(base.material_name)"));
         expect(sql).toContain("regexp_replace(lower(base.material_name)");
-        expect(sql).not.toContain("OFFSET");
+        expect(sql).toContain("OFFSET");
         const countCall = raw.mock.calls[2];
         if (!countCall || !Array.isArray(countCall[0])) throw new Error("Missing count query");
         const countSql = Prisma.sql(countCall[0] as TemplateStringsArray, ...countCall.slice(1)).sql;

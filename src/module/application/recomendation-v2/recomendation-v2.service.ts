@@ -20,7 +20,7 @@ import { ApiError } from "../../../lib/errors/api.error.js";
 import { logger } from "../../../lib/logger.js";
 import { calculatePOEta } from "../purchase/po/po-eta.js";
 import { recommendationStockSql, recommendationForecastSql } from "./recommendation-stock.js";
-import { aggregateDiscontinueNeeds, DiscontinueService } from "./discontinue/discontinue.service.js";
+import { DiscontinueService } from "./discontinue/discontinue.service.js";
 
 const EDITABLE_PO_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "ORDERED"] as const;
 type EditablePOStatus = typeof EDITABLE_PO_STATUSES[number];
@@ -528,11 +528,11 @@ export class RecomendationV2Service {
                             : Prisma.sql`material_name ASC`)
                 }
                 , material_id ASC
-            ${discontinue ? Prisma.empty : Prisma.sql`LIMIT ${limit} OFFSET ${skip}`}
+            LIMIT ${limit} OFFSET ${skip}
         `;
 
         const totalQuery = await prisma.$queryRaw<{ count: number }[]>`
-            SELECT COUNT(DISTINCT rm.id)::int as count
+            SELECT COUNT(rm.id)::int as count
             FROM "raw_materials" rm
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
             LEFT JOIN "unit_raw_materials" urm ON urm.id = rm.unit_id
@@ -625,12 +625,11 @@ export class RecomendationV2Service {
         const discontinueNeeds = discontinue
             ? await DiscontinueService.needs(discontinuedFgIds, currentMonth, currentYear)
             : [];
-        const discontinueAggregates = aggregateDiscontinueNeeds(discontinueNeeds);
         const discontinueNeedByRow = new Map(discontinueNeeds.map((need) => [`${need.product_id}_${need.material_id}`, need]));
         const discontinuePurchases = discontinue
             ? new Map<number, number>()
             : await DiscontinueService.purchases(currentMonth, currentYear);
-        const rowData = rows.map((r) => {
+        const data = rows.map((r) => {
             const anchoredNeed = discontinueNeedByRow.get(`${r.fg_id}_${r.material_id}`);
             const salesRaw =
                 typeof r.sales_data === "string" ? JSON.parse(r.sales_data) : r.sales_data || [];
@@ -727,7 +726,6 @@ export class RecomendationV2Service {
                 product_status: discontinue ? "PENDING" as const : "ACTIVE" as const,
                 row_id: discontinue ? `${r.fg_id}_${r.material_id}` : String(r.material_id),
                 finished_goods: discontinue ? [{ id: Number(r.fg_id), code: String(r.fg_code), name: String(r.fg_name) }] : [],
-                discontinue_breakdown: [],
                 is_fg_named_material: isFgNamedMaterial,
                 estimated_producible_fg: discontinue
                     ? productionCapacityByFg.get(Number(r.fg_id)) ?? 0
@@ -772,44 +770,6 @@ export class RecomendationV2Service {
                 open_pos,
             };
         });
-
-        const data = discontinue
-            ? rowData.filter((row, index, allRows) => allRows.findIndex((candidate) => candidate.material_id === row.material_id) === index).map((row) => {
-                const materialId = row.material_id;
-                const materialRows = rowData.filter((candidate) => candidate.material_id === materialId);
-                const aggregate = discontinueAggregates.get(Number(materialId));
-                const totalNeeded = aggregate?.total_needed ?? 0;
-                const recommendationQuantity = aggregate
-                    ? Prisma.Decimal.max(
-                        0,
-                        new Prisma.Decimal(totalNeeded).minus(row.current_stock).minus(row.open_po),
-                    ).toDecimalPlaces(8).toNumber()
-                    : 0;
-                const fgById = new Map(materialRows.flatMap((candidate) => candidate.finished_goods ?? []).map((fg) => [fg.id, fg]));
-                const breakdown = (aggregate?.breakdown ?? []).map((need) => {
-                    const fg = fgById.get(need.product_id);
-                    return {
-                        product_id: need.product_id,
-                        fg_code: fg?.code ?? String(need.product_id),
-                        fg_name: fg?.name ?? String(need.product_id),
-                        contribution_quantity: need.total_needed,
-                        anchor_material_id: need.anchor_material_id,
-                        anchor_material_name: need.anchor_material_name,
-                    };
-                });
-                return {
-                    ...row,
-                    row_id: String(materialId),
-                    finished_goods: [...fgById.values()],
-                    discontinue_breakdown: breakdown,
-                    total_needed_horizon: recommendationQuantity,
-                    recommendation_quantity: recommendationQuantity,
-                    general_recommendation_quantity: 0,
-                    discontinue_recommendation_quantity: recommendationQuantity,
-                    weight_kg: row.is_special_paper ? recommendationQuantity : undefined,
-                };
-            }).slice(skip, skip + limit)
-            : rowData;
 
         return {
             data,
