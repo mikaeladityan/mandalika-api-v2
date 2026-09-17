@@ -56,6 +56,7 @@ export class ConsolidationService {
             quantity: {
                 gt: 0,
             },
+            ...(query.product_status && { product_status: query.product_status }),
         };
 
         if (query.supplier_id || query.type || search || query.product_status) {
@@ -69,9 +70,6 @@ export class ConsolidationService {
                         contains: search,
                         mode: "insensitive",
                     },
-                }),
-                ...(query.product_status && {
-                    recipes: { some: { is_active: true, product: { status: query.product_status, deleted_at: null } } },
                 }),
             };
         }
@@ -180,6 +178,7 @@ export class ConsolidationService {
             quantity: {
                 gt: 0,
             },
+            ...(query.product_status && { product_status: query.product_status }),
             hidden_at: null,
         };
 
@@ -194,9 +193,6 @@ export class ConsolidationService {
                         contains: search,
                         mode: "insensitive",
                     },
-                }),
-                ...(query.product_status && {
-                    recipes: { some: { is_active: true, product: { status: query.product_status, deleted_at: null } } },
                 }),
             };
         }

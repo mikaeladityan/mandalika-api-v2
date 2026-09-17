@@ -17,6 +17,39 @@ describe("RecomendationV2Service - Override Features", () => {
         vi.restoreAllMocks();
     });
 
+    it("keeps General and Discontinue work orders separate for the same material and period", async () => {
+        const upsert = vi.fn().mockResolvedValue({ id: 1 });
+        vi.mocked(prisma.$transaction).mockImplementationOnce(async (callback: any) =>
+            callback({ materialPurchaseDraft: { upsert } }),
+        );
+
+        await RecomendationV2Service.saveWorkOrder({
+            raw_mat_id: 7,
+            product_status: "PENDING",
+            month: 9,
+            year: 2026,
+            quantity: 25,
+            horizon: 1,
+            total_needed: 0,
+            current_stock: 0,
+            stock_fg_x_resep: 0,
+            safety_stock_x_resep: 0,
+        });
+
+        expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+            where: {
+                raw_mat_id_month_year_product_status: {
+                    raw_mat_id: 7,
+                    month: 9,
+                    year: 2026,
+                    product_status: "PENDING",
+                },
+            },
+            create: expect.objectContaining({ product_status: "PENDING" }),
+            update: expect.objectContaining({ product_status: "PENDING" }),
+        }));
+    });
+
     it.each([
         { anchored: false, stock: 50, shortage: 0 },
         { anchored: true, stock: 50, shortage: 0 },
@@ -161,7 +194,7 @@ describe("RecomendationV2Service - Override Features", () => {
         });
     });
 
-    it.each(["ffo", "lokal", "impor"] as const)("keeps General recommendations independent of discontinue needs for %s", async (type) => {
+    it.each(["ffo", "lokal", "impor"] as const)("adds discontinue needs to General recommendations for %s", async (type) => {
         vi.mocked(DiscontinueService.purchases).mockResolvedValueOnce(new Map([[7, 35]]));
         vi.mocked(prisma.$queryRaw)
             .mockResolvedValueOnce([])
@@ -179,10 +212,10 @@ describe("RecomendationV2Service - Override Features", () => {
         });
         expect(result.data[0]).toMatchObject({
             general_recommendation_quantity: 40,
-            discontinue_recommendation_quantity: 0,
-            recommendation_quantity: 40,
+            discontinue_recommendation_quantity: 35,
+            recommendation_quantity: 75,
         });
-        expect(DiscontinueService.purchases).not.toHaveBeenCalled();
+        expect(DiscontinueService.purchases).toHaveBeenCalledWith(9, 2026);
     });
 
     it("keeps General recommendation zero when stock covers General needs", async () => {

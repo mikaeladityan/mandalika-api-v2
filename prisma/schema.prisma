@@ -561,6 +561,7 @@ model MaterialPurchaseDraft {
   updated_at           DateTime             @updatedAt
   open_po_id           Int?                 @unique
   pic_id               String?
+  product_status       WorkOrderProductStatus @default(ACTIVE)
   status               RecommendationStatus @default(DRAFT)
   current_stock        Decimal              @default(0) @db.Decimal(18, 2)
   horizon              Int                  @default(1)
@@ -572,7 +573,7 @@ model MaterialPurchaseDraft {
   raw_material         RawMaterial          @relation(fields: [raw_mat_id], references: [id], onDelete: Cascade)
   rfq_item             PurchaseRFQItem?
 
-  @@unique([raw_mat_id, month, year])
+  @@unique([raw_mat_id, month, year, product_status])
   @@map("material_purchase_drafts")
 }
 
@@ -1499,6 +1500,11 @@ enum RecommendationStatus {
   ACC
   REJECTED
   POSTED
+}
+
+enum WorkOrderProductStatus {
+  ACTIVE
+  PENDING
 }
 
 enum TransferLocationType {

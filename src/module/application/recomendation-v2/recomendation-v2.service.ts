@@ -465,6 +465,7 @@ export class RecomendationV2Service {
                         WHERE mro_sub.raw_mat_id = fm.id
                           AND mro_sub.month = ${currentMonth}
                           AND mro_sub.year = ${currentYear}
+                          AND mro_sub.product_status = ${productStatus}
                         LIMIT 1
                     ) AS work_order_data,
                     mro.hidden_at AS work_order_hidden_at
@@ -474,6 +475,7 @@ export class RecomendationV2Service {
                     ON mro.raw_mat_id = fm.id
                     AND mro.month = ${currentMonth} 
                     AND mro.year = ${currentYear}
+                    AND mro.product_status = ${productStatus}
                 LEFT JOIN LATERAL (
                     SELECT COALESCE(SUM(COALESCE(o.quantity, mr.calc_needed)), 0) AS total_needed
                     FROM (
@@ -624,9 +626,9 @@ export class RecomendationV2Service {
             ? await DiscontinueService.needs(discontinuedFgIds, currentMonth, currentYear)
             : [];
         const discontinueNeedByRow = new Map(discontinueNeeds.map((need) => [`${need.product_id}_${need.material_id}`, need]));
-        // Sementara nonaktif: kebutuhan FG Discontinue belum ditambahkan ke General/BOM.
-        // const discontinuePurchases = discontinue ? new Map<number, number>()
-        //     : await DiscontinueService.purchases(currentMonth, currentYear);
+        const discontinuePurchases = discontinue
+            ? new Map<number, number>()
+            : await DiscontinueService.purchases(currentMonth, currentYear);
         const data = rows.map((r) => {
             const anchoredNeed = discontinueNeedByRow.get(`${r.fg_id}_${r.material_id}`);
             const salesRaw =
@@ -706,22 +708,19 @@ export class RecomendationV2Service {
             }
 
             const generalRecommendationQuantity = recommendationQuantity;
-            // Simpan integrasi Discontinue agar dapat diaktifkan kembali nanti.
-            // const discontinueRequirement = discontinuePurchases.get(Number(r.material_id)) ?? 0;
-            // const generalRequirement = !discontinue && horizon > 0
-            //     ? new Prisma.Decimal(totalNeededHorizon).plus(safetyStock)
-            //     : new Prisma.Decimal(0);
-            // const combinedRecommendation = Prisma.Decimal.max(0,
-            //     generalRequirement.plus(discontinueRequirement).minus(currentStock).minus(openPo),
-            // );
-            // const discontinueRecommendationQuantity = !discontinue
-            //     ? Prisma.Decimal.max(0, combinedRecommendation.minus(generalRecommendationQuantity)).toDecimalPlaces(8).toNumber()
-            //     : 0;
-            // recommendationQuantity = !discontinue
-            //     ? combinedRecommendation.toDecimalPlaces(8).toNumber()
-            //     : new Prisma.Decimal(recommendationQuantity).toDecimalPlaces(8).toNumber();
-            const discontinueRecommendationQuantity = 0;
-            recommendationQuantity = new Prisma.Decimal(recommendationQuantity).toDecimalPlaces(8).toNumber();
+            const discontinueRequirement = discontinuePurchases.get(Number(r.material_id)) ?? 0;
+            const generalRequirement = !discontinue && horizon > 0
+                ? new Prisma.Decimal(totalNeededHorizon).plus(safetyStock)
+                : new Prisma.Decimal(0);
+            const combinedRecommendation = Prisma.Decimal.max(0,
+                generalRequirement.plus(discontinueRequirement).minus(currentStock).minus(openPo),
+            );
+            const discontinueRecommendationQuantity = !discontinue
+                ? Prisma.Decimal.max(0, combinedRecommendation.minus(generalRecommendationQuantity)).toDecimalPlaces(8).toNumber()
+                : 0;
+            recommendationQuantity = !discontinue
+                ? combinedRecommendation.toDecimalPlaces(8).toNumber()
+                : new Prisma.Decimal(recommendationQuantity).toDecimalPlaces(8).toNumber();
 
             return {
                 product_status: discontinue ? "PENDING" as const : "ACTIVE" as const,
@@ -1146,13 +1145,14 @@ export class RecomendationV2Service {
             current_stock,
             stock_fg_x_resep,
         } = body;
+        const product_status = body.product_status ?? "ACTIVE";
 
         const total_needed = body.product_status === "PENDING" ? 0 : body.total_needed;
         const safety_stock_x_resep = body.product_status === "PENDING" ? 0 : body.safety_stock_x_resep;
 
         return await prisma.$transaction(async (tx) => {
             return await tx.materialPurchaseDraft.upsert({
-                where: { raw_mat_id_month_year: { raw_mat_id, month, year } },
+                where: { raw_mat_id_month_year_product_status: { raw_mat_id, month, year, product_status } },
                 update: {
                     quantity,
                     horizon,
@@ -1160,6 +1160,7 @@ export class RecomendationV2Service {
                     current_stock,
                     stock_fg_x_resep,
                     safety_stock_x_resep,
+                    product_status,
                     updated_at: new Date(),
                 },
                 create: {
@@ -1172,6 +1173,7 @@ export class RecomendationV2Service {
                     current_stock,
                     stock_fg_x_resep,
                     safety_stock_x_resep,
+                    product_status,
                     status: "DRAFT",
                 },
             });
@@ -1764,7 +1766,7 @@ export class RecomendationV2Service {
             INSERT INTO "material_purchase_drafts" (
                 raw_mat_id, month, year, quantity, horizon,
                 total_needed, current_stock, stock_fg_x_resep, safety_stock_x_resep,
-                created_at, updated_at, status
+                created_at, updated_at, status, product_status
             )
             SELECT
                 rm.id AS raw_mat_id,
@@ -1782,7 +1784,8 @@ export class RecomendationV2Service {
                 ${body.product_status === "PENDING" ? Prisma.sql`0::numeric` : Prisma.sql`COALESCE(ss.total, 0)`} AS safety_stock_x_resep,
                 ${now} AS created_at,
                 ${now} AS updated_at,
-                'DRAFT' AS status
+                'DRAFT' AS status,
+                ${productStatus}::"WorkOrderProductStatus" AS product_status
             FROM "raw_materials" rm
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
             -- A material can have more than one preferred supplier in legacy data.
@@ -1807,7 +1810,7 @@ export class RecomendationV2Service {
                   SELECT 1 FROM "recipes" r2
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
               )
-            ON CONFLICT (raw_mat_id, month, year) DO UPDATE SET
+            ON CONFLICT (raw_mat_id, month, year, product_status) DO UPDATE SET
                 horizon = EXCLUDED.horizon,
                 total_needed = EXCLUDED.total_needed,
                 current_stock = EXCLUDED.current_stock,

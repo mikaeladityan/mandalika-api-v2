@@ -316,6 +316,19 @@ describe("ConsolidationService.list — hidden filter", () => {
         const res = await ConsolidationService.list({ page: 1, take: 10, view: "hidden" } as any);
         expect(res.len).toBe(2);
     });
+
+    it("filters Discontinue consolidation by Work Order product status", async () => {
+        const { count, findMany } = setupListMocks();
+
+        await ConsolidationService.list({ page: 1, take: 10, product_status: "PENDING" } as any);
+
+        expect(count).toHaveBeenNthCalledWith(1, expect.objectContaining({
+            where: expect.objectContaining({ product_status: "PENDING", hidden_at: null }),
+        }));
+        expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ product_status: "PENDING", hidden_at: null }),
+        }));
+    });
 });
 
 describe("ConsolidationService.summaryBySupplier — hidden excluded", () => {
