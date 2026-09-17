@@ -1787,8 +1787,17 @@ export class RecomendationV2Service {
                 'DRAFT' AS status
             FROM "raw_materials" rm
             LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
-            LEFT JOIN "supplier_materials" sm ON sm.raw_material_id = rm.id AND sm.is_preferred = true
-            LEFT JOIN "suppliers" s ON s.id = sm.supplier_id
+            -- A material can have more than one preferred supplier in legacy data.
+            -- Keep this join scalar; otherwise one material produces duplicate
+            -- INSERT rows and PostgreSQL rejects the ON CONFLICT update.
+            LEFT JOIN LATERAL (
+                SELECT s.source
+                FROM "supplier_materials" sm
+                JOIN "suppliers" s ON s.id = sm.supplier_id
+                WHERE sm.raw_material_id = rm.id AND sm.is_preferred = true
+                ORDER BY sm.updated_at DESC, sm.id DESC
+                LIMIT 1
+            ) s ON TRUE
             LEFT JOIN fc_agg fc ON fc.raw_mat_id = rm.id
             LEFT JOIN ss_agg ss ON ss.raw_mat_id = rm.id
             LEFT JOIN fg_agg fg ON fg.raw_mat_id = rm.id

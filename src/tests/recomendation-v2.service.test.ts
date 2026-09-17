@@ -120,6 +120,8 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(sql).not.toContain("rm.barcode IS DISTINCT FROM 'FO-ALK'");
         }
         expect(sql).toContain(`"material_purchase_drafts".status = 'DRAFT'`);
+        expect(sql).toContain('LEFT JOIN LATERAL');
+        expect(sql).toContain('ORDER BY sm.updated_at DESC, sm.id DESC');
     });
 
     describe("saveNeedOverride", () => {
