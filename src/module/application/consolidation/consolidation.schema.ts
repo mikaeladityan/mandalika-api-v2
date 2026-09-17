@@ -13,6 +13,7 @@ export const QueryConsolidationSchema = z.object({
     columnOrder: z.string().optional(),
     selectedIds: z.string().optional(),
     type: z.enum(["ffo", "lokal", "impor", "tester"]).optional(),
+    product_status: z.enum(["ACTIVE", "PENDING"]).optional(),
     view: z.enum(["visible", "hidden"]).optional().default("visible"),
 });
 
