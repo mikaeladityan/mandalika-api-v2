@@ -58,7 +58,7 @@ export class ConsolidationService {
             },
         };
 
-        if (query.supplier_id || query.type || search) {
+        if (query.supplier_id || query.type || search || query.product_status) {
             query_condition.raw_material = {
                 ...(query.supplier_id && {
                     supplier_materials: { some: { supplier_id: query.supplier_id } },
@@ -69,6 +69,9 @@ export class ConsolidationService {
                         contains: search,
                         mode: "insensitive",
                     },
+                }),
+                ...(query.product_status && {
+                    recipes: { some: { is_active: true, product: { status: query.product_status, deleted_at: null } } },
                 }),
             };
         }
@@ -180,7 +183,7 @@ export class ConsolidationService {
             hidden_at: null,
         };
 
-        if (query.supplier_id || query.type || search) {
+        if (query.supplier_id || query.type || search || query.product_status) {
             query_condition.raw_material = {
                 ...(query.supplier_id && {
                     supplier_materials: { some: { supplier_id: query.supplier_id } },
@@ -191,6 +194,9 @@ export class ConsolidationService {
                         contains: search,
                         mode: "insensitive",
                     },
+                }),
+                ...(query.product_status && {
+                    recipes: { some: { is_active: true, product: { status: query.product_status, deleted_at: null } } },
                 }),
             };
         }
