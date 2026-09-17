@@ -70,4 +70,29 @@ export class DiscontinueMaterialRecommendationService {
             len: rows.length,
         };
     }
+
+    static async export(query: QueryDiscontinueMaterialRecommendationDTO) {
+        const result = await this.list({ ...query, page: 1, take: 1_000_000 });
+        const selectedIds = new Set(
+            query.selectedIds?.split(",").map(Number).filter(Number.isFinite) ?? [],
+        );
+        const rows = selectedIds.size > 0
+            ? result.data.filter((row) => selectedIds.has(Number(row.material_id)))
+            : result.data;
+        const escapeCsv = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+        const csv = [
+            ["Barcode", "Material", "FG Discontinue", "Total Need", "Current Stock", "Open PO", "Recommendation", "UOM"],
+            ...rows.map((row) => [
+                row.barcode,
+                row.material_name,
+                row.finished_goods.map((fg) => `${fg.code} - ${fg.name}`).join("; "),
+                row.total_needed_horizon ?? 0,
+                row.current_stock,
+                row.open_po,
+                row.recommendation_quantity,
+                row.uom,
+            ]),
+        ].map((columns) => columns.map(escapeCsv).join(",")).join("\n");
+        return Buffer.from(csv, "utf8");
+    }
 }

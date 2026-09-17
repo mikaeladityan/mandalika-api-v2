@@ -7,6 +7,7 @@ import { DiscontinueLossKeySchema } from "./discontinue-loss.schema.js";
 import { DiscontinueMaterialRecommendationController } from "./material-recommendation.controller.js";
 
 const routes = new Hono();
+routes.get("/materials/export", DiscontinueMaterialRecommendationController.export);
 routes.get("/materials", DiscontinueMaterialRecommendationController.list);
 routes.get("/loss", async (c) => {
     const key = DiscontinueLossKeySchema.parse(c.req.query());

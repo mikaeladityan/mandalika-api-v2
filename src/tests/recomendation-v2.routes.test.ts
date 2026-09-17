@@ -9,6 +9,14 @@ const app = new Hono().route("/recommendations", routes);
 afterEach(() => vi.restoreAllMocks());
 
 describe("Discontinue recommendation HTTP contracts", () => {
+    it("exports aggregated RM recommendations from the dedicated endpoint", async () => {
+        const exportData = vi.spyOn(DiscontinueMaterialRecommendationService, "export").mockResolvedValue(Buffer.from("Material\nRM-7"));
+        const res = await app.request("/recommendations/discontinue/materials/export?month=9&year=2026&selectedIds=7");
+        expect(res.status).toBe(200);
+        expect(res.headers.get("Content-Disposition")).toContain("DISCONTINUE_MATERIAL");
+        expect(exportData).toHaveBeenCalledWith(expect.objectContaining({ month: 9, year: 2026, selectedIds: "7" }));
+    });
+
     it("serves aggregated RM recommendations from a dedicated endpoint", async () => {
         const list = vi.spyOn(DiscontinueMaterialRecommendationService, "list").mockResolvedValue({
             data: [], len: 0, periods: { sales_periods: [], forecast_periods: [], po_periods: [] },

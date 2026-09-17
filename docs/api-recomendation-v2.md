@@ -2,7 +2,7 @@
 
 ## Work Order
 
-`POST /api/app/recomendations/order`
+`POST /api/app/recomendations-v2/order`
 
 Body utama:
 
@@ -15,7 +15,7 @@ Body utama:
 
 ## Recommendation Discontinue
 
-`GET /api/app/recomendations?product_status=PENDING`
+`GET /api/app/recomendations-v2?product_status=PENDING`
 
 Query `type` opsional:
 
@@ -23,9 +23,22 @@ Query `type` opsional:
 - `impor` — FP Import
 - `lokal` — FP Local
 
-Response Discontinue satu baris per raw material. Jika satu RM dipakai beberapa FG,
+Endpoint existing tetap mengembalikan list per FG × RM untuk pengaturan anchor dan analisis loss.
+
+## Recommendation Material Discontinue
+
+`GET /api/app/recomendations-v2/discontinue/materials`
+
+`GET /api/app/recomendations-v2/discontinue/materials/export`
+
+Page: `/recomendation-v2/discontinue/material`
+
+Response satu baris per raw material. Jika satu RM dipakai beberapa FG,
 `discontinue_breakdown` berisi kontribusi kebutuhan tiap FG. Total kebutuhan diagregasi
 lebih dulu, lalu current stock dan Open PO dikurangi satu kali.
+
+Query `type` menerima `ffo`, `impor`, dan `lokal`. Work Order dari page ini dikirim dengan
+`product_status=PENDING`.
 
 ## Consolidation
 
