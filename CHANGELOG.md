@@ -11,6 +11,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Forecast Safety Stock**: Row tanpa issuance pada outlet dan periode terpilih tidak lagi dibuat, sehingga listing mengikuti cakupan product pada Outlet Issuance/BARDAT; zero eksplisit tetap dipertahankan.
+
 - **Forecast Safety Stock**: Produk non-FG (KTP/KTL/KTB/kertas tester dan kategori others) tidak lagi muncul di listing; filter disamakan dengan Forecasting.
 
 - **Forecast Safety Stock**: Urutan product kini memakai helper canonical `orderProductIdsByForecast` yang sama dengan Outlet Issuance dan Outlet BARDAT; SKU tetap terpisah.

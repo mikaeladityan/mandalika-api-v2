@@ -95,6 +95,7 @@ async function buildRows(query: QuerySafetyStockDTO) {
     const rows: SafetyStockDetailRow[] = [];
     for (const product of productRows) for (const outlet of outletRows) {
         const pair = byPair.get(`${outlet.id}|${product.id}`) ?? { weeks: [0, 0, 0, 0] as [number, number, number, number], has_data: false };
+        if (!pair.has_data) continue;
         const calculation = calculateSafetyStock(pair.weeks, query.service_level);
         const { z_value: _zValue, ...metrics } = calculation;
         rows.push({ outlet_id: outlet.id, outlet_code: outlet.code, outlet_name: outlet.name, product_id: product.id, product_code: product.code, product_name: product.name, product_status: product.status, weeks: pair.weeks, ...metrics, has_data: pair.has_data });

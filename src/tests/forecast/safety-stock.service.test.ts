@@ -31,7 +31,7 @@ describe("SafetyStockService", () => {
     it("aggregates each outlet and summary rounds per outlet", async () => {
         const detail = await SafetyStockService.list({ month: 5, year: 2026, service_level: 80, page: 1, take: 100, order: "asc" });
         expect(detail.data.find((row) => row.product_id === 1 && row.outlet_id === 1)?.safety_stock).toBe(3);
-        expect(detail.data.find((row) => row.product_id === 2 && row.outlet_id === 1)?.has_data).toBe(false);
+        expect(detail.data.find((row) => row.product_id === 2 && row.outlet_id === 1)).toBeUndefined();
         const summary = await SafetyStockService.summary({ month: 5, year: 2026, service_level: 80, page: 1, take: 100, order: "asc" });
         expect(summary.data.find((row) => row.product_id === 1)).toMatchObject({ total_sales: 90, safety_stock: 6, sales_to_stock_ratio: 15 });
         const issuanceCall = prismaMock.outletIssuance.findMany.mock.calls[0]![0]!;
@@ -52,6 +52,10 @@ describe("SafetyStockService", () => {
     it("orders SKU rows by Forecasting aroma group without merging variants", async () => {
         vi.mocked(orderProductIdsByForecast).mockResolvedValueOnce([2, 1]);
         prismaMock.forecast.findMany.mockResolvedValueOnce([{ product_id: 1, net_forecast: 10, final_forecast: 10 }, { product_id: 2, net_forecast: 100, final_forecast: 100 }]);
+        prismaMock.outletIssuance.findMany.mockResolvedValueOnce([
+            { outlet_id: 1, product_id: 1, date: new Date(Date.UTC(2026, 4, 1)), quantity: 1 },
+            { outlet_id: 1, product_id: 2, date: new Date(Date.UTC(2026, 4, 1)), quantity: 1 },
+        ]);
         prismaMock.product.findMany.mockResolvedValueOnce([
             { id: 1, code: "HAMPERS-B", name: "HAMPERS ROSE", status: "ACTIVE" },
             { id: 2, code: "A-ROSE", name: "ROSE", status: "ACTIVE" },
