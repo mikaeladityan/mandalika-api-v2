@@ -1,5 +1,7 @@
 # Forecast Safety Stock API
 
+Forecast Master `GET /api/app/forecasts` menambahkan `data.data[].safety_stock_outlet` (integer, unit FG). Nilai menjumlahkan safety stock setelah CEIL per outlet dengan layanan tetap 80% (Z 0.8416212335729143), periode tanggal 1–28 bulan awal Forecast (`start_month/start_year`, default bulan berjalan). Tidak mengikuti preferensi browser. Semua outlet aktif tercakup sebelum pagination; FG tanpa data yang memenuhi filter Safety Stock bernilai 0. Auth/error mengikuti endpoint Forecast existing. Export Forecast memuat kolom yang sama.
+
 Read-only endpoint untuk simulasi safety stock Finished Goods berdasarkan `outlet_issuances`. Endpoint memakai auth Forecast existing.
 
 ## Detail

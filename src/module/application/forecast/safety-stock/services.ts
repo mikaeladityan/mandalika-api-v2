@@ -105,6 +105,14 @@ async function buildRows(query: QuerySafetyStockDTO) {
 }
 
 export class SafetyStockService {
+    /** All outlets, fixed 80% service level; aggregate rounded outlet quantities before pagination. */
+    static async totalsForForecast(month: number, year: number): Promise<Map<number, number>> {
+        const { rows } = await buildRows({ month, year, service_level: 80, page: 1, take: 100, order: "asc" });
+        const totals = new Map<number, number>();
+        for (const row of rows) totals.set(row.product_id, (totals.get(row.product_id) ?? 0) + row.safety_stock);
+        return totals;
+    }
+
     static async list(query: QuerySafetyStockDTO) {
         const { rows, productRank, period_start, period_end } = await buildRows(query);
         sortDetails(rows, query, productRank);
