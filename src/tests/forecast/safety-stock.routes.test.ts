@@ -23,4 +23,15 @@ describe("SafetyStockRoutes", () => {
         const invalid = await app.request("/safety-stock?month=13&year=2026");
         expect(invalid.status).toBe(400);
     });
+
+    it("returns actionable response when database is unavailable", async () => {
+        serviceMock.list.mockRejectedValueOnce(Object.assign(new Error("database unavailable"), { code: "P1001" }));
+        const app = new Hono();
+        app.onError((error, c) => c.json({ status: "error", message: error.message }, ((error as { statusCode?: number }).statusCode ?? 500) as 400));
+        app.route("/safety-stock", SafetyStockRoutes);
+
+        const response = await app.request("/safety-stock?month=5&year=2026");
+        expect(response.status).toBe(503);
+        await expect(response.json()).resolves.toMatchObject({ message: "Database belum dapat dihubungi. Periksa koneksi database lalu coba lagi." });
+    });
 });

@@ -11,6 +11,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Forecast Safety Stock**: Error koneksi database P1001 sekarang dikembalikan sebagai HTTP 503 dengan pesan operasional yang bisa ditampilkan UI, bukan pesan generik.
+
 - **Outlet/BARDAT Cycle**: API kini mengklasifikasikan semua hari yang pernah memiliki BARDAT menjadi konsisten, kurang konsisten, atau sporadis berdasarkan seluruh bulan.
 
 - **Outlet/BARDAT Cycle**: Frekuensi hari dari seluruh histori kini memakai pekan yang memiliki pengiriman; jeda kalender tanpa BARDAT tidak lagi menghilangkan rekomendasi hari.

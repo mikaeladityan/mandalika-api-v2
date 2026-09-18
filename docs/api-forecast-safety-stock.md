@@ -16,6 +16,6 @@ Respons `data` berisi baris outlet × FG: empat total mingguan, total penjualan,
 
 Query sama, kecuali `outlet_id` diabaikan. Respons menjumlahkan seluruh outlet. Safety stock adalah jumlah hasil pembulatan per outlet × FG, bukan pembulatan hasil gabungan.
 
-Envelope sukses: `{ query, status: "success", data }`. Validasi query mengembalikan 400. Auth mengikuti middleware aplikasi. Error tak terduga mengikuti envelope error 500 existing.
+Envelope sukses: `{ query, status: "success", data }`. Validasi query mengembalikan 400. Auth mengikuti middleware aplikasi. Database tidak tersedia mengembalikan HTTP 503 dengan pesan `Database belum dapat dihubungi. Periksa koneksi database lalu coba lagi.`; error lain mengikuti envelope error 500 existing.
 
 Target layanan hanya parameter simulasi. Lead time, stok aktual, BARDAT, dan tabel `Product.z_value` tidak digunakan. Pilihan target layanan disimpan di browser App melalui localStorage; API tetap stateless.
