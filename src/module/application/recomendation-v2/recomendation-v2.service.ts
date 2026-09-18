@@ -1634,7 +1634,8 @@ export class RecomendationV2Service {
                     SELECT s.source FROM "supplier_materials" sm
                     JOIN "suppliers" s ON s.id = sm.supplier_id
                     WHERE sm.raw_material_id = rm.id AND sm.is_preferred = true
-                    ORDER BY sm.updated_at DESC, sm.id DESC LIMIT 1
+                    -- Match the supplier chosen by list(), including legacy multiple-preferred rows.
+                    ORDER BY sm.supplier_id ASC LIMIT 1
                 ) s ON TRUE
                 WHERE ${this.getTypeFilter(body.type)} AND rm.deleted_at IS NULL
             )`;

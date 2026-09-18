@@ -74,6 +74,7 @@ Order General.
 - Auth: session aplikasi dan CSRF mengikuti middleware aplikasi.
 - Body wajib: `{ "month": 9, "year": 2026, "type": "ffo" }`. Bulan integer 1–12, tahun integer 2000–9999; type `ffo`, `impor`, atau `lokal`. Parameter tambahan ditolak.
 - Response sukses: standard success envelope dengan `data: { "count": 3 }`; nol jika tidak ada order cocok. Preview bersifat informatif; count reset mencerminkan jumlah aktual saat eksekusi.
-- Scope: bulan DAN tahun persis, kategori material/preferred supplier seperti Bulk Save, `product_status=ACTIVE`, status `DRAFT`/`ACC`. Termasuk hidden dan seluruh halaman; tidak dibatasi pencarian/pilihan baris/horizon. Status lain dan Discontinue tidak dihapus. Tidak menghapus PO atau override kebutuhan.
+- Scope: bulan DAN tahun persis, kategori material/preferred supplier seperti daftar Rekomendasi (`supplier_id` terkecil jika data legacy mempunyai beberapa preferred supplier), `product_status=ACTIVE`, status `DRAFT`/`ACC`. Termasuk hidden dan seluruh halaman; tidak dibatasi pencarian/pilihan baris/horizon. Status lain dan Discontinue tidak dihapus. Tidak menghapus PO atau override kebutuhan.
+- Penghapusan draft mereset quantity Work Order sekaligus horizon/Total Need hasil Bulk Save. Setelah refresh, Total Need menampilkan `Belum disimpan` hingga horizon disimpan lagi; forecast sumber tetap tersedia.
 - Errors: 400 body tidak valid; 401/403 akses/CSRF ditolak; 500 kegagalan database. Satu statement DELETE bersifat atomik, tanpa penghapusan parsial.
 - UI menampilkan periode, kategori, jumlah order, dan konfirmasi sebelum reset; scope dikunci saat dialog dibuka.

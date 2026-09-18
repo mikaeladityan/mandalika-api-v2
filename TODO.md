@@ -1,5 +1,7 @@
 # TODO
 
+- [x] Samakan kategori supplier bulk reset dengan daftar; buktikan isolasi bulan/tahun dan penghapusan quantity/horizon melalui tabel TEMP PostgreSQL.
+
 - [x] Tambah bulk reset Work Order FFO/FP Import/FP Local sesuai filter bulan/tahun dan kategori, dengan preview/konfirmasi.
 - [ ] Tuntaskan quality gates penuh bulk reset; full suite API dan konfigurasi lint App masih gagal.
 
