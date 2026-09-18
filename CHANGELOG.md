@@ -4,6 +4,9 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ## [Unreleased]
 
+- Added: Bulk reset dan preview Work Order General FFO/FP Import/FP Local, dibatasi bulan/tahun, kategori, ACTIVE, dan DRAFT/ACC.
+
+
 - Added: Forecast Master response/export includes `safety_stock_outlet`, summed across outlets at fixed 80% service level for dates 1–28 of the month preceding the first Forecast month (M−1), including year rollover.
 
 ### Added

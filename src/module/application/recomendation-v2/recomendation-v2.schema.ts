@@ -176,3 +176,10 @@ export const OpenPoCellItemResponseSchema = z.object({
     is_legacy: z.boolean(),
 });
 export type OpenPoCellItemResponseDTO = z.infer<typeof OpenPoCellItemResponseSchema>;
+
+export const RequestBulkResetSchema = z.object({
+    month: z.number({ error: "Bulan wajib diisi" }).int("Bulan harus bilangan bulat").min(1, "Bulan minimal 1").max(12, "Bulan maksimal 12"),
+    year: z.number({ error: "Tahun wajib diisi" }).int("Tahun harus bilangan bulat").min(2000, "Tahun minimal 2000").max(9999, "Tahun maksimal 9999"),
+    type: z.enum(["ffo", "impor", "lokal"], { error: "Kategori harus FFO, FP Import, atau FP Local" }),
+}, { error: "Parameter reset tidak valid atau tidak dikenal" }).strict();
+export type RequestBulkResetDTO = z.infer<typeof RequestBulkResetSchema>;

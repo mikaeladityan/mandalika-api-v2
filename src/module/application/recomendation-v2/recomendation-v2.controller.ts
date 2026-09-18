@@ -3,6 +3,7 @@ import { RecomendationV2Service } from "./recomendation-v2.service.js";
 import { ApiResponse } from "../../../lib/api.response.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import {
+    RequestBulkResetDTO,
     QueryRecomendationV2DTO,
     QueryRecomendationV2Schema,
     RequestApproveWorkOrderSchema,
@@ -56,6 +57,16 @@ export class RecomendationV2Controller {
         const validBody = RequestApproveWorkOrderSchema.parse(body);
         const userId = c.get("userId") || "anonymous";
         const result = await RecomendationV2Service.approveWorkOrder(validBody, userId);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async previewBulkReset(c: Context) {
+        const result = await RecomendationV2Service.previewBulkReset(c.get("body") as RequestBulkResetDTO);
+        return ApiResponse.sendSuccess(c, result, 200);
+    }
+
+    static async bulkResetWorkOrders(c: Context) {
+        const result = await RecomendationV2Service.bulkResetWorkOrders(c.get("body") as RequestBulkResetDTO);
         return ApiResponse.sendSuccess(c, result, 200);
     }
 
