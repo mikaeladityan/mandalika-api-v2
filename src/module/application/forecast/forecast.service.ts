@@ -2188,7 +2188,11 @@ export class ForecastService {
             }
         }
 
-        const outletSafetyStock = await SafetyStockService.totalsForForecast(startMonth, startYear);
+        const outletSafetyPeriod = new Date(Date.UTC(startYear, startMonth - 2, 1));
+        const outletSafetyStock = await SafetyStockService.totalsForForecast(
+            outletSafetyPeriod.getUTCMonth() + 1,
+            outletSafetyPeriod.getUTCFullYear(),
+        );
         const data: ResponseForecastDTO[] = productsRaw.map((p) => {
             const rawForecasts: {
                 month: number;
