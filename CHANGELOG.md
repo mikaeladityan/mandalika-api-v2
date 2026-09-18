@@ -11,6 +11,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Forecast Safety Stock**: FG kini dibatasi pada produk yang memiliki baris Forecast di periode terpilih; tidak lagi mengambil seluruh Product aktif secara generik.
+
 - **Forecast Safety Stock**: Delivery sekarang mengikuti rumus Sheets, `safety_stock ÷ rata-rata penjualan mingguan`, bersatuan minggu. `Product.lead_time` tidak digunakan.
 
 - **Forecast Safety Stock**: Error koneksi database P1001 sekarang dikembalikan sebagai HTTP 503 dengan pesan operasional yang bisa ditampilkan UI, bukan pesan generik.
