@@ -8,6 +8,8 @@ Auth: session aplikasi. Query `month`, `year`, `po_months`, `page`, `take`, dan 
 
 `POST /api/app/recomendations-v2/bulk-horizon` memakai body `month`, `year`, `horizon`, `type`, dan `product_status` opsional. Auth: session aplikasi. Untuk General, hanya RM dengan recipe aktif ke FG `ACTIVE` yang dibuat atau diperbarui sebagai draft. Validasi query/body mengembalikan 400; sesi tanpa akses mengembalikan 401/403; kegagalan server mengembalikan 500.
 
+Bulk Horizon memilih kategori supplier sama dengan daftar/reset (`supplier_id` terkecil jika beberapa preferred). Response `data` berupa jumlah draft yang dibuat/diperbarui. `0` berarti tidak ada draft tersimpan; UI menampilkan peringatan. Update hanya untuk status DRAFT tanpa `open_po_id`; quantity Work Order yang sudah diisi tetap dipertahankan. Bulan/tahun/horizon dan kategori berasal dari filter aktif. UI menunggu refresh daftar sebelum menampilkan jumlah tersimpan.
+
 ## Work Order
 
 `POST /api/app/recomendations-v2/order`
