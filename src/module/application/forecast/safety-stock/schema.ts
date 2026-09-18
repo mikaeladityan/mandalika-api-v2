@@ -43,12 +43,12 @@ export type SafetyStockServiceLevel = keyof typeof SERVICE_LEVEL_Z;
 
 export const SafetyStockDetailRowSchema = z.object({
     outlet_id: z.number(), outlet_code: z.string(), outlet_name: z.string(),
-    product_id: z.number(), product_code: z.string(), product_name: z.string(), product_status: z.enum(["ACTIVE", "PENDING"]),
+    product_id: z.number(), product_code: z.string(), product_name: z.string(), product_status: z.enum(["ACTIVE", "PENDING"]), delivery_days: z.number().nullable(),
     weeks: z.tuple([z.number(), z.number(), z.number(), z.number()]), total_sales: z.number(), weekly_average: z.number(),
     standard_deviation: z.number(), safety_stock: z.number().int(), buffer_weeks: z.number().nullable(), has_data: z.boolean(),
 });
 export const SafetyStockSummaryRowSchema = z.object({
-    product_id: z.number(), product_code: z.string(), product_name: z.string(), product_status: z.enum(["ACTIVE", "PENDING"]),
+    product_id: z.number(), product_code: z.string(), product_name: z.string(), product_status: z.enum(["ACTIVE", "PENDING"]), delivery_days: z.number().nullable(),
     total_sales: z.number(), safety_stock: z.number().int(), sales_to_stock_ratio: z.number().nullable(), buffer_percentage: z.number().nullable(), has_data: z.boolean(),
 });
 
