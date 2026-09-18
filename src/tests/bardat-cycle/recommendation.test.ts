@@ -6,6 +6,9 @@ describe("recurring delivery recommendations", () => {
     it("calculates weekday pattern across all BARDAT history, independent of selected month", () => {
         expect(recommendWeekdaysFromHistory(dates("2026-01-05", "2026-01-12", "2026-01-19", "2026-01-26", "2026-01-07"))).toEqual([1]);
     });
+    it("uses all active weeks across months and excludes an urgent sporadic weekday", () => {
+        expect(recommendWeekdaysFromHistory(dates("2026-01-05", "2026-01-12", "2026-01-19", "2026-01-21", "2026-09-07", "2026-09-14", "2026-09-21"))).toEqual([1]);
+    });
     it("uses Jakarta current month and handles year rollover for the horizon", () => {
         expect(recommendationLastMonth(new Date("2026-09-15T00:00:00Z")).toISOString()).toBe("2026-10-01T00:00:00.000Z");
         expect(recommendationLastMonth(new Date("2026-09-30T17:00:00Z")).toISOString()).toBe("2026-11-01T00:00:00.000Z");

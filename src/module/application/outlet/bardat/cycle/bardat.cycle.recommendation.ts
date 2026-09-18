@@ -8,13 +8,10 @@ export const RECENCY_DAYS = 21;
 export function recommendWeekdaysFromHistory(history: Date[]): number[] {
     const dates = [...new Set(history.map(date => Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())))].sort((a, b) => a - b);
     if (!dates.length) return [];
-    const first = dates[0]!;
-    const last = dates.at(-1)!;
+    const activeWeeks = new Set(dates.map(date => date - ((new Date(date).getUTCDay() + 6) % 7) * DAY));
     return Array.from({ length: 7 }, (_, weekday) => weekday).filter(weekday => {
         const occurrences = dates.filter(date => new Date(date).getUTCDay() === weekday).length;
-        let opportunities = 0;
-        for (let date = first; date <= last; date += DAY) if (new Date(date).getUTCDay() === weekday) opportunities++;
-        return occurrences >= MIN_OCCURRENCES && occurrences / opportunities >= MIN_FREQUENCY;
+        return occurrences >= MIN_OCCURRENCES && occurrences / activeWeeks.size >= MIN_FREQUENCY;
     });
 }
 

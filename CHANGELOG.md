@@ -6,6 +6,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Outlet/BARDAT Cycle**: Frekuensi hari dari seluruh histori kini memakai pekan yang memiliki pengiriman; jeda kalender tanpa BARDAT tidak lagi menghilangkan rekomendasi hari.
+
 - **Outlet/BARDAT Cycle**: Hari pola pengiriman kini dihitung dari seluruh histori realisasi BARDAT per toko, terlepas dari bulan tampilan.
 
 - **Consolidation FP Import**: Estimasi Rp pada daftar, ringkasan supplier, cetak, dan export kini menaikkan harga supplier berbasis kurs lama Rp17.000 ke kurs Rp18.000. Harga master dan PO tidak diubah.
