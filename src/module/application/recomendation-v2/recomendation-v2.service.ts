@@ -22,6 +22,7 @@ import { logger } from "../../../lib/logger.js";
 import { calculatePOEta } from "../purchase/po/po-eta.js";
 import { recommendationStockSql, recommendationForecastSql } from "./recommendation-stock.js";
 import { DiscontinueService } from "./discontinue/discontinue.service.js";
+import { materialTypeScopeSql } from "../shared/material-type-scope.js";
 
 const EDITABLE_PO_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "ORDERED"] as const;
 type EditablePOStatus = typeof EDITABLE_PO_STATUSES[number];
@@ -2050,19 +2051,7 @@ export class RecomendationV2Service {
     }
 
     private static getTypeFilter(type?: string): Prisma.Sql {
-        const excludeTester = Prisma.sql`AND (rm.barcode IS NULL OR (rm.barcode NOT LIKE 'KTL-%' AND rm.barcode NOT LIKE 'KTP-%' AND rm.barcode NOT LIKE 'KA-%' AND rm.barcode NOT LIKE 'KTB-%'))`;
-        switch (type) {
-            case "ffo":
-                return Prisma.sql`(rmc.slug ILIKE '%fragrance-oil%' OR rmc.slug ILIKE '%ffo%')`;
-            case "lokal":
-                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND s.source = 'LOCAL' ${excludeTester}`;
-            case "impor":
-                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND s.source = 'IMPORT' ${excludeTester}`;
-            case "tester":
-                return Prisma.sql`(rmc.slug IS NULL OR rmc.slug NOT ILIKE '%fragrance-oil%') AND (rm.barcode LIKE 'KTL-%' OR rm.barcode LIKE 'KTP-%' OR rm.barcode LIKE 'KA-%' OR rm.barcode LIKE 'KTB-%')`;
-            default:
-                return Prisma.sql`1=1`;
-        }
+        return materialTypeScopeSql(type);
     }
 
     private static buildSearchFilter(search?: string): Prisma.Sql {

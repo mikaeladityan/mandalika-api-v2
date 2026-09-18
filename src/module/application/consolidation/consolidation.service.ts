@@ -5,6 +5,7 @@ import { QueryConsolidationDTO, RequestBulkHideDTO } from "./consolidation.schem
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { RecomendationV2Service } from "../recomendation-v2/recomendation-v2.service.js";
 import { obscureSupplierName } from "../../../lib/utils/supplier-obscure.js";
+import { materialIdsByTypeScope } from "../shared/material-type-scope.js";
 
 const CURRENT_IDR_PER_USD = 18000;
 // Stored supplier prices remain in IDR converted using this historical rate.
@@ -84,7 +85,8 @@ export class ConsolidationService {
         const currentMonth = month ?? now.getMonth() + 1;
         const currentYear = year ?? now.getFullYear();
 
-        const type_condition = ConsolidationService.buildTypeCondition(query.type);
+        // Scope lokal/impor ditentukan supplier preferred terpilih, sama seperti rekomendasi.
+        const typeScopeMaterialIds = await materialIdsByTypeScope(query.type);
 
         const query_condition: any = {
             status: { in: ["DRAFT", "ACC", "POSTED"] },
@@ -96,12 +98,15 @@ export class ConsolidationService {
             ...(query.product_status && { product_status: query.product_status }),
         };
 
-        if (query.supplier_id || query.type || search || query.product_status) {
+        if (typeScopeMaterialIds) {
+            query_condition.raw_mat_id = { in: typeScopeMaterialIds };
+        }
+
+        if (query.supplier_id || search) {
             query_condition.raw_material = {
                 ...(query.supplier_id && {
                     supplier_materials: { some: { supplier_id: query.supplier_id } },
                 }),
-                ...(query.type && type_condition),
                 ...(search && {
                     name: {
                         contains: search,
@@ -152,6 +157,7 @@ export class ConsolidationService {
                 include: {
                     supplier_materials: {
                         where: { is_preferred: true },
+                        orderBy: { supplier_id: "asc" },
                         include: { supplier: true },
                         take: 1,
                     },
@@ -214,7 +220,8 @@ export class ConsolidationService {
         const currentMonth = month ?? now.getMonth() + 1;
         const currentYear = year ?? now.getFullYear();
 
-        const type_condition = ConsolidationService.buildTypeCondition(query.type);
+        // Scope lokal/impor ditentukan supplier preferred terpilih, sama seperti rekomendasi.
+        const typeScopeMaterialIds = await materialIdsByTypeScope(query.type);
 
         const query_condition: any = {
             status: { in: ["DRAFT", "ACC", "POSTED"] },
@@ -227,12 +234,15 @@ export class ConsolidationService {
             hidden_at: null,
         };
 
-        if (query.supplier_id || query.type || search || query.product_status) {
+        if (typeScopeMaterialIds) {
+            query_condition.raw_mat_id = { in: typeScopeMaterialIds };
+        }
+
+        if (query.supplier_id || search) {
             query_condition.raw_material = {
                 ...(query.supplier_id && {
                     supplier_materials: { some: { supplier_id: query.supplier_id } },
                 }),
-                ...(query.type && type_condition),
                 ...(search && {
                     name: {
                         contains: search,
@@ -249,6 +259,7 @@ export class ConsolidationService {
                     include: {
                         supplier_materials: {
                             where: { is_preferred: true },
+                            orderBy: { supplier_id: "asc" },
                             include: { supplier: true },
                             take: 1,
                         },
@@ -529,72 +540,4 @@ export class ConsolidationService {
         });
     }
 
-    private static buildTypeCondition(type?: string): any {
-        if (!type) return {};
-
-        const ffoFilter = {
-            OR: [
-                { slug: { contains: "fragrance-oil", mode: "insensitive" } },
-                { slug: { contains: "ffo", mode: "insensitive" } },
-            ],
-        };
-
-        const notFfoCondition = {
-            OR: [
-                { raw_mat_categories_id: null },
-                { raw_mat_category: { NOT: ffoFilter } },
-            ],
-        };
-
-        const notTesterCondition = {
-            OR: [
-                { barcode: null },
-                {
-                    AND: [
-                        { NOT: { barcode: { startsWith: "KTL-" } } },
-                        { NOT: { barcode: { startsWith: "KTP-" } } },
-                        { NOT: { barcode: { startsWith: "KA-" } } },
-                        { NOT: { barcode: { startsWith: "KTB-" } } },
-                    ],
-                },
-            ],
-        };
-
-        switch (type) {
-            case "ffo":
-                return { raw_mat_category: ffoFilter };
-            case "lokal":
-                return {
-                    AND: [
-                        { supplier_materials: { some: { supplier: { source: "LOCAL" } } } },
-                        notFfoCondition,
-                        notTesterCondition,
-                    ],
-                };
-            case "impor":
-                return {
-                    AND: [
-                        { supplier_materials: { some: { supplier: { source: "IMPORT" } } } },
-                        notFfoCondition,
-                        notTesterCondition,
-                    ],
-                };
-            case "tester":
-                return {
-                    AND: [
-                        notFfoCondition,
-                        {
-                            OR: [
-                                { barcode: { startsWith: "KTL-" } },
-                                { barcode: { startsWith: "KTP-" } },
-                                { barcode: { startsWith: "KA-" } },
-                                { barcode: { startsWith: "KTB-" } },
-                            ],
-                        },
-                    ],
-                };
-            default:
-                return {};
-        }
-    }
 }

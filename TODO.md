@@ -1,5 +1,9 @@
 # TODO
 
+- [x] Samakan filter kategori Consolidation dengan Rekomendasi berbasis supplier preferred terpilih; verifikasi tidak ada material yang muncul di Lokal dan Impor sekaligus.
+- [ ] Bersihkan data `supplier_materials` dengan lebih dari satu `is_preferred` per raw material (316 RM, 204 di antaranya LOCAL+IMPORT) dan tambahkan partial unique index penjaga.
+- [ ] Perbaiki COUNT daftar Rekomendasi `type=lokal` yang memakai join preferred tanpa LATERAL sehingga `len` tidak cocok dengan jumlah baris.
+
 - [x] Perbaiki Bulk Horizon yang melewatkan material Local/Import dengan beberapa preferred supplier; verifikasi SQL simpan/update Total Need dan isolasi periode.
 
 - [x] Samakan kategori supplier bulk reset dengan daftar; buktikan isolasi bulan/tahun dan penghapusan quantity/horizon melalui tabel TEMP PostgreSQL.
