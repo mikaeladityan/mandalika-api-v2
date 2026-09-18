@@ -4,6 +4,42 @@ import prisma from "../config/prisma.js";
 import { SUPPLIER_OBSCURE_REGEX } from "../lib/utils/supplier-obscure.js";
 
 describe("Consolidation import USD conversion", () => {
+    const draft = {
+        id: 1, raw_mat_id: 7, quantity: 2, pic_id: null, status: "DRAFT", created_at: new Date(),
+        raw_material: {
+            barcode: "RM-7", name: "Imported RM", unit_raw_material: { name: "KG" },
+            supplier_materials: [{ unit_price: 170000, min_buy: 1, supplier: { id: 42, source: "IMPORT" } }],
+        },
+    };
+
+    it.each([
+        { type: "impor" as const, expectedPrice: 180000 },
+        { type: "lokal" as const, expectedPrice: 170000 },
+    ])("lists $type estimate from correct price basis", async ({ type, expectedPrice }) => {
+        const mutablePrisma = prisma as any;
+        const previous = mutablePrisma.materialPurchaseDraft;
+        mutablePrisma.materialPurchaseDraft = { count: vi.fn().mockResolvedValue(1), findMany: vi.fn().mockResolvedValue([draft]) };
+        try {
+            const result = await ConsolidationService.list({ type, page: 1, take: 25, view: "visible" });
+            expect(result.data[0]?.price).toBe(expectedPrice);
+        } finally {
+            mutablePrisma.materialPurchaseDraft = previous;
+        }
+    });
+
+    it("uses the same import revaluation in supplier summary", async () => {
+        const mutablePrisma = prisma as any;
+        const previous = mutablePrisma.materialPurchaseDraft;
+        mutablePrisma.materialPurchaseDraft = { findMany: vi.fn().mockResolvedValue([draft]) };
+        try {
+            const result = await ConsolidationService.summaryBySupplier({ type: "impor", page: 1, take: 25, view: "visible" });
+            expect(result[0]?.total_amount).toBe(360000);
+            expect(result[0]?.items[0]?.price).toBe(180000);
+        } finally {
+            mutablePrisma.materialPurchaseDraft = previous;
+        }
+    });
+
     it("exports unit, subtotal, and grand total at Rp18.000 per USD", async () => {
         const list = vi.spyOn(ConsolidationService, "list").mockResolvedValue({
             data: [{ recommendation_id: 1, material_id: 1, barcode: "RM-1", material_name: "Material", supplier_name: "Supplier", quantity: 2, uom: "KG", price: 180000, moq: 1, pic_id: null, status: "DRAFT", created_at: null }],

@@ -1,5 +1,7 @@
 # TODO
 
+- [ ] Verifikasi penuh revaluasi estimasi Rp FP Import dari basis 17.000 ke 18.000; seluruh harga Import diasumsikan memakai basis lama sampai ada mata uang per material.
+
 - [ ] Verifikasi gate penuh perubahan kurs tetap Consolidation Import ke Rp18.000 per USD; tes terkait lulus, full suite dan build App belum hijau.
 
 - [ ] Verifikasi penuh penyembunyian bulan dan nilai PO OPEN nol pada Rekomendasi FFO/FP Import/FP Local; gate App belum hijau.

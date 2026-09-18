@@ -6,6 +6,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Consolidation FP Import**: Estimasi Rp pada daftar, ringkasan supplier, cetak, dan export kini menaikkan harga supplier berbasis kurs lama Rp17.000 ke kurs Rp18.000. Harga master dan PO tidak diubah.
+
 - **Consolidation Import**: Konversi estimasi IDR ke USD pada export CSV memakai kurs tetap Rp18.000 per USD.
 
 - **Recomendation-v2 General**: Daftar, jumlah baris, dan Bulk Save hanya memproses RM dengan recipe aktif ke FG `ACTIVE` yang belum dihapus. Periode Open PO hanya memuat bulan dengan sisa PO `ORDERED` positif dalam horizon.

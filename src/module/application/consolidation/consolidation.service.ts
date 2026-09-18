@@ -6,7 +6,14 @@ import { ApiError } from "../../../lib/errors/api.error.js";
 import { RecomendationV2Service } from "../recomendation-v2/recomendation-v2.service.js";
 import { obscureSupplierName } from "../../../lib/utils/supplier-obscure.js";
 
-const USD_RATE = 18000;
+const CURRENT_IDR_PER_USD = 18000;
+// Stored supplier prices remain in IDR converted using this historical rate.
+const STORED_IMPORT_PRICE_IDR_PER_USD = 17000;
+
+const estimatedUnitPrice = (storedIdrPrice: number, type?: string): number =>
+    type === "impor"
+        ? new Prisma.Decimal(storedIdrPrice).mul(CURRENT_IDR_PER_USD).div(STORED_IMPORT_PRICE_IDR_PER_USD).toNumber()
+        : storedIdrPrice;
 
 type ConsolidationRow = {
     recommendation_id: number;
@@ -180,7 +187,7 @@ export class ConsolidationService {
                 quantity: (Number(item.quantity) || 0)
                     + (generalQuantityByMaterial.get(item.raw_mat_id) ?? 0),
                 uom: item.raw_material?.unit_raw_material?.name || "UNIT",
-                price: Number(preferredSM?.unit_price) || 0,
+                price: estimatedUnitPrice(Number(preferredSM?.unit_price) || 0, query.type),
                 moq: preferredSM?.min_buy ? Number(preferredSM.min_buy) : null,
                 pic_id: item.pic_id,
                 status: item.status,
@@ -286,7 +293,7 @@ export class ConsolidationService {
                 };
             }
 
-            const itemPrice = Number(preferredSM?.unit_price) || 0;
+            const itemPrice = estimatedUnitPrice(Number(preferredSM?.unit_price) || 0, query.type);
             const itemQty = quantity;
             const subtotal = itemPrice * itemQty;
 
@@ -332,9 +339,9 @@ export class ConsolidationService {
             { header: "MOQ", uiId: "moq", value: (r) => r.moq ?? 0 },
             { header: "UOM", uiId: "uom", value: (r) => r.uom?.toUpperCase() ?? "" },
             { header: isImpor ? "Harga Satuan (IDR)" : "Harga Satuan", uiId: "price", value: (r) => r.price },
-            ...(isImpor ? [{ header: "Harga Satuan (USD)", uiId: "price", value: (r: ConsolidationRow) => (r.price || 0) / USD_RATE }] : []),
+            ...(isImpor ? [{ header: "Harga Satuan (USD)", uiId: "price", value: (r: ConsolidationRow) => (r.price || 0) / CURRENT_IDR_PER_USD }] : []),
             { header: isImpor ? "Total Harga (IDR)" : "Total Harga", uiId: "subtotal", value: (r) => (r.price || 0) * (r.quantity || 0) },
-            ...(isImpor ? [{ header: "Total Harga (USD)", uiId: "subtotal", value: (r: ConsolidationRow) => ((r.price || 0) * (r.quantity || 0)) / USD_RATE }] : []),
+            ...(isImpor ? [{ header: "Total Harga (USD)", uiId: "subtotal", value: (r: ConsolidationRow) => ((r.price || 0) * (r.quantity || 0)) / CURRENT_IDR_PER_USD }] : []),
             { header: "Status", uiId: "status", value: (r) => r.status },
             { header: "Tanggal Pengajuan", uiId: "created_at", value: (r) => (r.created_at ? new Date(r.created_at).toLocaleString("id-ID") : "-") },
             { header: "PIC", uiId: "pic_id", value: (r) => r.pic_id ?? "System" },
@@ -369,7 +376,7 @@ export class ConsolidationService {
             const totalCells = columns.map((c) => {
                 if (c.uiId === "subtotal") {
                     const isUsdCol = c.header.includes("USD");
-                    return escapeCsv(isUsdCol ? grandTotal / USD_RATE : grandTotal);
+                    return escapeCsv(isUsdCol ? grandTotal / CURRENT_IDR_PER_USD : grandTotal);
                 }
                 return "";
             });
