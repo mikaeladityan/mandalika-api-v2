@@ -1808,7 +1808,8 @@ export class RecomendationV2Service {
                 FROM "supplier_materials" sm
                 JOIN "suppliers" s ON s.id = sm.supplier_id
                 WHERE sm.raw_material_id = rm.id AND sm.is_preferred = true
-                ORDER BY sm.updated_at DESC, sm.id DESC
+                -- Keep Bulk Save in the same category as list() and bulk reset.
+                ORDER BY sm.supplier_id ASC
                 LIMIT 1
             ) s ON TRUE
             LEFT JOIN fc_agg fc ON fc.raw_mat_id = rm.id

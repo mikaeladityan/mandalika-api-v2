@@ -4,6 +4,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ## [Unreleased]
 
+- Fixed: Bulk Horizon uses the recommendation list's preferred supplier selection so Local/Import materials visible in the list receive saved horizons. PostgreSQL regressions cover all three categories, period isolation, and approved-order protection.
+
 - Fixed: Bulk reset follows the same preferred supplier selection as the recommendation list so legacy multiple-preferred materials are not skipped. Added opt-in PostgreSQL tests using temporary tables.
 
 - Added: Bulk reset dan preview Work Order General FFO/FP Import/FP Local, dibatasi bulan/tahun, kategori, ACTIVE, dan DRAFT/ACC.

@@ -154,7 +154,7 @@ describe("RecomendationV2Service - Override Features", () => {
         }
         expect(sql).toContain(`"material_purchase_drafts".status = 'DRAFT'`);
         expect(sql).toContain('LEFT JOIN LATERAL');
-        expect(sql).toContain('ORDER BY sm.updated_at DESC, sm.id DESC');
+        expect(sql).toContain('ORDER BY sm.supplier_id ASC');
     });
 
     describe("saveNeedOverride", () => {
