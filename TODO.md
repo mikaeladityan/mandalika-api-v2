@@ -1,5 +1,8 @@
 # TODO
 
+- [x] Tambah bulk reset Work Order FFO/FP Import/FP Local sesuai filter bulan/tahun dan kategori, dengan preview/konfirmasi.
+- [ ] Tuntaskan quality gates penuh bulk reset; full suite API dan konfigurasi lint App masih gagal.
+
 - [x] Tambah total Safety Stock Outlet 80% ke response dan export Forecast Master.
 - [ ] Verifikasi browser kolom Safety Stock Outlet setelah dependency App dipulihkan; gate Forecast stock allocation masih gagal.
 

@@ -2,6 +2,7 @@ import { Prisma } from "../../../generated/prisma/client.js";
 import prisma from "../../../config/prisma.js";
 import { obscureSupplierName } from "../../../lib/utils/supplier-obscure.js";
 import {
+    RequestBulkResetDTO,
     QueryRecomendationV2DTO,
     RequestApproveWorkOrderDTO,
     RequestSaveWorkOrderDTO,
@@ -1621,6 +1622,35 @@ export class RecomendationV2Service {
             throw new ApiError(400, `Work order dengan status ${rec.status} tidak dapat di-approve.`);
         }
         return await this.createOpenPosFromDrafts([body.id], userId);
+    }
+
+    private static bulkResetScope(body: RequestBulkResetDTO): Prisma.Sql {
+        return Prisma.sql`d.month = ${body.month} AND d.year = ${body.year}
+            AND d.product_status = 'ACTIVE' AND d.status IN ('DRAFT', 'ACC')
+            AND d.raw_mat_id IN (
+                SELECT rm.id FROM "raw_materials" rm
+                LEFT JOIN "raw_mat_categories" rmc ON rmc.id = rm.raw_mat_categories_id
+                LEFT JOIN LATERAL (
+                    SELECT s.source FROM "supplier_materials" sm
+                    JOIN "suppliers" s ON s.id = sm.supplier_id
+                    WHERE sm.raw_material_id = rm.id AND sm.is_preferred = true
+                    ORDER BY sm.updated_at DESC, sm.id DESC LIMIT 1
+                ) s ON TRUE
+                WHERE ${this.getTypeFilter(body.type)} AND rm.deleted_at IS NULL
+            )`;
+    }
+
+    static async previewBulkReset(body: RequestBulkResetDTO) {
+        const rows = await prisma.$queryRaw<{ count: number }[]>(Prisma.sql`
+            SELECT COUNT(*)::int AS count FROM "material_purchase_drafts" d
+            WHERE ${this.bulkResetScope(body)}`);
+        return { count: rows[0]?.count ?? 0 };
+    }
+
+    static async bulkResetWorkOrders(body: RequestBulkResetDTO) {
+        const count = await prisma.$executeRaw(Prisma.sql`
+            DELETE FROM "material_purchase_drafts" d WHERE ${this.bulkResetScope(body)}`);
+        return { count };
     }
 
     static async destroyWorkOrder(id: number) {

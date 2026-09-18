@@ -2,6 +2,9 @@ import { Hono } from "hono";
 import { RecomendationV2Controller } from "./recomendation-v2.controller.js";
 import discontinueRoutes from "./discontinue/discontinue.routes.js";
 
+import { validateBody } from "../../../middleware/validation.js";
+import { RequestBulkResetSchema } from "./recomendation-v2.schema.js";
+
 const routes = new Hono();
 routes.route("/discontinue", discontinueRoutes);
 
@@ -19,6 +22,8 @@ routes.delete("/need-override", RecomendationV2Controller.deleteNeedOverride);
 routes.patch("/moq", RecomendationV2Controller.updateMoq);
 routes.patch("/hide", RecomendationV2Controller.bulkToggleHide);
 routes.get("/suppliers", RecomendationV2Controller.listSuppliersForMaterial);
+routes.post("/bulk-reset/preview", validateBody(RequestBulkResetSchema), RecomendationV2Controller.previewBulkReset);
+routes.post("/bulk-reset", validateBody(RequestBulkResetSchema), RecomendationV2Controller.bulkResetWorkOrders);
 routes.delete("/:id", RecomendationV2Controller.destroyWorkOrder);
 
 export default routes;
