@@ -11,6 +11,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Forecast Safety Stock**: Detail dan ringkasan sekarang menampilkan `Product.lead_time` sebagai Delivery (hari); nilai ini informatif dan tidak mengubah formula safety stock.
+
 - **Forecast Safety Stock**: Error koneksi database P1001 sekarang dikembalikan sebagai HTTP 503 dengan pesan operasional yang bisa ditampilkan UI, bukan pesan generik.
 
 - **Outlet/BARDAT Cycle**: API kini mengklasifikasikan semua hari yang pernah memiliki BARDAT menjadi konsisten, kurang konsisten, atau sporadis berdasarkan seluruh bulan.
