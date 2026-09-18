@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
+    forecast: { findMany: vi.fn() },
     product: { findMany: vi.fn() },
     outlet: { findMany: vi.fn() },
     outletIssuance: { findMany: vi.fn() },
@@ -12,6 +13,7 @@ import { SafetyStockService } from "../../module/application/forecast/safety-sto
 describe("SafetyStockService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        prismaMock.forecast.findMany.mockResolvedValue([{ product_id: 1 }, { product_id: 2 }]);
         prismaMock.product.findMany.mockResolvedValue([
             { id: 1, code: "ACTIVE", name: "Active", status: "ACTIVE" },
             { id: 2, code: "DISC", name: "Discontinue", status: "PENDING" },
@@ -37,5 +39,11 @@ describe("SafetyStockService", () => {
     it("puts discontinue after active before pagination", async () => {
         const result = await SafetyStockService.list({ month: 5, year: 2026, service_level: 80, page: 1, take: 1, sortBy: "safety_stock", order: "desc" });
         expect(result.data[0]!.product_status).toBe("ACTIVE");
+    });
+
+    it("uses forecast products as FG universe", async () => {
+        prismaMock.forecast.findMany.mockResolvedValueOnce([{ product_id: 1 }]);
+        await SafetyStockService.list({ month: 5, year: 2026, service_level: 80, page: 1, take: 100, order: "asc" });
+        expect(prismaMock.product.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: { in: [1] } }) }));
     });
 });
