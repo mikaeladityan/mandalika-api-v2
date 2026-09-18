@@ -5,14 +5,28 @@ export const MIN_OCCURRENCES = 3;
 export const MIN_FREQUENCY = 0.6;
 export const RECENCY_DAYS = 21;
 
-export function recommendWeekdaysFromHistory(history: Date[]): number[] {
+export type BardatWeekdayPattern = {
+    weekday: number;
+    occurrences: number;
+    opportunities: number;
+    percentage: number;
+    level: "CONSISTENT" | "MODERATE" | "SPORADIC";
+};
+
+export function analyzeWeekdayPatterns(history: Date[]): BardatWeekdayPattern[] {
     const dates = [...new Set(history.map(date => Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())))].sort((a, b) => a - b);
     if (!dates.length) return [];
-    const activeWeeks = new Set(dates.map(date => date - ((new Date(date).getUTCDay() + 6) % 7) * DAY));
-    return Array.from({ length: 7 }, (_, weekday) => weekday).filter(weekday => {
+    const opportunities = new Set(dates.map(date => date - ((new Date(date).getUTCDay() + 6) % 7) * DAY)).size;
+    return Array.from({ length: 7 }, (_, weekday) => {
         const occurrences = dates.filter(date => new Date(date).getUTCDay() === weekday).length;
-        return occurrences >= MIN_OCCURRENCES && occurrences / activeWeeks.size >= MIN_FREQUENCY;
-    });
+        const percentage = Math.round(occurrences / opportunities * 100);
+        const level = occurrences >= MIN_OCCURRENCES && percentage >= MIN_FREQUENCY * 100 ? "CONSISTENT" : occurrences >= 2 && percentage >= 30 ? "MODERATE" : "SPORADIC";
+        return { weekday, occurrences, opportunities, percentage, level } satisfies BardatWeekdayPattern;
+    }).filter(pattern => pattern.occurrences > 0);
+}
+
+export function recommendWeekdaysFromHistory(history: Date[]): number[] {
+    return analyzeWeekdayPatterns(history).filter(pattern => pattern.level === "CONSISTENT").map(pattern => pattern.weekday);
 }
 
 export function recommendationLastMonth(now = new Date()): Date {

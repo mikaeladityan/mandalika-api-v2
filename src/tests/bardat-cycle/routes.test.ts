@@ -16,6 +16,7 @@ describe("cycle API", () => {
         mocks.receipts.mockResolvedValueOnce([]).mockResolvedValueOnce(["2026-01-05", "2026-01-12", "2026-01-19", "2026-01-26"].map(date => ({ outlet_id: 1, date: new Date(date) })));
         const data = (await (await app.request("/cycle?month=9&year=2026")).json()).data;
         expect(data.pattern_weekdays).toEqual({ "1": [1] });
+        expect(data.weekday_patterns).toEqual({ "1": [{ weekday: 1, occurrences: 4, opportunities: 4, percentage: 100, level: "CONSISTENT" }] });
         expect(mocks.receipts).toHaveBeenLastCalledWith(expect.objectContaining({ where: { quantity: { gt: 0 }, outlet: { deleted_at: null } } }));
     });
     it.each([6, 7, 8, 9, 10])("projects April history into month %s through now plus one month", async month => {
@@ -110,7 +111,7 @@ describe("cycle API", () => {
         mocks.findMany.mockResolvedValue([]);
         const res = await app.request("/cycle?month=9&year=2026");
         expect(res.status).toBe(200);
-        expect((await res.json()).data).toEqual({ outlets: [{ id: 1, code: "A", name: "Toko A" }], rules: [], entries: [], pattern_weekdays: {}, latest_period: null, recommendation_until: "2026-10" });
+        expect((await res.json()).data).toEqual({ outlets: [{ id: 1, code: "A", name: "Toko A" }], rules: [], entries: [], pattern_weekdays: {}, weekday_patterns: {}, latest_period: null, recommendation_until: "2026-10" });
         expect(mocks.outlets).toHaveBeenCalledWith(expect.objectContaining({ where: { deleted_at: null } }));
     });
 

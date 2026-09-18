@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recommendDates, recommendWeekdaysFromHistory, recommendationLastMonth } from "../../module/application/outlet/bardat/cycle/bardat.cycle.recommendation.js";
+import { analyzeWeekdayPatterns, recommendDates, recommendWeekdaysFromHistory, recommendationLastMonth } from "../../module/application/outlet/bardat/cycle/bardat.cycle.recommendation.js";
 const period = { month: 5, year: 2026 };
 const dates = (...values: string[]) => values.map(value => new Date(value));
 describe("recurring delivery recommendations", () => {
@@ -8,6 +8,13 @@ describe("recurring delivery recommendations", () => {
     });
     it("uses all active weeks across months and excludes an urgent sporadic weekday", () => {
         expect(recommendWeekdaysFromHistory(dates("2026-01-05", "2026-01-12", "2026-01-19", "2026-01-21", "2026-09-07", "2026-09-14", "2026-09-21"))).toEqual([1]);
+    });
+    it("classifies every observed weekday as consistent, moderate, or sporadic", () => {
+        expect(analyzeWeekdayPatterns(dates("2026-01-05", "2026-01-07", "2026-01-12", "2026-01-14", "2026-01-19", "2026-01-26", "2026-01-30"))).toEqual([
+            { weekday: 1, occurrences: 4, opportunities: 4, percentage: 100, level: "CONSISTENT" },
+            { weekday: 3, occurrences: 2, opportunities: 4, percentage: 50, level: "MODERATE" },
+            { weekday: 5, occurrences: 1, opportunities: 4, percentage: 25, level: "SPORADIC" },
+        ]);
     });
     it("uses Jakarta current month and handles year rollover for the horizon", () => {
         expect(recommendationLastMonth(new Date("2026-09-15T00:00:00Z")).toISOString()).toBe("2026-10-01T00:00:00.000Z");

@@ -6,6 +6,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Outlet/BARDAT Cycle**: API kini mengklasifikasikan semua hari yang pernah memiliki BARDAT menjadi konsisten, kurang konsisten, atau sporadis berdasarkan seluruh bulan.
+
 - **Outlet/BARDAT Cycle**: Frekuensi hari dari seluruh histori kini memakai pekan yang memiliki pengiriman; jeda kalender tanpa BARDAT tidak lagi menghilangkan rekomendasi hari.
 
 - **Outlet/BARDAT Cycle**: Hari pola pengiriman kini dihitung dari seluruh histori realisasi BARDAT per toko, terlepas dari bulan tampilan.
