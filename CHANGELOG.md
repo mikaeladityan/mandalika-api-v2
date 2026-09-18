@@ -4,6 +4,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ## [Unreleased]
 
+- Fixed: Consolidation memakai supplier preferred terpilih (is_preferred dengan supplier_id terkecil) untuk filter `lokal`/`impor`, sama seperti daftar Rekomendasi. Raw material dengan supplier LOCAL dan IMPORT sekaligus tidak lagi muncul di kedua kategori; nama supplier, harga, dan MOQ ikut memakai preferred terpilih yang sama. Aturan scope dipindah ke modul bersama `shared/material-type-scope.ts`.
+
 - Fixed: Bulk Horizon uses the recommendation list's preferred supplier selection so Local/Import materials visible in the list receive saved horizons. PostgreSQL regressions cover all three categories, period isolation, and approved-order protection.
 
 - Fixed: Bulk reset follows the same preferred supplier selection as the recommendation list so legacy multiple-preferred materials are not skipped. Added opt-in PostgreSQL tests using temporary tables.
