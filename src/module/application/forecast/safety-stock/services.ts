@@ -14,6 +14,7 @@ function periodOf(query: Query) {
 }
 
 function statusRank(status: string) { return status === "ACTIVE" ? 0 : 1; }
+function forecastGroupKey(name: string) { return name.replace(/^hampers\s+/i, "").trim().toUpperCase(); }
 function compareNullable(a: number | null, b: number | null, order: "asc" | "desc") {
     if (a === null && b === null) return 0;
     if (a === null) return 1;
@@ -27,6 +28,8 @@ function sortDetails(rows: SafetyStockDetailRow[], query: QuerySafetyStockDTO) {
     rows.sort((left, right) => {
         const status = statusRank(left.product_status) - statusRank(right.product_status);
         if (status) return status;
+        const group = forecastGroupKey(left.product_name).localeCompare(forecastGroupKey(right.product_name));
+        if (group) return group;
         if (key === "total_sales" || key === "weekly_average" || key === "standard_deviation" || key === "safety_stock" || key === "buffer_weeks") {
             const result = compareNullable(left[key], right[key], direction);
             if (result) return result;
@@ -44,6 +47,8 @@ function sortSummary(rows: SafetyStockSummaryRow[], query: Query) {
     rows.sort((left, right) => {
         const status = statusRank(left.product_status) - statusRank(right.product_status);
         if (status) return status;
+        const group = forecastGroupKey(left.product_name).localeCompare(forecastGroupKey(right.product_name));
+        if (group) return group;
         if (key === "total_sales" || key === "safety_stock" || key === "sales_to_stock_ratio" || key === "buffer_percentage") {
             const result = compareNullable(left[key], right[key], direction);
             if (result) return result;

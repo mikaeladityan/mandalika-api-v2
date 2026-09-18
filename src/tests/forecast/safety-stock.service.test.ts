@@ -46,4 +46,15 @@ describe("SafetyStockService", () => {
         await SafetyStockService.list({ month: 5, year: 2026, service_level: 80, page: 1, take: 100, order: "asc" });
         expect(prismaMock.product.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: { in: [1] } }) }));
     });
+
+    it("orders SKU rows by Forecasting aroma group without merging variants", async () => {
+        prismaMock.forecast.findMany.mockResolvedValueOnce([{ product_id: 1 }, { product_id: 2 }]);
+        prismaMock.product.findMany.mockResolvedValueOnce([
+            { id: 1, code: "HAMPERS-B", name: "HAMPERS ROSE", status: "ACTIVE" },
+            { id: 2, code: "A-ROSE", name: "ROSE", status: "ACTIVE" },
+        ]);
+        const result = await SafetyStockService.list({ month: 5, year: 2026, service_level: 80, page: 1, take: 100, order: "asc" });
+        expect([...new Set(result.data.map((row) => row.product_id))]).toEqual([2, 1]);
+        expect(new Set(result.data.map((row) => row.product_id)).size).toBe(2);
+    });
 });
