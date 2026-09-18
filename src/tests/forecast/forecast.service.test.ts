@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import prisma from "../../config/prisma.js";
+import { SafetyStockService } from "../../module/application/forecast/safety-stock/services.js";
 import { escapeIlike, ForecastService } from "../../module/application/forecast/forecast.service.js";
 import {
     QueryInventoryTurnoverRMSchema,
@@ -538,7 +539,10 @@ describe("ForecastService", () => {
             expect(item.need_produce).toBe(400);
         });
 
-        it("should return forecast list with correct len", async () => {
+        it.each([
+            [9, 2026, 8, 2026],
+            [1, 2026, 12, 2025],
+        ])("returns forecast list using previous-month outlet SS for %i/%i", async (month, year, previousMonth, previousYear) => {
             (prisma.product.count as any).mockResolvedValue(1);
             (prisma.$queryRaw as any).mockResolvedValue([
                 {
@@ -566,8 +570,9 @@ describe("ForecastService", () => {
             // @ts-ignore
             prisma.forecastPercentage.findMany.mockResolvedValue([]);
 
-            const result = await ForecastService.get({ page: 1, take: 25 });
+            const result = await ForecastService.get({ page: 1, take: 25, start_month: month, start_year: year });
 
+            expect(SafetyStockService.totalsForForecast).toHaveBeenCalledWith(previousMonth, previousYear);
             expect(result.len).toBe(1);
             expect(result.data).toHaveLength(1);
             expect(result.data[0]!.product_code).toBe("P001");
