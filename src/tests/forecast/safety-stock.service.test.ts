@@ -1,0 +1,41 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const prismaMock = vi.hoisted(() => ({
+    product: { findMany: vi.fn() },
+    outlet: { findMany: vi.fn() },
+    outletIssuance: { findMany: vi.fn() },
+}));
+vi.mock("../../config/prisma.js", () => ({ default: prismaMock }));
+
+import { SafetyStockService } from "../../module/application/forecast/safety-stock/services.js";
+
+describe("SafetyStockService", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        prismaMock.product.findMany.mockResolvedValue([
+            { id: 1, code: "ACTIVE", name: "Active", status: "ACTIVE" },
+            { id: 2, code: "DISC", name: "Discontinue", status: "PENDING" },
+        ]);
+        prismaMock.outlet.findMany.mockResolvedValue([{ id: 1, code: "PMS", name: "PMS" }, { id: 2, code: "PMJ", name: "PMJ" }]);
+        prismaMock.outletIssuance.findMany.mockResolvedValue([
+            ...[11, 9, 15, 10].map((quantity, index) => ({ outlet_id: 1, product_id: 1, date: new Date(Date.UTC(2026, 4, 1 + index * 7)), quantity })),
+            ...[11, 9, 15, 10].map((quantity, index) => ({ outlet_id: 2, product_id: 1, date: new Date(Date.UTC(2026, 4, 1 + index * 7)), quantity })),
+            { outlet_id: 1, product_id: 2, date: new Date(Date.UTC(2026, 4, 29)), quantity: 999 },
+        ]);
+    });
+
+    it("aggregates each outlet and summary rounds per outlet", async () => {
+        const detail = await SafetyStockService.list({ month: 5, year: 2026, service_level: 80, page: 1, take: 100, order: "asc" });
+        expect(detail.data.find((row) => row.product_id === 1 && row.outlet_id === 1)?.safety_stock).toBe(3);
+        expect(detail.data.find((row) => row.product_id === 2 && row.outlet_id === 1)?.has_data).toBe(false);
+        const summary = await SafetyStockService.summary({ month: 5, year: 2026, service_level: 80, page: 1, take: 100, order: "asc" });
+        expect(summary.data.find((row) => row.product_id === 1)).toMatchObject({ total_sales: 90, safety_stock: 6, sales_to_stock_ratio: 15 });
+        const issuanceCall = prismaMock.outletIssuance.findMany.mock.calls[0]![0]!;
+        expect(issuanceCall.where.date).toEqual({ gte: new Date(Date.UTC(2026, 4, 1)), lt: new Date(Date.UTC(2026, 4, 29)) });
+    });
+
+    it("puts discontinue after active before pagination", async () => {
+        const result = await SafetyStockService.list({ month: 5, year: 2026, service_level: 80, page: 1, take: 1, sortBy: "safety_stock", order: "desc" });
+        expect(result.data[0]!.product_status).toBe("ACTIVE");
+    });
+});
