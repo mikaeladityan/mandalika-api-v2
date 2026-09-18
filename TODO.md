@@ -1,5 +1,8 @@
 # TODO
 
+- [x] Tambah total Safety Stock Outlet 80% ke response dan export Forecast Master.
+- [ ] Verifikasi browser kolom Safety Stock Outlet setelah dependency App dipulihkan; gate Forecast stock allocation masih gagal.
+
 - [x] Susun spesifikasi dan rencana Forecast Safety Stock berdasarkan penjualan Outlet ERP.
 - [x] Implementasikan endpoint Forecast Safety Stock sesuai spesifikasi.
 - [ ] Verifikasi penuh Forecast Safety Stock pada database lokal dan browser production-like; koneksi database lokal dan dependency App masih blocked.

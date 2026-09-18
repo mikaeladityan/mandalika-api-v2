@@ -13,6 +13,11 @@ import { SafetyStockService } from "../../module/application/forecast/safety-sto
 import { orderProductIdsByForecast } from "../../module/application/outlet/shared/forecast-product-order.js";
 
 describe("SafetyStockService", () => {
+    it("totals all outlets at 80% using per-outlet ceiling", async () => {
+        const totals = await SafetyStockService.totalsForForecast(5, 2026);
+        expect(totals.get(1)).toBe(6);
+        expect(totals.get(2) ?? 0).toBe(0);
+    });
     beforeEach(() => {
         vi.clearAllMocks();
         prismaMock.forecast.findMany.mockResolvedValue([{ product_id: 1, final_forecast: 0, net_forecast: 0 }, { product_id: 2, final_forecast: 0, net_forecast: 0 }]);

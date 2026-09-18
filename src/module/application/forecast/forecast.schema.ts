@@ -81,6 +81,7 @@ export type RequestAddRatioForecastDTO = z.infer<typeof RequestAddRatioForecastS
 export type UpdateManualForecastDTO = z.infer<typeof UpdateManualForecastSchema>;
 
 export type ResponseForecastDTO = {
+    safety_stock_outlet: number;
     product_id: number;
     product_status: STATUS;
     product_code: string | null;

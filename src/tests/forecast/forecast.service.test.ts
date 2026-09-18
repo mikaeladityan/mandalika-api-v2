@@ -571,6 +571,7 @@ describe("ForecastService", () => {
             expect(result.len).toBe(1);
             expect(result.data).toHaveLength(1);
             expect(result.data[0]!.product_code).toBe("P001");
+            expect(result.data[0]!.safety_stock_outlet).toBe(6);
             // DB fraction 0.35 → respons persen 35 (konsisten dengan distribution_percentage)
             expect(result.data[0]!.reference_distribution_percentage).toBe(35);
 
@@ -771,3 +772,6 @@ describe("ForecastService", () => {
     // due to significant architecture changes in the forecasting engine.
     // They need to be refactored to match the variant-based pooling logic.
 });
+vi.mock("../../module/application/forecast/safety-stock/services.js", () => ({
+    SafetyStockService: { totalsForForecast: vi.fn(async () => new Map([[1, 6]])) },
+}));

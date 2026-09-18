@@ -4,6 +4,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ## [Unreleased]
 
+- Added: Forecast Master response/export includes `safety_stock_outlet`, summed across outlets at fixed 80% service level for dates 1–28 of the first Forecast month.
+
 ### Added
 
 - Dokumen desain dan rencana implementasi Forecast Safety Stock berbasis penjualan Outlet ERP; fitur belum diimplementasikan.

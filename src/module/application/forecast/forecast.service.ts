@@ -1,4 +1,5 @@
 import prisma from "../../../config/prisma.js";
+import { SafetyStockService } from "./safety-stock/services.js";
 import { Prisma } from "../../../generated/prisma/client.js";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { GetPagination } from "../../../lib/utils/pagination.js";
@@ -1064,6 +1065,7 @@ export class ForecastService {
             { uiId: "total-demand", header: "JUMLAH FORECAST", value: (item) => isPure ? Math.round(item.monthly_data.slice(0, 4).reduce((sum, m) => sum + Number(m.gross_forecast ?? 0), 0)) : Math.round(Number(item.safety_stock_summary?.total_demand ?? 0)) },
             { uiId: "safety_percentage", header: "% SAFETY", value: (item) => item.safety_percentage ?? 0 },
             { uiId: "safety-stock", header: "SAFETY STOCK", value: (item) => Math.round(Number(item.safety_stock_summary?.safety_stock_quantity ?? 0)) },
+            { uiId: "safety-stock-outlet", header: "SAFETY STOCK OUTLET (UNIT, 80%)", value: (item) => item.safety_stock_outlet },
             { uiId: "current_stock", header: "STOCK", value: (item) => Math.round(item.current_stock) },
             {
                 uiId: "need_produce",
@@ -2186,6 +2188,7 @@ export class ForecastService {
             }
         }
 
+        const outletSafetyStock = await SafetyStockService.totalsForForecast(startMonth, startYear);
         const data: ResponseForecastDTO[] = productsRaw.map((p) => {
             const rawForecasts: {
                 month: number;
@@ -2381,6 +2384,7 @@ export class ForecastService {
             return {
                 product_id: p.id,
                 product_status: p.status,
+                safety_stock_outlet: outletSafetyStock.get(p.id) ?? 0,
                 product_code: p.code,
                 product_name: p.name,
                 product_type: p.product_type_name ?? "",
