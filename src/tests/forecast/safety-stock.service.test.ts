@@ -13,7 +13,7 @@ import { SafetyStockService } from "../../module/application/forecast/safety-sto
 describe("SafetyStockService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        prismaMock.forecast.findMany.mockResolvedValue([{ product_id: 1 }, { product_id: 2 }]);
+        prismaMock.forecast.findMany.mockResolvedValue([{ product_id: 1, final_forecast: 0, net_forecast: 0 }, { product_id: 2, final_forecast: 0, net_forecast: 0 }]);
         prismaMock.product.findMany.mockResolvedValue([
             { id: 1, code: "ACTIVE", name: "Active", status: "ACTIVE" },
             { id: 2, code: "DISC", name: "Discontinue", status: "PENDING" },
@@ -42,13 +42,13 @@ describe("SafetyStockService", () => {
     });
 
     it("uses forecast products as FG universe", async () => {
-        prismaMock.forecast.findMany.mockResolvedValueOnce([{ product_id: 1 }]);
+        prismaMock.forecast.findMany.mockResolvedValueOnce([{ product_id: 1, final_forecast: 0, net_forecast: 0 }]);
         await SafetyStockService.list({ month: 5, year: 2026, service_level: 80, page: 1, take: 100, order: "asc" });
         expect(prismaMock.product.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: { in: [1] } }) }));
     });
 
     it("orders SKU rows by Forecasting aroma group without merging variants", async () => {
-        prismaMock.forecast.findMany.mockResolvedValueOnce([{ product_id: 1 }, { product_id: 2 }]);
+        prismaMock.forecast.findMany.mockResolvedValueOnce([{ product_id: 1, net_forecast: 10, final_forecast: 10 }, { product_id: 2, net_forecast: 100, final_forecast: 100 }]);
         prismaMock.product.findMany.mockResolvedValueOnce([
             { id: 1, code: "HAMPERS-B", name: "HAMPERS ROSE", status: "ACTIVE" },
             { id: 2, code: "A-ROSE", name: "ROSE", status: "ACTIVE" },
