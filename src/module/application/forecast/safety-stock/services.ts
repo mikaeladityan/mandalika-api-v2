@@ -1,4 +1,5 @@
 import prisma from "../../../../config/prisma.js";
+import { orderProductIdsByForecast } from "../../outlet/shared/forecast-product-order.js";
 import { calculateSafetyStock } from "./calculation.js";
 import type { QuerySafetyStockDTO, QuerySafetyStockSummaryDTO } from "./schema.js";
 import type { SafetyStockDetailRow, SafetyStockSummaryRow } from "./schema.js";
@@ -22,16 +23,14 @@ function compareNullable(a: number | null, b: number | null, order: "asc" | "des
     return (a - b) * (order === "desc" ? -1 : 1);
 }
 
-function sortDetails(rows: SafetyStockDetailRow[], query: QuerySafetyStockDTO, groupPriority: Map<string, number>) {
+function sortDetails(rows: SafetyStockDetailRow[], query: QuerySafetyStockDTO, productRank: Map<number, number>) {
     const key = query.sortBy ?? "product_code";
     const direction = query.order ?? "asc";
     rows.sort((left, right) => {
         const status = statusRank(left.product_status) - statusRank(right.product_status);
         if (status) return status;
-        const priority = (groupPriority.get(forecastGroupKey(right.product_name)) ?? 0) - (groupPriority.get(forecastGroupKey(left.product_name)) ?? 0);
-        if (priority) return priority;
-        const group = forecastGroupKey(left.product_name).localeCompare(forecastGroupKey(right.product_name));
-        if (group) return group;
+        const rank = (productRank.get(left.product_id) ?? Number.MAX_SAFE_INTEGER) - (productRank.get(right.product_id) ?? Number.MAX_SAFE_INTEGER);
+        if (rank) return rank;
         if (key === "total_sales" || key === "weekly_average" || key === "standard_deviation" || key === "safety_stock" || key === "buffer_weeks") {
             const result = compareNullable(left[key], right[key], direction);
             if (result) return result;
@@ -43,16 +42,14 @@ function sortDetails(rows: SafetyStockDetailRow[], query: QuerySafetyStockDTO, g
     });
 }
 
-function sortSummary(rows: SafetyStockSummaryRow[], query: Query, groupPriority: Map<string, number>) {
+function sortSummary(rows: SafetyStockSummaryRow[], query: Query, productRank: Map<number, number>) {
     const key = query.sortBy ?? "product_code";
     const direction = query.order ?? "asc";
     rows.sort((left, right) => {
         const status = statusRank(left.product_status) - statusRank(right.product_status);
         if (status) return status;
-        const priority = (groupPriority.get(forecastGroupKey(right.product_name)) ?? 0) - (groupPriority.get(forecastGroupKey(left.product_name)) ?? 0);
-        if (priority) return priority;
-        const group = forecastGroupKey(left.product_name).localeCompare(forecastGroupKey(right.product_name));
-        if (group) return group;
+        const rank = (productRank.get(left.product_id) ?? Number.MAX_SAFE_INTEGER) - (productRank.get(right.product_id) ?? Number.MAX_SAFE_INTEGER);
+        if (rank) return rank;
         if (key === "total_sales" || key === "safety_stock" || key === "sales_to_stock_ratio" || key === "buffer_percentage") {
             const result = compareNullable(left[key], right[key], direction);
             if (result) return result;
@@ -102,26 +99,20 @@ async function buildRows(query: QuerySafetyStockDTO) {
         const { z_value: _zValue, ...metrics } = calculation;
         rows.push({ outlet_id: outlet.id, outlet_code: outlet.code, outlet_name: outlet.name, product_id: product.id, product_code: product.code, product_name: product.name, product_status: product.status, weeks: pair.weeks, ...metrics, has_data: pair.has_data });
     }
-    const groupPriority = new Map<string, number>();
-    for (const product of productRows) {
-        const forecast = forecastRows.find((row) => row.product_id === product.id);
-        const priority = Number(forecast?.net_forecast ?? forecast?.final_forecast ?? 0);
-        const key = forecastGroupKey(product.name);
-        groupPriority.set(key, Math.max(groupPriority.get(key) ?? 0, priority));
-    }
-    return { rows, groupPriority, ...period };
+    const orderedProductIds = await orderProductIdsByForecast(productRows.map((product) => product.id));
+    return { rows, productRank: new Map(orderedProductIds.map((id, index) => [id, index])), ...period };
 }
 
 export class SafetyStockService {
     static async list(query: QuerySafetyStockDTO) {
-        const { rows, groupPriority, period_start, period_end } = await buildRows(query);
-        sortDetails(rows, query, groupPriority);
+        const { rows, productRank, period_start, period_end } = await buildRows(query);
+        sortDetails(rows, query, productRank);
         const start = (query.page - 1) * query.take;
         return { data: rows.slice(start, start + query.take), len: rows.length, page: query.page, take: query.take, period_start, period_end, service_level: query.service_level, z_value: calculateSafetyStock([0, 0, 0, 0], query.service_level).z_value };
     }
 
     static async summary(query: QuerySafetyStockSummaryDTO) {
-        const { rows, groupPriority, period_start, period_end } = await buildRows({ ...query, outlet_id: undefined });
+        const { rows, productRank, period_start, period_end } = await buildRows({ ...query, outlet_id: undefined });
         const grouped = new Map<number, SafetyStockSummaryRow>();
         for (const row of rows) {
             const current = grouped.get(row.product_id) ?? { product_id: row.product_id, product_code: row.product_code, product_name: row.product_name, product_status: row.product_status, total_sales: 0, safety_stock: 0, sales_to_stock_ratio: null, buffer_percentage: null, has_data: false };
@@ -131,7 +122,7 @@ export class SafetyStockService {
             grouped.set(row.product_id, current);
         }
         const data = [...grouped.values()].map((row) => ({ ...row, sales_to_stock_ratio: row.total_sales > 0 && row.safety_stock > 0 ? row.total_sales / row.safety_stock : null, buffer_percentage: row.total_sales > 0 ? (row.safety_stock / row.total_sales) * 100 : null }));
-        sortSummary(data, query, groupPriority);
+        sortSummary(data, query, productRank);
         const start = (query.page - 1) * query.take;
         return { data: data.slice(start, start + query.take), len: data.length, page: query.page, take: query.take, period_start, period_end, service_level: query.service_level, z_value: calculateSafetyStock([0, 0, 0, 0], query.service_level).z_value };
     }

@@ -7,8 +7,10 @@ const prismaMock = vi.hoisted(() => ({
     outletIssuance: { findMany: vi.fn() },
 }));
 vi.mock("../../config/prisma.js", () => ({ default: prismaMock }));
+vi.mock("../../module/application/outlet/shared/forecast-product-order.js", () => ({ orderProductIdsByForecast: vi.fn(async (ids: number[]) => ids) }));
 
 import { SafetyStockService } from "../../module/application/forecast/safety-stock/services.js";
+import { orderProductIdsByForecast } from "../../module/application/outlet/shared/forecast-product-order.js";
 
 describe("SafetyStockService", () => {
     beforeEach(() => {
@@ -48,6 +50,7 @@ describe("SafetyStockService", () => {
     });
 
     it("orders SKU rows by Forecasting aroma group without merging variants", async () => {
+        vi.mocked(orderProductIdsByForecast).mockResolvedValueOnce([2, 1]);
         prismaMock.forecast.findMany.mockResolvedValueOnce([{ product_id: 1, net_forecast: 10, final_forecast: 10 }, { product_id: 2, net_forecast: 100, final_forecast: 100 }]);
         prismaMock.product.findMany.mockResolvedValueOnce([
             { id: 1, code: "HAMPERS-B", name: "HAMPERS ROSE", status: "ACTIVE" },
