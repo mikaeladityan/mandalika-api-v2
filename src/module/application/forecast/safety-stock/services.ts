@@ -4,7 +4,7 @@ import type { QuerySafetyStockDTO, QuerySafetyStockSummaryDTO } from "./schema.j
 import type { SafetyStockDetailRow, SafetyStockSummaryRow } from "./schema.js";
 
 type Query = QuerySafetyStockDTO | QuerySafetyStockSummaryDTO;
-type ProductRecord = { id: number; code: string; name: string; status: "ACTIVE" | "PENDING"; lead_time?: number | null };
+type ProductRecord = { id: number; code: string; name: string; status: "ACTIVE" | "PENDING" };
 type OutletRecord = { id: number; code: string; name: string };
 
 function periodOf(query: Query) {
@@ -58,7 +58,7 @@ function sortSummary(rows: SafetyStockSummaryRow[], query: Query) {
 async function buildRows(query: QuerySafetyStockDTO) {
     const period = periodOf(query);
     const [products, outlets, issuances] = await Promise.all([
-        prisma.product.findMany({ where: { deleted_at: null, status: { in: ["ACTIVE", "PENDING"] }, ...(query.product_id ? { id: query.product_id } : {}) }, select: { id: true, code: true, name: true, status: true, lead_time: true }, orderBy: { code: "asc" } }),
+        prisma.product.findMany({ where: { deleted_at: null, status: { in: ["ACTIVE", "PENDING"] }, ...(query.product_id ? { id: query.product_id } : {}) }, select: { id: true, code: true, name: true, status: true }, orderBy: { code: "asc" } }),
         prisma.outlet.findMany({ where: { deleted_at: null, ...(query.outlet_id ? { id: query.outlet_id } : {}) }, select: { id: true, code: true, name: true }, orderBy: { code: "asc" } }),
         prisma.outletIssuance.findMany({ where: { date: { gte: period.start, lt: period.end }, ...(query.product_id ? { product_id: query.product_id } : {}), ...(query.outlet_id ? { outlet_id: query.outlet_id } : {}) }, select: { outlet_id: true, product_id: true, date: true, quantity: true } }),
     ]);
@@ -80,7 +80,7 @@ async function buildRows(query: QuerySafetyStockDTO) {
         const pair = byPair.get(`${outlet.id}|${product.id}`) ?? { weeks: [0, 0, 0, 0] as [number, number, number, number], has_data: false };
         const calculation = calculateSafetyStock(pair.weeks, query.service_level);
         const { z_value: _zValue, ...metrics } = calculation;
-        rows.push({ outlet_id: outlet.id, outlet_code: outlet.code, outlet_name: outlet.name, product_id: product.id, product_code: product.code, product_name: product.name, product_status: product.status, delivery_days: product.lead_time ?? null, weeks: pair.weeks, ...metrics, has_data: pair.has_data });
+        rows.push({ outlet_id: outlet.id, outlet_code: outlet.code, outlet_name: outlet.name, product_id: product.id, product_code: product.code, product_name: product.name, product_status: product.status, weeks: pair.weeks, ...metrics, has_data: pair.has_data });
     }
     return { rows, ...period };
 }
@@ -97,7 +97,7 @@ export class SafetyStockService {
         const { rows, period_start, period_end } = await buildRows({ ...query, outlet_id: undefined });
         const grouped = new Map<number, SafetyStockSummaryRow>();
         for (const row of rows) {
-            const current = grouped.get(row.product_id) ?? { product_id: row.product_id, product_code: row.product_code, product_name: row.product_name, product_status: row.product_status, delivery_days: row.delivery_days, total_sales: 0, safety_stock: 0, sales_to_stock_ratio: null, buffer_percentage: null, has_data: false };
+            const current = grouped.get(row.product_id) ?? { product_id: row.product_id, product_code: row.product_code, product_name: row.product_name, product_status: row.product_status, total_sales: 0, safety_stock: 0, sales_to_stock_ratio: null, buffer_percentage: null, has_data: false };
             current.total_sales += row.total_sales;
             current.safety_stock += row.safety_stock;
             current.has_data ||= row.has_data;
