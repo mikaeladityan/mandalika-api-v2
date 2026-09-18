@@ -69,7 +69,16 @@ async function buildRows(query: QuerySafetyStockDTO) {
     const forecastRows = await prisma.forecast.findMany({ where: { month: query.month, year: query.year, ...(query.product_id ? { product_id: query.product_id } : {}) }, select: { product_id: true, net_forecast: true, final_forecast: true } });
     const forecastProductIds = [...new Set(forecastRows.map((row) => row.product_id))];
     const [products, outlets, issuances] = await Promise.all([
-        prisma.product.findMany({ where: { deleted_at: null, id: { in: forecastProductIds }, status: { in: ["ACTIVE", "PENDING"] } }, select: { id: true, code: true, name: true, status: true }, orderBy: { code: "asc" } }),
+        prisma.product.findMany({ where: { deleted_at: null, id: { in: forecastProductIds }, status: { in: ["ACTIVE", "PENDING"] }, NOT: [
+            { product_type: { slug: { contains: "display", mode: "insensitive" } } },
+            { product_type: { slug: { contains: "kertas", mode: "insensitive" } } },
+            { product_type: { slug: { contains: "botol", mode: "insensitive" } } },
+            { product_type: { slug: { contains: "paper-bag", mode: "insensitive" } } },
+            { product_type: { slug: { contains: "kartu-garansi", mode: "insensitive" } } },
+            { product_type: { slug: { contains: "canvas-bag", mode: "insensitive" } } },
+            { product_type: { slug: { contains: "box-uk", mode: "insensitive" } } },
+            { product_type: { slug: { contains: "others", mode: "insensitive" } } },
+        ] }, select: { id: true, code: true, name: true, status: true }, orderBy: { code: "asc" } }),
         prisma.outlet.findMany({ where: { deleted_at: null, ...(query.outlet_id ? { id: query.outlet_id } : {}) }, select: { id: true, code: true, name: true }, orderBy: { code: "asc" } }),
         prisma.outletIssuance.findMany({ where: { date: { gte: period.start, lt: period.end }, ...(query.product_id ? { product_id: query.product_id } : {}), ...(query.outlet_id ? { outlet_id: query.outlet_id } : {}) }, select: { outlet_id: true, product_id: true, date: true, quantity: true } }),
     ]);

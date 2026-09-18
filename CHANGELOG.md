@@ -11,6 +11,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Forecast Safety Stock**: Produk non-FG (KTP/KTL/KTB/kertas tester dan kategori others) tidak lagi muncul di listing; filter disamakan dengan Forecasting.
+
 - **Forecast Safety Stock**: Urutan group kini mengikuti priority forecast periode terpilih secara descending, sehingga FG demand terbesar tampil lebih dulu seperti Forecasting; SKU tetap terpisah.
 
 - **Forecast Safety Stock**: Urutan row kini mengikuti group aroma Forecasting tanpa menggabungkan SKU; prefix `HAMPERS` dinormalisasi sebelum sorting.
