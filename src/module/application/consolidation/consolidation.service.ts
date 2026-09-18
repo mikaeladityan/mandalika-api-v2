@@ -6,7 +6,7 @@ import { ApiError } from "../../../lib/errors/api.error.js";
 import { RecomendationV2Service } from "../recomendation-v2/recomendation-v2.service.js";
 import { obscureSupplierName } from "../../../lib/utils/supplier-obscure.js";
 
-const USD_RATE = 17000;
+const USD_RATE = 18000;
 
 type ConsolidationRow = {
     recommendation_id: number;

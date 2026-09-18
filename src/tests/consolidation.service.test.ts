@@ -3,6 +3,23 @@ import { ConsolidationService } from "../module/application/consolidation/consol
 import prisma from "../config/prisma.js";
 import { SUPPLIER_OBSCURE_REGEX } from "../lib/utils/supplier-obscure.js";
 
+describe("Consolidation import USD conversion", () => {
+    it("exports unit, subtotal, and grand total at Rp18.000 per USD", async () => {
+        const list = vi.spyOn(ConsolidationService, "list").mockResolvedValue({
+            data: [{ recommendation_id: 1, material_id: 1, barcode: "RM-1", material_name: "Material", supplier_name: "Supplier", quantity: 2, uom: "KG", price: 180000, moq: 1, pic_id: null, status: "DRAFT", created_at: null }],
+        } as never);
+        try {
+            const csv = (await ConsolidationService.export({ type: "impor", page: 1, take: 25, view: "visible" })).toString("utf8").replace(/^\uFEFF/, "");
+            const [headers, item, total] = csv.trim().split("\r\n").map((line) => line.split(","));
+            expect(Number(item![headers!.indexOf("Harga Satuan (USD)")])).toBe(10);
+            expect(Number(item![headers!.indexOf("Total Harga (USD)")])).toBe(20);
+            expect(Number(total![headers!.indexOf("Total Harga (USD)")])).toBe(20);
+        } finally {
+            list.mockRestore();
+        }
+    });
+});
+
 describe("ConsolidationService.bulkUpdateStatus(DRAFT) — rollback with PO cleanup", () => {
     beforeEach(() => {
         vi.restoreAllMocks();

@@ -6,6 +6,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Consolidation Import**: Konversi estimasi IDR ke USD pada export CSV memakai kurs tetap Rp18.000 per USD.
+
 - **Recomendation-v2 General**: Daftar, jumlah baris, dan Bulk Save hanya memproses RM dengan recipe aktif ke FG `ACTIVE` yang belum dihapus. Periode Open PO hanya memuat bulan dengan sisa PO `ORDERED` positif dalam horizon.
 
 - **Consolidation Discontinue Quantity**: Row Discontinue `DRAFT/ACC` kini menambahkan quantity Work Order General `DRAFT/ACC` untuk RM dan periode sama pada list, summary supplier, dan export. ID/status tetap milik Work Order Discontinue.

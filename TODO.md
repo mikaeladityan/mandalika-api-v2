@@ -1,5 +1,7 @@
 # TODO
 
+- [ ] Verifikasi gate penuh perubahan kurs tetap Consolidation Import ke Rp18.000 per USD; tes terkait lulus, full suite dan build App belum hijau.
+
 - [ ] Verifikasi penuh penyembunyian bulan dan nilai PO OPEN nol pada Rekomendasi FFO/FP Import/FP Local; gate App belum hijau.
 - [ ] Verifikasi penuh filter RM tanpa BOM FG aktif pada daftar dan Bulk Save Rekomendasi General; full suite API belum hijau.
 
