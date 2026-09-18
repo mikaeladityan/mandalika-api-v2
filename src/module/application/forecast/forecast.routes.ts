@@ -10,6 +10,7 @@ import {
     RunForecastSchema,
     UpdateManualForecastSchema,
 } from "./forecast.schema.js";
+import { SafetyStockRoutes } from "./safety-stock/routes.js";
 
 export const ForecastRoutes = new Hono();
 
@@ -30,6 +31,7 @@ ForecastRoutes.get("/inventory-turnover/export", ForecastController.exportInvent
 ForecastRoutes.get("/inventory-turnover", ForecastController.inventoryTurnover);
 ForecastRoutes.get("/inventory-turnover-rm/export", ForecastController.exportInventoryTurnoverRM);
 ForecastRoutes.get("/inventory-turnover-rm", ForecastController.inventoryTurnoverRM);
+ForecastRoutes.route("/safety-stock", SafetyStockRoutes);
 ForecastRoutes.get("/export", ForecastController.export);
 ForecastRoutes.get("/", ForecastController.list);
 ForecastRoutes.post("/", validateBody(RunForecastSchema), ForecastController.run);

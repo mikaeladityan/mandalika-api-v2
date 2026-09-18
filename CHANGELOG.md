@@ -4,6 +4,11 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ## [Unreleased]
 
+### Added
+
+- Dokumen desain dan rencana implementasi Forecast Safety Stock berbasis penjualan Outlet ERP; fitur belum diimplementasikan.
+- Endpoint read-only Forecast Safety Stock dan Ringkasan Produk berbasis penjualan outlet, dengan target layanan preset dan pembulatan safety stock per outlet.
+
 ### Fixed
 
 - **Outlet/BARDAT Cycle**: API kini mengklasifikasikan semua hari yang pernah memiliki BARDAT menjadi konsisten, kurang konsisten, atau sporadis berdasarkan seluruh bulan.
