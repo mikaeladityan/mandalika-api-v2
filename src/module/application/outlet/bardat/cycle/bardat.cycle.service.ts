@@ -2,7 +2,7 @@ import prisma from "../../../../../config/prisma.js";
 import { ApiError } from "../../../../../lib/errors/api.error.js";
 import { RequestBardatCycleSchema, type RequestBardatCycleDTO, type QueryBardatCycleDTO, type ResponseBardatCycleDTO, type BardatCycleEntryDTO } from "./bardat.cycle.schema.js";
 import { scheduleDates } from "./bardat.cycle.schedule.js";
-import { recommendDates, recommendationHistoryRange, recommendationLastMonth } from "./bardat.cycle.recommendation.js";
+import { recommendDates, recommendWeekdaysFromHistory, recommendationHistoryRange, recommendationLastMonth } from "./bardat.cycle.recommendation.js";
 
 export class BardatCycleService {
     static async list(period: QueryBardatCycleDTO) {
@@ -53,8 +53,16 @@ export class BardatCycleService {
                 }
             }
         }
+        const allHistory = await prisma.outletGoodsReceipt.groupBy({
+            by: ["outlet_id", "date"],
+            where: { quantity: { gt: 0 }, outlet: { deleted_at: null } },
+            orderBy: [{ date: "asc" }, { outlet_id: "asc" }],
+        });
+        const datesByOutlet = new Map<number, Date[]>();
+        for (const receipt of allHistory) datesByOutlet.set(receipt.outlet_id, [...(datesByOutlet.get(receipt.outlet_id) ?? []), receipt.date]);
+        const pattern_weekdays = Object.fromEntries([...datesByOutlet].map(([outletId, dates]) => [outletId, recommendWeekdaysFromHistory(dates)]));
         entries.sort((a, b) => a.date.localeCompare(b.date) || a.outlet_code.localeCompare(b.outlet_code));
-        return { rules, entries, outlets, latest_period: latestReceipt?.date.toISOString().slice(0, 7) ?? null, recommendation_until: lastRecommendationMonth.toISOString().slice(0, 7) };
+        return { rules, entries, outlets, pattern_weekdays, latest_period: latestReceipt?.date.toISOString().slice(0, 7) ?? null, recommendation_until: lastRecommendationMonth.toISOString().slice(0, 7) };
     }
 
     static async save(body: RequestBardatCycleDTO) {

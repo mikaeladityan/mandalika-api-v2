@@ -6,6 +6,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Outlet/BARDAT Cycle**: Hari pola pengiriman kini dihitung dari seluruh histori realisasi BARDAT per toko, terlepas dari bulan tampilan.
+
 - **Consolidation FP Import**: Estimasi Rp pada daftar, ringkasan supplier, cetak, dan export kini menaikkan harga supplier berbasis kurs lama Rp17.000 ke kurs Rp18.000. Harga master dan PO tidak diubah.
 
 - **Consolidation Import**: Konversi estimasi IDR ke USD pada export CSV memakai kurs tetap Rp18.000 per USD.

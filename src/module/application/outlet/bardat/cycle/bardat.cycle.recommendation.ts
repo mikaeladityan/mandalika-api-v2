@@ -5,6 +5,19 @@ export const MIN_OCCURRENCES = 3;
 export const MIN_FREQUENCY = 0.6;
 export const RECENCY_DAYS = 21;
 
+export function recommendWeekdaysFromHistory(history: Date[]): number[] {
+    const dates = [...new Set(history.map(date => Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())))].sort((a, b) => a - b);
+    if (!dates.length) return [];
+    const first = dates[0]!;
+    const last = dates.at(-1)!;
+    return Array.from({ length: 7 }, (_, weekday) => weekday).filter(weekday => {
+        const occurrences = dates.filter(date => new Date(date).getUTCDay() === weekday).length;
+        let opportunities = 0;
+        for (let date = first; date <= last; date += DAY) if (new Date(date).getUTCDay() === weekday) opportunities++;
+        return occurrences >= MIN_OCCURRENCES && occurrences / opportunities >= MIN_FREQUENCY;
+    });
+}
+
 export function recommendationLastMonth(now = new Date()): Date {
     const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit" }).formatToParts(now);
     const year = Number(parts.find(part => part.type === "year")?.value);
