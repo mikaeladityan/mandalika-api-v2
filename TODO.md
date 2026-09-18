@@ -1,5 +1,8 @@
 # TODO
 
+- [ ] Verifikasi penuh penyembunyian bulan dan nilai PO OPEN nol pada Rekomendasi FFO/FP Import/FP Local; gate App belum hijau.
+- [ ] Verifikasi penuh filter RM tanpa BOM FG aktif pada daftar dan Bulk Save Rekomendasi General; full suite API belum hijau.
+
 - [x] Pisahkan Work Order General dan FG Discontinue berdasarkan `product_status`.
 - [x] Tambah filter sumber FFO, FP Import, FP Local pada rekomendasi Discontinue.
 - [x] Perbaiki filter Consolidation berdasarkan scope Work Order.

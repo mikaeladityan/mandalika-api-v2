@@ -150,6 +150,7 @@ describe("RecomendationV2Service - Override Features", () => {
         } else {
             expect(sql).toContain("COALESCE(ss.total, 0) AS safety_stock_x_resep");
             expect(sql).not.toContain("rm.barcode IS DISTINCT FROM 'FO-ALK'");
+            expect(sql).toMatch(/SELECT 1 FROM "recipes" r2\s+JOIN "products" p2 ON p2\.id = r2\.product_id\s+WHERE r2\.raw_mat_id = rm\.id AND r2\.is_active = true\s+AND p2\.status = 'ACTIVE' AND p2\.deleted_at IS NULL/);
         }
         expect(sql).toContain(`"material_purchase_drafts".status = 'DRAFT'`);
         expect(sql).toContain('LEFT JOIN LATERAL');
@@ -358,16 +359,14 @@ describe("RecomendationV2Service - Override Features", () => {
         it("does not retain the previous month when no RM has an outstanding PO", async () => {
             mockList([]);
             const result = await RecomendationV2Service.list(query);
-            expect(result.periods.po_periods.map(p => p.key)).toEqual([
-                "9-2026", "10-2026", "11-2026",
-            ]);
+            expect(result.periods.po_periods).toEqual([]);
         });
 
         it("keeps occupied historical months without filling empty gaps or truncating old POs", async () => {
             mockList([{ month: 12, year: 2024 }, { month: 2, year: 2026 }, { month: 7, year: 2026 }]);
             const result = await RecomendationV2Service.list(query);
             expect(result.periods.po_periods.map(p => p.key)).toEqual([
-                "12-2024", "2-2026", "7-2026", "9-2026", "10-2026", "11-2026",
+                "12-2024", "2-2026", "7-2026",
             ]);
         });
 
@@ -393,7 +392,7 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(sql).toContain("poi.qty_received < poi.qty_ordered");
             expect(sql).toContain("rm.deleted_at IS NULL");
             expect(sql).not.toMatch(/ILIKE|LIMIT|OFFSET/);
-            expect(call.slice(1)).toEqual([2026 * 12 + 9]);
+            expect(call.slice(1)).toEqual([2026 * 12 + 9 + query.po_months]);
         });
 
         it("uses the same outstanding ORDERED scope for monthly quantities and stock calculations", async () => {
@@ -406,12 +405,23 @@ describe("RecomendationV2Service - Override Features", () => {
             expect(sql).not.toMatch(/SUBMITTED|APPROVED/);
         });
 
-        it("preserves the planning horizon across a year boundary", async () => {
-            mockList([]);
+        it("shows future months only when outstanding POs exist across a year boundary", async () => {
+            mockList([{ month: 12, year: 2026 }, { month: 1, year: 2027 }]);
             const result = await RecomendationV2Service.list({ ...query, month: 12 });
             expect(result.periods.po_periods.map(p => p.key)).toEqual([
-                "12-2026", "1-2027", "2-2027",
+                "12-2026", "1-2027",
             ]);
+        });
+
+        it("filters General materials by active FG recipes in list and count queries", async () => {
+            mockList([]);
+            await RecomendationV2Service.list(query);
+            const calls = vi.mocked(prisma.$queryRaw).mock.calls;
+            for (const index of [1, 2]) {
+                const call = calls[index]!;
+                const sql = Prisma.sql(call[0] as TemplateStringsArray, ...call.slice(1)).sql;
+                expect(sql).toMatch(/SELECT 1 FROM "recipes" r2\s+JOIN "products" p2 ON p2\.id = r2\.product_id\s+WHERE r2\.raw_mat_id = rm\.id AND r2\.is_active = true\s+AND p2\.status = 'ACTIVE' AND p2\.deleted_at IS NULL/);
+            }
         });
     });
 

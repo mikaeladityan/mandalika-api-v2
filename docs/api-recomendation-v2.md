@@ -1,5 +1,13 @@
 # API Recomendation-v2
 
+## Recommendation General
+
+`GET /api/app/recomendations-v2?product_status=ACTIVE&type=ffo|impor|lokal`
+
+Auth: session aplikasi. Query `month`, `year`, `po_months`, `page`, `take`, dan `search` opsional. Response berisi `data`, `len`, serta `periods.po_periods`. Setiap RM di `data` harus mempunyai recipe aktif yang terhubung ke FG `ACTIVE` yang belum dihapus. RM yang hanya dipakai FG Discontinue tidak tampil. `periods.po_periods` hanya memuat bulan dengan sisa PO `ORDERED` positif sampai batas `po_months` ke depan; `open_pos` berisi sisa per bulan. Baris hanya menampilkan bulan dengan sisa positif.
+
+`POST /api/app/recomendations-v2/bulk-horizon` memakai body `month`, `year`, `horizon`, `type`, dan `product_status` opsional. Auth: session aplikasi. Untuk General, hanya RM dengan recipe aktif ke FG `ACTIVE` yang dibuat atau diperbarui sebagai draft. Validasi query/body mengembalikan 400; sesi tanpa akses mengembalikan 401/403; kegagalan server mengembalikan 500.
+
 ## Work Order
 
 `POST /api/app/recomendations-v2/order`

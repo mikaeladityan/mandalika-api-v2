@@ -6,6 +6,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ### Fixed
 
+- **Recomendation-v2 General**: Daftar, jumlah baris, dan Bulk Save hanya memproses RM dengan recipe aktif ke FG `ACTIVE` yang belum dihapus. Periode Open PO hanya memuat bulan dengan sisa PO `ORDERED` positif dalam horizon.
+
 - **Consolidation Discontinue Quantity**: Row Discontinue `DRAFT/ACC` kini menambahkan quantity Work Order General `DRAFT/ACC` untuk RM dan periode sama pada list, summary supplier, dan export. ID/status tetap milik Work Order Discontinue.
 - **Recomendation-v2 / FG Discontinue Material Bulk**: Bulk Horizon kini menyimpan quantity dan total kebutuhan agregat per RM melalui endpoint khusus, melewati rekomendasi nol/Work Order `ACC`, mengurutkan hasil setelah agregasi, dan menghapus kolom FG dari CSV material.
 - **Recomendation-v2 / FG Discontinue Work Order**: Work Order `ACTIVE` dan `PENDING` sekarang tersimpan terpisah untuk RM dan periode yang sama. Kebutuhan Discontinue dihitung pada page khusus dengan kategori FFO/FP Import/FP Local tanpa masuk rekomendasi General.

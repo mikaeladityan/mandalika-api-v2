@@ -121,7 +121,7 @@ export class RecomendationV2Service {
                   AND (sp.name ILIKE ${"%" + search + "%"} OR sp.code ILIKE ${"%" + search + "%"}))
         )` : RecomendationV2Service.buildSearchFilter(search);
 
-        const [latestInv, latestFgInv, historicalPoPeriods] = await Promise.all([
+        const [latestInv, latestFgInv, outstandingPoPeriods] = await Promise.all([
             prisma.rawMaterialInventory.findFirst({
                 orderBy: [{ year: "desc" }, { month: "desc" }],
                 select: { month: true, year: true },
@@ -130,8 +130,7 @@ export class RecomendationV2Service {
                 orderBy: [{ year: "desc" }, { month: "desc" }],
                 select: { month: true, year: true },
             }),
-            // Match purchase Open PO: only ORDERED lines with a positive balance.
-            // Historical columns are global across RM, not limited by search/pagination.
+            // Only months with outstanding ORDERED PO lines can appear in the table.
             prisma.$queryRaw<{ month: number; year: number }[]>`
                 SELECT DISTINCT
                     EXTRACT(MONTH FROM po.po_date)::int AS month,
@@ -143,7 +142,7 @@ export class RecomendationV2Service {
                   AND poi.qty_received < poi.qty_ordered
                   AND rm.deleted_at IS NULL
                   AND (EXTRACT(YEAR FROM po.po_date) * 12 + EXTRACT(MONTH FROM po.po_date))
-                      < ${currentYear * 12 + currentMonth}
+                      <= ${currentYear * 12 + currentMonth + po_months}
                 ORDER BY year, month
             `,
         ]);
@@ -155,18 +154,10 @@ export class RecomendationV2Service {
             { month: currentMonth, year: currentYear }, latestFgInv
         );
 
-        // Only retain past months with outstanding PO lines. Keep the planning horizon
-        // available for entering current/future POs, including when there are no open POs.
-        const poPeriods = historicalPoPeriods.map(({ month, year }) => ({
+        // Keep occupied months only; po_months limits the future planning horizon.
+        const poPeriods = outstandingPoPeriods.map(({ month, year }) => ({
             month, year, key: `${month}-${year}`,
         }));
-        for (let i = 0; i <= po_months; i++) {
-            let m = currentMonth + i;
-            let y = currentYear;
-            while (m <= 0) { m += 12; y -= 1; }
-            while (m > 12) { m -= 12; y += 1; }
-            poPeriods.push({ month: m, year: y, key: `${m}-${y}` });
-        }
 
         const fcStart = fcStartY * 12 + fcStartM;
         const fcEnd = fcEndY * 12 + fcEndM;
@@ -206,7 +197,9 @@ export class RecomendationV2Service {
                       AND rm.name NOT ILIKE '%(DISPLAY)%'
                       AND EXISTS (
                           SELECT 1 FROM "recipes" r2
+                          JOIN "products" p2 ON p2.id = r2.product_id
                           WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
+                            AND p2.status = ${productStatus} AND p2.deleted_at IS NULL
                       )
                       ${searchFilter}
               ${discontinueFilter}
@@ -545,7 +538,9 @@ export class RecomendationV2Service {
               AND rm.name NOT ILIKE '%(DISPLAY)%'
               AND EXISTS (
                   SELECT 1 FROM "recipes" r2
+                  JOIN "products" p2 ON p2.id = r2.product_id
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
+                    AND p2.status = ${productStatus} AND p2.deleted_at IS NULL
               )
               ${searchFilter}
               ${discontinueFilter}
@@ -1794,7 +1789,9 @@ export class RecomendationV2Service {
               AND rm.name NOT ILIKE '%(DISPLAY)%'
               AND EXISTS (
                   SELECT 1 FROM "recipes" r2
+                  JOIN "products" p2 ON p2.id = r2.product_id
                   WHERE r2.raw_mat_id = rm.id AND r2.is_active = true
+                    AND p2.status = ${productStatus} AND p2.deleted_at IS NULL
               )
             ON CONFLICT (raw_mat_id, month, year, product_status) DO UPDATE SET
                 horizon = EXCLUDED.horizon,
