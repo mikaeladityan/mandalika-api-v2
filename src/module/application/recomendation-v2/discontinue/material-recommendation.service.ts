@@ -1,12 +1,11 @@
 import { Prisma } from "../../../../generated/prisma/client.js";
-import { RecomendationV2Service } from "../recomendation-v2.service.js";
+import { RecomendationV2Service, type RecommendationRow } from "../recomendation-v2.service.js";
 import {
     QueryDiscontinueMaterialRecommendationDTO,
     QueryDiscontinueMaterialRecommendationSchema,
     RequestBulkSaveDiscontinueMaterialDTO,
 } from "./material-recommendation.schema.js";
-
-type RecommendationRow = Awaited<ReturnType<typeof RecomendationV2Service.list>>["data"][number];
+import { RecommendationLockView, RecommendationPeriodLockService } from "../period-lock/services.js";
 
 export function aggregateDiscontinueMaterialRows(rows: RecommendationRow[]) {
     const rowsByMaterial = new Map<number, RecommendationRow[]>();
@@ -66,8 +65,8 @@ function sortDiscontinueMaterialRows(
     if (!sortBy) return rows;
     const direction = order === "desc" ? -1 : 1;
     return [...rows].sort((left, right) => {
-        const leftValue = left[sortBy] ?? "";
-        const rightValue = right[sortBy] ?? "";
+        const leftValue = (left as Record<string, any>)[sortBy] ?? "";
+        const rightValue = (right as Record<string, any>)[sortBy] ?? "";
         const compared = typeof leftValue === "number" && typeof rightValue === "number"
             ? leftValue - rightValue
             : String(leftValue).localeCompare(String(rightValue), "id");
@@ -78,7 +77,23 @@ function sortDiscontinueMaterialRows(
 }
 
 export class DiscontinueMaterialRecommendationService {
-    static async list(query: QueryDiscontinueMaterialRecommendationDTO) {
+    static async list(query: QueryDiscontinueMaterialRecommendationDTO): Promise<{
+        data: RecommendationRow[];
+        len: number;
+        periods: {
+            sales_periods: Array<Record<string, any>>;
+            forecast_periods: Array<Record<string, any>>;
+            po_periods: Array<Record<string, any>>;
+        };
+        lock?: Record<string, unknown>;
+    }> {
+        if (query.month !== undefined && query.year !== undefined) {
+            const locked = await RecommendationPeriodLockService.listLockedRows(
+                { ...query, month: query.month, year: query.year },
+                RecommendationLockView.DISCONTINUE_MATERIAL,
+            );
+            if (locked) return locked as unknown as Awaited<ReturnType<typeof DiscontinueMaterialRecommendationService.list>>;
+        }
         const source = await RecomendationV2Service.list({
             ...query,
             page: 1,
@@ -99,6 +114,7 @@ export class DiscontinueMaterialRecommendationService {
     }
 
     static async bulkSave(body: RequestBulkSaveDiscontinueMaterialDTO) {
+        await RecommendationPeriodLockService.assertPeriodUnlocked(body.month, body.year);
         const query = QueryDiscontinueMaterialRecommendationSchema.parse({
             page: 1,
             take: 1_000_000,

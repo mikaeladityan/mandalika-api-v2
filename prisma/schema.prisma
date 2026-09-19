@@ -577,6 +577,52 @@ model MaterialPurchaseDraft {
   @@map("material_purchase_drafts")
 }
 
+model RecommendationPeriodLock {
+  id          Int                      @id @default(autoincrement())
+  month       Int                      @db.SmallInt
+  year        Int                      @db.SmallInt
+  version     Int
+  status      RecommendationLockStatus @default(LOCKED)
+  note        String?                  @db.VarChar(255)
+  meta        Json?
+  locked_at   DateTime                 @default(now())
+  locked_by   String?
+  unlocked_at DateTime?
+  unlocked_by String?
+  rows        RecommendationLockRow[]
+
+  @@unique([month, year, version])
+  @@index([month, year, status])
+  @@map("recommendation_period_locks")
+}
+
+model RecommendationLockRow {
+  id                   Int                      @id @default(autoincrement())
+  lock_id              Int
+  view                 RecommendationLockView
+  raw_mat_id           Int
+  fg_id                Int?
+  product_status       WorkOrderProductStatus
+  material_name        String                   @db.VarChar(255)
+  barcode              String?                  @db.VarChar(100)
+  category_name        String?                  @db.VarChar(100)
+  supplier_id          Int?
+  supplier_name        String?                  @db.VarChar(255)
+  type_tag             String?                  @db.VarChar(20)
+  sort_sales           Decimal                  @default(0) @db.Decimal(18, 2)
+  sort_current_stock   Decimal                  @default(0) @db.Decimal(18, 2)
+  sort_forecast_needed Decimal                  @default(0) @db.Decimal(18, 2)
+  sort_recommendation  Decimal                  @default(0) @db.Decimal(18, 2)
+  hidden               Boolean                  @default(false)
+  fg_id_key            Int                      @default(0)
+  payload              Json
+  lock                 RecommendationPeriodLock @relation(fields: [lock_id], references: [id], onDelete: Cascade)
+
+  @@unique([lock_id, view, raw_mat_id, fg_id_key])
+  @@index([lock_id, view, type_tag, product_status])
+  @@map("recommendation_lock_rows")
+}
+
 model RawMaterialOpenPo {
   id               Int                    @id @default(autoincrement())
   raw_material_id  Int
@@ -1500,6 +1546,17 @@ enum RecommendationStatus {
   ACC
   REJECTED
   POSTED
+}
+
+enum RecommendationLockStatus {
+  LOCKED
+  RELEASED
+}
+
+enum RecommendationLockView {
+  GENERAL
+  DISCONTINUE_FG
+  DISCONTINUE_MATERIAL
 }
 
 enum WorkOrderProductStatus {

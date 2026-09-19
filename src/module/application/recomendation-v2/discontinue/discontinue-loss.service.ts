@@ -68,7 +68,7 @@ export class DiscontinueLossService {
                 )}::numeric AS stock,
                 (SELECT sm.unit_price FROM supplier_materials sm
                  WHERE sm.raw_material_id = rm.id AND sm.is_preferred = true AND sm.status = 'ACTIVE'
-                 ORDER BY sm.updated_at DESC, sm.id DESC LIMIT 1) AS unit_price
+                 ORDER BY sm.supplier_id ASC LIMIT 1) AS unit_price
             FROM raw_materials rm LEFT JOIN unit_raw_materials u ON u.id = rm.unit_id
             WHERE rm.id IN (${Prisma.join(needs.map((need) => need.material_id))})
             ORDER BY rm.name, rm.id

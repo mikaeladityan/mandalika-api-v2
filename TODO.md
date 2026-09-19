@@ -33,3 +33,8 @@
 - [x] Arahkan Bulk Horizon page RM Discontinue ke Work Order agregat per RM.
 - [x] Hapus informasi FG dari export CSV page material.
 - [x] Gabungkan quantity Work Order General DRAFT/ACC ke Consolidation Discontinue DRAFT/ACC untuk RM dan periode sama.
+
+- [x] Perbaiki tiga bug kalkulasi Recommendation sebelum snapshot lock produksi pertama.
+- [x] Tambah Recommendation Period Lock berversi untuk General, Discontinue FG × RM, dan Discontinue Material.
+- [x] Dokumen terkait: [spec Lock](docs/superpowers/specs/2026-09-19-recommendation-period-lock-design.md), [plan Lock](docs/superpowers/plans/2026-09-19-recommendation-period-lock.md), [spec bug kalkulasi](docs/superpowers/specs/2026-09-19-recommendation-calc-bugs-design.md), dan [plan bug kalkulasi](docs/superpowers/plans/2026-09-19-recommendation-calc-bugs.md).
+- [ ] Verifikasi bypass endpoint RFQ/PO generik pada PO `DRAFT`/`SUBMITTED` saat periode terkunci bila ditemukan di lapangan.

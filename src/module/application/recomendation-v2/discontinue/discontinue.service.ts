@@ -2,6 +2,7 @@ import prisma from "../../../../config/prisma.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { ApiError } from "../../../../lib/errors/api.error.js";
 import { DiscontinueAnchorKey, DiscontinueNeed, SaveDiscontinueAnchor } from "./discontinue.schema.js";
+import { RecommendationPeriodLockService } from "../period-lock/services.js";
 
 type RecipeRequirement = {
     product_id: number;
@@ -102,6 +103,7 @@ export class DiscontinueService {
     }
 
     static async save(body: SaveDiscontinueAnchor) {
+        await RecommendationPeriodLockService.assertPeriodUnlocked(body.month, body.year);
         return prisma.$transaction(async (tx) => {
             const recipes = await this.recipes([body.product_id], tx);
             const anchorRecipe = recipes.find((recipe) => recipe.material_id === body.anchor_material_id);
@@ -118,6 +120,7 @@ export class DiscontinueService {
     }
 
     static async reset(key: DiscontinueAnchorKey) {
+        await RecommendationPeriodLockService.assertPeriodUnlocked(key.month, key.year);
         await prisma.discontinueNeedAnchor.deleteMany({ where: key });
         return { reset: true };
     }

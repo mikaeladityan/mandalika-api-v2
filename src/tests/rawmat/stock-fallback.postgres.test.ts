@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import pg from "pg";
 import { Prisma } from "../../generated/prisma/client.js";
 import { rawMaterialStockCtes } from "../../module/application/rawmat/stock/rawmat-stock-sql.js";
-import { recommendationForecastSql, recommendationStockSql } from "../../module/application/recomendation-v2/recommendation-stock.js";
+import { rawMaterialPhysicalStockSql, recommendationForecastSql, recommendationStockSql } from "../../module/application/recomendation-v2/recommendation-stock.js";
 
 // Opt-in SQL integration tests; all fixtures live in temporary tables inside a rollback.
 const connectionString = process.env.RM_STOCK_TEST_DATABASE_URL;
@@ -81,6 +81,13 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
 
     it("uses FG when no RM snapshot exists, including on a selected RM warehouse page", async () => {
         expect(await stock(1)).toMatchObject({ stock_source: "FG", amount: 70, booked: 30, avail: 40 });
+    });
+
+    it("uses latest RM snapshot at or before target month", async () => {
+        await client.query("INSERT INTO pg_temp.raw_material_inventories(raw_material_id, warehouse_id, quantity, year, month) VALUES (1, 1, 50, 2026, 7)");
+        const query = Prisma.sql`SELECT ${rawMaterialPhysicalStockSql(Prisma.sql`1`, 2026, 9)}::numeric AS stock`;
+        const result = await client.query<{ stock: string }>(query.text, query.values);
+        expect(Number(result.rows[0]?.stock)).toBe(50);
     });
 
     it("keeps RM even when booking exhausts the RM balance", async () => {
