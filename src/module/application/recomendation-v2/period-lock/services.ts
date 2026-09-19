@@ -70,15 +70,18 @@ function toSnapshotRow(row: SnapshotRowInput) {
 
 async function captureLiveRows(period: LockPeriodRequest): Promise<SnapshotCapture> {
     const query = { page: 1, take: 1_000_000, month: period.month, year: period.year, sales_months: 3, forecast_months: 4, po_months: 3 } as const;
-    const [{ RecomendationV2Service }, { DiscontinueMaterialRecommendationService }] = await Promise.all([
+    const [{ RecomendationV2Service }] = await Promise.all([
         import("../recomendation-v2.service.js"),
-        import("../discontinue/material-recommendation.service.js"),
     ]);
-    const [general, discontinueFg, discontinueMaterial] = await Promise.all([
+    const [general, discontinueFg] = await Promise.all([
         RecomendationV2Service.list({ ...query, product_status: "ACTIVE" }),
         RecomendationV2Service.list({ ...query, product_status: "PENDING" }),
-        DiscontinueMaterialRecommendationService.list(query),
     ]);
+    const { aggregateDiscontinueMaterialRows } = await import("../discontinue/material-recommendation.service.js");
+    const discontinueMaterial = {
+        data: aggregateDiscontinueMaterialRows(discontinueFg.data),
+        periods: discontinueFg.periods,
+    };
     const materialIds = [...new Set([
         ...general.data.map((row: any) => Number(row.material_id)),
         ...discontinueFg.data.map((row: any) => Number(row.material_id)),
