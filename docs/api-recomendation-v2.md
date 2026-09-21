@@ -6,6 +6,8 @@
 
 Auth: session aplikasi. Query `month`, `year`, `po_months`, `page`, `take`, dan `search` opsional. Response berisi `data`, `len`, serta `periods.po_periods`. Setiap RM di `data` harus mempunyai recipe aktif yang terhubung ke FG `ACTIVE` yang belum dihapus. RM yang hanya dipakai FG Discontinue tidak tampil. `periods.po_periods` hanya memuat bulan dengan sisa PO `ORDERED` positif sampai batas `po_months` ke depan; `open_pos` berisi sisa per bulan. Baris hanya menampilkan bulan dengan sisa positif.
 
+Jika `month`/`year` tidak dikirim, periode default memakai bulan dan tahun server saat request. `current_stock` RM hanya menjumlah snapshot inventory pada bulan/tahun filter tersebut, dengan satu row terbaru per gudang. Snapshot gudang dari bulan sebelumnya tidak dibawa ke periode terpilih.
+
 Saat periode memiliki lock aktif, endpoint list/export dan endpoint Discontinue Material membaca snapshot periode. Response menambah `lock`: `{ locked, version, locked_at, locked_by, note }`; saat belum pernah dikunci response `{ locked: false }`, dan setelah pernah dibuka dapat menyertakan `last_version`. Filter dan lima opsi sort tetap dilayani dari kolom snapshot SQL.
 
 ### Lock Periode Rekomendasi

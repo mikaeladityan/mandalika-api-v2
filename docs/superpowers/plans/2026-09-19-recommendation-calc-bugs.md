@@ -4,13 +4,13 @@ Spec: [[2026-09-19-recommendation-calc-bugs-design]]
 
 Ketiga bug independen, bisa dikerjakan dan di-PR terpisah atau sekaligus. Tidak ada migration.
 
-## Task 1 — Physical stock: exact-month match → last-period-≤-target
+## Task 1 — Physical stock: gunakan exact month filter
 
 **File:** `src/module/application/recomendation-v2/recommendation-stock.ts`
 
-1. Ubah `rawMaterialPhysicalStockSql(materialId, year, month)`: ganti filter `WHERE raw_material_id = ... AND year = ${year} AND month = ${month}` menjadi filter `(year*12+month) <= (${year}*12+${month})`, lalu `DISTINCT ON (warehouse_id)` (atau `ROW_NUMBER() OVER (PARTITION BY warehouse_id ORDER BY year DESC, month DESC, date DESC, updated_at DESC, id DESC)` seperti yang sudah dipakai di fungsi ini, tinggal tambah kondisi `<=`) supaya per warehouse ambil snapshot terakhir sebelum/di bulan target, sama seperti pola `product_stock_agg` di `recomendation-v2.service.ts:223-236`.
-2. Cek semua pemanggil `rawMaterialPhysicalStockSql` — pastikan `year`/`month` yang dioper tetap periode target laporan (bukan `resolveInvPeriod` global) kalau memungkinkan; kalau `resolveInvPeriod` memang sengaja dipakai untuk alasan lain, biarkan, cukup filter jadi `<=`.
-3. Test: tambah kasus RM dengan baris inventori cuma di bulan N-2, hitung `current_stock` untuk bulan N — harus dapat saldo N-2, bukan 0. Taruh di `src/tests/recomendation-v2.service.test.ts` atau file test `recommendation-stock` kalau ada.
+1. `rawMaterialPhysicalStockSql(materialId, year, month)` wajib memfilter `year = targetYear AND month = targetMonth`, lalu memakai `ROW_NUMBER() OVER (PARTITION BY warehouse_id ORDER BY date DESC, updated_at DESC, id DESC)` untuk memilih row terbaru per gudang dalam periode.
+2. Cek semua pemanggil `rawMaterialPhysicalStockSql`; `year`/`month` yang dioper harus menjadi periode inventory target. Jangan lakukan carry-forward per gudang di helper.
+3. Test: tambah snapshot bulan N pada satu gudang dan snapshot N-1 pada gudang lain; `current_stock` bulan N tidak boleh membawa snapshot N-1.
 4. `typecheck && test` untuk file yang disentuh.
 
 ## Task 2 — `bulkSaveHorizon`: samakan gate size-multiplier dengan `use_size_calc`
