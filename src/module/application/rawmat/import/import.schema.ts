@@ -23,7 +23,9 @@ export const RawmatImportRowSchema = z.object({
     "LEAD TIME": z.preprocess(sanitizeNumber, z.coerce.number().optional()),
     SUPPLIER: z.preprocess(sanitizeString, z.string().optional()),
     "LOCAL/IMPORT": z.preprocess(sanitizeString, z.string().optional()),
+    SOURCE: z.preprocess(sanitizeString, z.string().optional()),
     COUNTRY: z.preprocess(sanitizeString, z.string().optional()),
+    NEGARA: z.preprocess(sanitizeString, z.string().optional()),
     PRICE: z.preprocess(sanitizeNumber, z.coerce.number().optional()),
 });
 

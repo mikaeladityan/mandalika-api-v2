@@ -4,6 +4,15 @@
 
 export const SUPPLIER_OBSCURE_REGEX = /^(SUP-\d{3}|SUP\d{4}|SUP-\?{3})$/;
 
+/** Decode supplier code returned by API to primary-key value for import lookup. */
+export function supplierIdFromObscuredCode(value: string): number | null {
+    const match = /^(?:SUP-(\d{3})|SUP(\d{4}))$/i.exec(value.trim());
+    if (!match) return null;
+
+    const id = Number(match[1] ?? match[2]);
+    return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 export function obscureSupplierName(
     supplierId: number | null | undefined,
 ): string {

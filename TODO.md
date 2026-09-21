@@ -1,5 +1,8 @@
 # TODO
 
+- [x] Perbaiki import Raw Material: kode anonimisasi supplier (`SUP-005`/`SUP1000`) didecode menjadi `supplier_id`, diverifikasi ada, lalu dihubungkan tanpa membuat supplier kode baru. CSV juga menerima header `SOURCE` dan `NEGARA`.
+- [x] Bersihkan 28 supplier kode palsu hasil import lama dan 371 relasi `supplier_materials` duplikat; supplier asli dan relasi historis PO/RFQ/utang dipertahankan.
+
 - [x] Samakan filter kategori Consolidation dengan Rekomendasi berbasis supplier preferred terpilih; verifikasi tidak ada material yang muncul di Lokal dan Impor sekaligus.
 - [ ] Bersihkan data `supplier_materials` dengan lebih dari satu `is_preferred` per raw material (316 RM, 204 di antaranya LOCAL+IMPORT) dan tambahkan partial unique index penjaga.
 - [ ] Perbaiki COUNT daftar Rekomendasi `type=lokal` yang memakai join preferred tanpa LATERAL sehingga `len` tidak cocok dengan jumlah baris.
