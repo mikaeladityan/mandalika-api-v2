@@ -85,6 +85,28 @@ describe("RawmatImportService supplier reference", () => {
         ])).rejects.toThrow("Supplier dengan kode SUP-999 tidak ditemukan");
     });
 
+    it("does not overwrite min_stock when CSV omits MIN STOCK", async () => {
+        await (RawmatImportService as any).bulkInsert([
+            {
+                barcode: "RM-NO-MIN-STOCK",
+                name: "Material",
+                price: 95,
+                min_buy: 1,
+                min_stock: undefined,
+                unit: "PCS",
+                category: "PACKAGING",
+                supplier: "SUP-005",
+                country: "INDONESIA",
+                source: "LOCAL",
+                lead_time: 30,
+                errors: [],
+            },
+        ]);
+
+        const rawMaterialUpsert = tx.rawMaterial.upsert.mock.calls[0]?.[0];
+        expect(rawMaterialUpsert.update).not.toHaveProperty("min_stock");
+    });
+
     it("accepts SOURCE and NEGARA aliases used by raw-material CSV exports", async () => {
         const result = await RawmatImportService.preview([
             {

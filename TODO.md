@@ -1,6 +1,7 @@
 # TODO
 
 - [x] Perbaiki import Raw Material: kode anonimisasi supplier (`SUP-005`/`SUP1000`) didecode menjadi `supplier_id`, diverifikasi ada, lalu dihubungkan tanpa membuat supplier kode baru. CSV juga menerima header `SOURCE` dan `NEGARA`.
+- [x] Import Raw Material tidak mengubah `min_stock` bila kolom `MIN STOCK` kosong atau tidak ada; nilai `0` eksplisit tetap disimpan.
 - [x] Bersihkan 28 supplier kode palsu hasil import lama dan 371 relasi `supplier_materials` duplikat; supplier asli dan relasi historis PO/RFQ/utang dipertahankan.
 
 - [x] Samakan filter kategori Consolidation dengan Rekomendasi berbasis supplier preferred terpilih; verifikasi tidak ada material yang muncul di Lokal dan Impor sekaligus.

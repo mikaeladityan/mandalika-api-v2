@@ -5,6 +5,7 @@ Semua perubahan utama pada sisi server dicatat di sini.
 ## [Unreleased]
 
 - Fixed: Import Raw Material sekarang decode kode supplier anonimisasi (`SUP-001` hingga `SUP9999`) menjadi `supplier_id` existing. Kode yang tidak punya supplier ditolak, bukan dibuat sebagai supplier baru. Header CSV `SOURCE` dan `NEGARA` diterima sebagai alias `LOCAL/IMPORT` dan `COUNTRY`. Data supplier kode palsu hasil import lama juga dibersihkan: 28 supplier dan 371 relasi material duplikat dihapus setelah dipastikan relasi kanonis sudah ada.
+- Fixed: Import Raw Material tidak lagi mengosongkan `min_stock` menjadi nol saat file CSV tidak memuat kolom `MIN STOCK`; angka nol eksplisit tetap dapat dipakai untuk mengubah nilai.
 
 - Added: Recommendation Period Lock berversi dengan snapshot untuk General, Discontinue FG × RM, dan Discontinue Material; tersedia endpoint lock/unlock/history, locked read path, SQL filter/sort, dan write gate `PERIOD_LOCKED`.
 - Fixed: Physical stock RM memakai snapshot terakhir pada atau sebelum periode target; Bulk Horizon memakai `recipes.use_size_calc`; Discontinue Loss memakai preferred supplier dengan `supplier_id` terkecil.

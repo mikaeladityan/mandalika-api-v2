@@ -70,7 +70,7 @@ export class RawmatImportService {
                 name: String(data["MATERIAL NAME"] || "").trim(),
                 price: data.PRICE ?? 0,
                 min_buy: data.MOQ ?? 0,
-                min_stock: data["MIN STOCK"] ?? 0,
+                min_stock: data["MIN STOCK"],
                 unit: (data.UOM || "UNIT").toUpperCase().trim(),
                 category: data.CATEGORY.toUpperCase().trim(),
                 supplier: (data.SUPPLIER || "UNKNOWN").toUpperCase().trim(),
@@ -315,19 +315,20 @@ export class RawmatImportService {
                 if (!unitId) throw new Error(`Unit tidak ditemukan untuk material: ${row.name}`);
 
                 const categoryId = row.category ? (categorySlugToId.get(normalizeSlug(row.category)) ?? null) : null;
+                const minStock = this.parseDecimal(row.min_stock);
 
                 const rm = await tx.rawMaterial.upsert({
                     where: row.barcode?.trim() ? { barcode: row.barcode.trim() } : { id: -1 }, // ID -1 to force create if no barcode
                     create: {
                         barcode: row.barcode?.trim() || null,
                         name: row.name,
-                        min_stock: this.parseDecimal(row.min_stock) ?? 0,
+                        min_stock: minStock,
                         unit_id: unitId,
                         raw_mat_categories_id: categoryId,
                     },
                     update: {
                         name: row.name,
-                        min_stock: this.parseDecimal(row.min_stock) ?? 0,
+                        ...(minStock !== null && { min_stock: minStock }),
                         unit_id: unitId,
                         raw_mat_categories_id: categoryId,
                     },

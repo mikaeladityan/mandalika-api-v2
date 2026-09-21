@@ -11,6 +11,7 @@ Header CSV utama: `BARCODE`, `MATERIAL NAME`, `CATEGORY`, `UOM`, `SUPPLIER`, `PR
 - `LOCAL/IMPORT` atau `SOURCE`: `LOCAL`/`LOKAL` atau `IMPORT`.
 - `COUNTRY` atau `NEGARA`: negara supplier.
 - `SUPPLIER` berbentuk `SUP-001` sampai `SUP-999`, atau `SUP1000` sampai `SUP9999`, adalah kode anonimisasi dan didecode menjadi `supplier_id`. Nama supplier biasa tetap dicocokkan memakai slug.
+- `MIN STOCK` tidak ada atau kosong: nilai `min_stock` Raw Material lama dipertahankan. Nilai `0` eksplisit mengubah `min_stock` menjadi nol.
 
 ## `GET /preview/:import_id`
 

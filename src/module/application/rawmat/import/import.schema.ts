@@ -8,6 +8,11 @@ const sanitizeNumber = (val: unknown) => {
     return Number(val);
 };
 
+const sanitizeOptionalNumber = (val: unknown) => {
+    if (val === "" || val === null || val === undefined) return undefined;
+    return sanitizeNumber(val);
+};
+
 const sanitizeString = (val: unknown) => {
     if (val === null || val === undefined || val === "") return undefined;
     return String(val);
@@ -19,7 +24,7 @@ export const RawmatImportRowSchema = z.object({
     CATEGORY: z.string().min(1, "Kategori wajib diisi"),
     UOM: z.preprocess(sanitizeString, z.string().optional()),
     MOQ: z.preprocess(sanitizeNumber, z.coerce.number().optional()),
-    "MIN STOCK": z.preprocess(sanitizeNumber, z.coerce.number().optional()),
+    "MIN STOCK": z.preprocess(sanitizeOptionalNumber, z.coerce.number().optional()),
     "LEAD TIME": z.preprocess(sanitizeNumber, z.coerce.number().optional()),
     SUPPLIER: z.preprocess(sanitizeString, z.string().optional()),
     "LOCAL/IMPORT": z.preprocess(sanitizeString, z.string().optional()),
@@ -35,7 +40,7 @@ export type RawmatImportPreviewDTO = {
     name: string;
     price: number | null;
     min_buy: number | null;
-    min_stock: number | null;
+    min_stock: number | null | undefined;
     unit: string;
     category: string;
     supplier: string;
