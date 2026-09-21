@@ -893,6 +893,16 @@ vi.mock("../config/prisma.js", () => ({
         loggingActivity: {
             create: vi.fn().mockResolvedValue({ id: 1 }),
         },
+        recommendationPeriodLock: {
+            findFirst: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
+            create: vi.fn().mockResolvedValue({ id: 1, month: 9, year: 2026, version: 1, status: "LOCKED", locked_at: new Date(), locked_by: "user-1", note: null, _count: { rows: 0 } }),
+            update: vi.fn().mockResolvedValue({ id: 1, status: "RELEASED" }),
+        },
+        recommendationLockRow: {
+            findMany: vi.fn().mockResolvedValue([]),
+            count: vi.fn().mockResolvedValue(0),
+        },
         $transaction: vi.fn((cbOrArray) => {
             // Array form: prisma.$transaction([op1, op2])
             if (Array.isArray(cbOrArray)) return Promise.all(cbOrArray);
@@ -1156,6 +1166,10 @@ vi.mock("../config/prisma.js", () => ({
                     ]),
                     update: vi.fn().mockResolvedValue({ id: 1, quantity: 450 }),
                     create: vi.fn().mockResolvedValue({ id: 2, quantity: 50 }),
+                },
+                recommendationPeriodLock: {
+                    findFirst: vi.fn().mockResolvedValue(null),
+                    create: vi.fn().mockResolvedValue({ id: 1, month: 9, year: 2026, version: 1, status: "LOCKED", locked_at: new Date(), locked_by: "user-1", note: null, _count: { rows: 0 } }),
                 },
                 purchaseOrder: {
                     create: vi.fn(),

@@ -6,6 +6,20 @@
 
 Auth: session aplikasi. Query `month`, `year`, `po_months`, `page`, `take`, dan `search` opsional. Response berisi `data`, `len`, serta `periods.po_periods`. Setiap RM di `data` harus mempunyai recipe aktif yang terhubung ke FG `ACTIVE` yang belum dihapus. RM yang hanya dipakai FG Discontinue tidak tampil. `periods.po_periods` hanya memuat bulan dengan sisa PO `ORDERED` positif sampai batas `po_months` ke depan; `open_pos` berisi sisa per bulan. Baris hanya menampilkan bulan dengan sisa positif.
 
+Saat periode memiliki lock aktif, endpoint list/export dan endpoint Discontinue Material membaca snapshot periode. Response menambah `lock`: `{ locked, version, locked_at, locked_by, note }`; saat belum pernah dikunci response `{ locked: false }`, dan setelah pernah dibuka dapat menyertakan `last_version`. Filter dan lima opsi sort tetap dilayani dari kolom snapshot SQL.
+
+### Lock Periode Rekomendasi
+
+`POST /api/app/recomendations-v2/lock`
+
+Auth: session aplikasi + CSRF. Body `{ "month": 9, "year": 2026, "note": "Tutup periode" }`. Validasi bulan 1–12, tahun 2000–9999, catatan maksimal 255 karakter. Endpoint membekukan General, Discontinue FG × RM, dan Discontinue Material. Lock aktif kedua mengembalikan HTTP 409 dengan `error: PERIOD_LOCKED` dan `details.code: PERIOD_LOCKED`.
+
+`POST /api/app/recomendations-v2/unlock` menerima `{ "month": 9, "year": 2026 }`; header menjadi `RELEASED`, row snapshot dan nomor versi tetap tersimpan.
+
+`GET /api/app/recomendations-v2/locks?month=9&year=2026` mengembalikan riwayat versi, status, actor, waktu, catatan, dan jumlah row.
+
+Saat lock aktif, mutation Work Order, Bulk Horizon, Bulk Reset, Need Override, Open PO dari rekomendasi, anchor Discontinue, dan Bulk Save Discontinue Material mengembalikan 409. Bulk Reset preview, approve, MOQ, hide, consolidation status/hide, serta alur RFQ/PO tetap tersedia. Open PO update/delete hanya digate untuk PO `DRAFT`/`SUBMITTED`; periode diambil dari `po_date`.
+
 `POST /api/app/recomendations-v2/bulk-horizon` memakai body `month`, `year`, `horizon`, `type`, dan `product_status` opsional. Auth: session aplikasi. Untuk General, hanya RM dengan recipe aktif ke FG `ACTIVE` yang dibuat atau diperbarui sebagai draft. Validasi query/body mengembalikan 400; sesi tanpa akses mengembalikan 401/403; kegagalan server mengembalikan 500.
 
 Bulk Horizon memilih kategori supplier sama dengan daftar/reset (`supplier_id` terkecil jika beberapa preferred). Response `data` berupa jumlah draft yang dibuat/diperbarui. `0` berarti tidak ada draft tersimpan; UI menampilkan peringatan. Update hanya untuk status DRAFT tanpa `open_po_id`; quantity Work Order yang sudah diisi tetap dipertahankan. Bulan/tahun/horizon dan kategori berasal dari filter aktif. UI menunggu refresh daftar sebelum menampilkan jumlah tersimpan.

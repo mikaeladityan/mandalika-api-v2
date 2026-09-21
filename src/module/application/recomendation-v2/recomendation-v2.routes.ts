@@ -4,9 +4,11 @@ import discontinueRoutes from "./discontinue/discontinue.routes.js";
 
 import { validateBody } from "../../../middleware/validation.js";
 import { RequestBulkResetSchema } from "./recomendation-v2.schema.js";
+import periodLockRoutes from "./period-lock/routes.js";
 
 const routes = new Hono();
 routes.route("/discontinue", discontinueRoutes);
+routes.route("/", periodLockRoutes);
 
 routes.get("/", RecomendationV2Controller.list);
 routes.get("/export", RecomendationV2Controller.export);

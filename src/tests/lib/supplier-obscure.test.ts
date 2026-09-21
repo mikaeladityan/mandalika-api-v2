@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+    supplierIdFromObscuredCode,
     obscureSupplierName,
     SUPPLIER_OBSCURE_REGEX,
     withObscuredSupplierName,
@@ -7,6 +8,14 @@ import {
 } from "../../lib/utils/supplier-obscure.js";
 
 describe("obscureSupplierName", () => {
+    it("decodes anonymous supplier codes back to their supplier IDs", () => {
+        expect(supplierIdFromObscuredCode("SUP-005")).toBe(5);
+        expect(supplierIdFromObscuredCode("sup-999")).toBe(999);
+        expect(supplierIdFromObscuredCode("SUP1000")).toBe(1000);
+        expect(supplierIdFromObscuredCode("PT Supplier ABC")).toBeNull();
+        expect(supplierIdFromObscuredCode("SUP-???")).toBeNull();
+    });
+
     it("formats id <= 999 with SUP- prefix and 3-digit padding", () => {
         expect(obscureSupplierName(1)).toBe("SUP-001");
         expect(obscureSupplierName(42)).toBe("SUP-042");

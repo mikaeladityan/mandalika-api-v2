@@ -23,12 +23,32 @@ import { calculatePOEta } from "../purchase/po/po-eta.js";
 import { recommendationStockSql, recommendationForecastSql } from "./recommendation-stock.js";
 import { DiscontinueService } from "./discontinue/discontinue.service.js";
 import { materialTypeScopeSql } from "../shared/material-type-scope.js";
+import { RecommendationLockView, RecommendationPeriodLockService } from "./period-lock/services.js";
 
 const EDITABLE_PO_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "ORDERED"] as const;
 type EditablePOStatus = typeof EDITABLE_PO_STATUSES[number];
 
+export type RecommendationRow = Record<string, any> & {
+    material_id: number;
+    sales: Array<Record<string, any>>;
+    needs: Array<Record<string, any>>;
+    open_pos: Array<Record<string, any>>;
+    finished_goods: Array<{ id: number; code: string; name: string }>;
+};
+
+export type RecommendationListResult = {
+    data: RecommendationRow[];
+    len: number;
+    periods: {
+        sales_periods: Array<Record<string, any>>;
+        forecast_periods: Array<Record<string, any>>;
+        po_periods: Array<Record<string, any>>;
+    };
+    lock?: Record<string, unknown>;
+};
+
 export class RecomendationV2Service {
-    static async list(query: QueryRecomendationV2DTO) {
+    static async list(query: QueryRecomendationV2DTO): Promise<RecommendationListResult> {
         const {
             search,
             page,
@@ -40,6 +60,13 @@ export class RecomendationV2Service {
             forecast_months = 4,
             po_months = 3,
         } = query;
+        if (month !== undefined && year !== undefined) {
+            const locked = await RecommendationPeriodLockService.listLockedRows(
+                { ...query, month, year },
+                query.product_status === "PENDING" ? RecommendationLockView.DISCONTINUE_FG : RecommendationLockView.GENERAL,
+            );
+            if (locked) return locked as unknown as RecommendationListResult;
+        }
         const discontinue = query.product_status === "PENDING";
         const productStatus = discontinue ? Prisma.sql`'PENDING'` : Prisma.sql`'ACTIVE'`;
         const discontinueFilter = discontinue ? Prisma.sql`AND rm.barcode IS DISTINCT FROM 'FO-ALK'
@@ -762,6 +789,9 @@ export class RecomendationV2Service {
                 forecast_periods: forecastPeriods,
                 po_periods: poPeriods,
             },
+            lock: month !== undefined && year !== undefined
+                ? await RecommendationPeriodLockService.getLockState(month, year)
+                : { locked: false },
         };
     }
 
@@ -863,6 +893,7 @@ export class RecomendationV2Service {
 
     static async createOpenPoCell(body: RequestCreateOpenPoCellDTO, userId: string) {
         const { raw_mat_id, month, year, quantity, supplier_id } = body;
+        await RecommendationPeriodLockService.assertPeriodUnlocked(month, year);
         const MAX_RETRIES = 20;
         // Tagged per-request so we can correlate all retry attempts in logs.
         const traceId = `open-po-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1022,9 +1053,12 @@ export class RecomendationV2Service {
         return await prisma.$transaction(async (tx) => {
             const item = await tx.purchaseOrderItem.findUnique({
                 where: { id: itemId },
-                include: { po: { select: { id: true, status: true } } },
+                include: { po: { select: { id: true, status: true, po_date: true } } },
             });
             if (!item) throw new ApiError(404, "PO item tidak ditemukan");
+            if (item.po.status === "DRAFT" || item.po.status === "SUBMITTED") {
+                await RecommendationPeriodLockService.assertPeriodUnlocked(item.po.po_date.getUTCMonth() + 1, item.po.po_date.getUTCFullYear());
+            }
             if (!EDITABLE_PO_STATUSES.includes(item.po.status as EditablePOStatus)) {
                 throw new ApiError(403, `Status PO ${item.po.status} tidak bisa diubah dari sini`);
             }
@@ -1069,9 +1103,12 @@ export class RecomendationV2Service {
         return await prisma.$transaction(async (tx) => {
             const item = await tx.purchaseOrderItem.findUnique({
                 where: { id: itemId },
-                include: { po: { select: { id: true, status: true } } },
+                include: { po: { select: { id: true, status: true, po_date: true } } },
             });
             if (!item) throw new ApiError(404, "PO item tidak ditemukan");
+            if (item.po.status === "DRAFT" || item.po.status === "SUBMITTED") {
+                await RecommendationPeriodLockService.assertPeriodUnlocked(item.po.po_date.getUTCMonth() + 1, item.po.po_date.getUTCFullYear());
+            }
             if (!EDITABLE_PO_STATUSES.includes(item.po.status as EditablePOStatus)) {
                 throw new ApiError(403, `Status PO ${item.po.status} tidak bisa dihapus dari sini`);
             }
@@ -1129,6 +1166,7 @@ export class RecomendationV2Service {
             stock_fg_x_resep,
         } = body;
         const product_status = body.product_status ?? "ACTIVE";
+        await RecommendationPeriodLockService.assertPeriodUnlocked(month, year);
 
         const total_needed = body.total_needed;
         const safety_stock_x_resep = body.product_status === "PENDING" ? 0 : body.safety_stock_x_resep;
@@ -1165,6 +1203,7 @@ export class RecomendationV2Service {
 
     static async saveNeedOverride(body: RequestSaveNeedOverrideDTO) {
         const { raw_material_id, month, year, quantity } = body;
+        await RecommendationPeriodLockService.assertPeriodUnlocked(month, year);
 
         const material = await prisma.rawMaterial.findUnique({
             where: { id: raw_material_id },
@@ -1218,6 +1257,7 @@ export class RecomendationV2Service {
 
     static async deleteNeedOverride(body: { raw_material_id: number; month: number; year: number }) {
         const { raw_material_id, month, year } = body;
+        await RecommendationPeriodLockService.assertPeriodUnlocked(month, year);
 
         const material = await prisma.rawMaterial.findUnique({
             where: { id: raw_material_id },
@@ -1650,6 +1690,7 @@ export class RecomendationV2Service {
     }
 
     static async bulkResetWorkOrders(body: RequestBulkResetDTO) {
+        await RecommendationPeriodLockService.assertPeriodUnlocked(body.month, body.year);
         const count = await prisma.$executeRaw(Prisma.sql`
             DELETE FROM "material_purchase_drafts" d WHERE ${this.bulkResetScope(body)}`);
         return { count };
@@ -1662,6 +1703,8 @@ export class RecomendationV2Service {
 
         if (!rec) throw new Error("Work order not found.");
 
+        await RecommendationPeriodLockService.assertPeriodUnlocked(rec.month, rec.year);
+
         if (rec.status === "DRAFT" || rec.status === "ACC") {
             return await prisma.materialPurchaseDraft.delete({ where: { id } });
         }
@@ -1671,6 +1714,7 @@ export class RecomendationV2Service {
 
     static async bulkSaveHorizon(body: RequestBulkSaveHorizonDTO) {
         const { month, year, horizon, type } = body;
+        await RecommendationPeriodLockService.assertPeriodUnlocked(month, year);
         const productStatus = body.product_status === "PENDING" ? Prisma.sql`'PENDING'` : Prisma.sql`'ACTIVE'`;
         const discontinueFilter = body.product_status === "PENDING" ? Prisma.sql`AND rm.barcode IS DISTINCT FROM 'FO-ALK'
         AND EXISTS (
@@ -1721,12 +1765,11 @@ export class RecomendationV2Service {
             WITH
                 fc_agg AS (
                     SELECT rec.raw_mat_id, SUM(${recommendationForecastSql(Prisma.sql`rm2.id`, Prisma.sql`rm2.barcode`, invYear, invMonth)} * rec.quantity *
-                        CASE WHEN rm2.type = 'FO' OR urm2.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                        CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                     )::numeric AS total
                     FROM "forecasts" f
                     JOIN "recipes" rec ON rec.product_id = f.product_id AND rec.is_active = true
                     JOIN "raw_materials" rm2 ON rm2.id = rec.raw_mat_id
-                    LEFT JOIN "unit_raw_materials" urm2 ON urm2.id = rm2.unit_id
                     JOIN "products" p ON p.id = f.product_id AND p.status = ${productStatus} AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     WHERE ${body.product_status !== "PENDING"} AND (f.year * 12 + f.month) >= ${fcStart} AND (f.year * 12 + f.month) <= ${fcEnd}
@@ -1760,11 +1803,10 @@ export class RecomendationV2Service {
                 ),
                 fg_agg AS (
                     SELECT rec.raw_mat_id, SUM(pi_sub.total_qty * rec.quantity *
-                        CASE WHEN rm2.type = 'FO' OR urm2.name ILIKE ANY(ARRAY['ml', 'l', 'liter', 'ML']) THEN COALESCE(ps.size, 1) ELSE 1 END
+                        CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END
                     )::numeric AS total
                     FROM "recipes" rec
                     JOIN "raw_materials" rm2 ON rm2.id = rec.raw_mat_id
-                    LEFT JOIN "unit_raw_materials" urm2 ON urm2.id = rm2.unit_id
                     JOIN "products" p ON p.id = rec.product_id AND p.status = ${productStatus} AND p.deleted_at IS NULL
                     LEFT JOIN "product_size" ps ON ps.id = p.size_id
                     JOIN (

@@ -155,6 +155,8 @@ describe("RecomendationV2Service - Override Features", () => {
         expect(sql).toContain(`"material_purchase_drafts".status = 'DRAFT'`);
         expect(sql).toContain('LEFT JOIN LATERAL');
         expect(sql).toContain('ORDER BY sm.supplier_id ASC');
+        expect(sql).toContain('CASE WHEN rec.use_size_calc THEN COALESCE(ps.size, 1) ELSE 1 END');
+        expect(sql).not.toContain("rm2.type = 'FO' OR urm2.name ILIKE ANY");
     });
 
     describe("saveNeedOverride", () => {

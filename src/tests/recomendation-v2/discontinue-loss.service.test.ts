@@ -58,6 +58,20 @@ describe("Discontinue loss check", () => {
             check.mockRestore();
         }
     });
+    it("uses the same deterministic preferred supplier ordering as recommendations", async () => {
+        const needs = vi.spyOn(DiscontinueService, "needs").mockResolvedValue([need(120)]);
+        vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([material(100, 1500)]);
+        try {
+            await DiscontinueLossService.check({ product_id: 1, material_id: 1, month: 9, year: 2026 });
+            const call = vi.mocked(prisma.$queryRaw).mock.calls[0];
+            expect(call).toBeDefined();
+            const sql = (call![0] as { sql: string }).sql;
+            expect(sql).toContain("ORDER BY sm.supplier_id ASC LIMIT 1");
+            expect(sql).not.toContain("ORDER BY sm.updated_at DESC, sm.id DESC");
+        } finally {
+            needs.mockRestore();
+        }
+    });
     it("values stock after the full need and separately values purchases", () => {
         const result = calculateDiscontinueLoss([material(100, 1500)], [need(120)]);
         expect(result.rows[0]).toMatchObject({ stock: 100, need_buy: 20, remaining: 0, remaining_value: 0, purchase_value: 30000 });

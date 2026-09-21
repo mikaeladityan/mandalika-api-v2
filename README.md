@@ -46,6 +46,8 @@ Sistem Backend berbasis Node.js yang kuat, dirancang untuk mengelola logika bisn
     npm run dev
     ```
 
+Recommendation Period Lock memakai endpoint `/api/app/recomendations-v2/lock`, `/unlock`, dan `/locks`. Tidak ada env var tambahan; migration Prisma membuat tabel snapshot lock.
+
 ## 🏗️ Struktur Proyek
 
 - `src/module/application`: Berisi logika domain bisnis (Sales, Product, RawMat, dll).

@@ -7,6 +7,7 @@ import {
 } from "./import.schema.js";
 import { ImportCacheService } from "../../../../lib/utils/import.cache.js";
 import { normalizeSlug } from "../../../../lib/index.js";
+import { supplierIdFromObscuredCode } from "../../../../lib/utils/supplier-obscure.js";
 
 type ImportCachePayload = {
     status: "preview" | "executing";
@@ -59,7 +60,7 @@ export class RawmatImportService {
             }
 
             const data = parsed.data;
-            const sourceValue = String(data["LOCAL/IMPORT"] || "LOCAL").toUpperCase().trim();
+            const sourceValue = String(data["LOCAL/IMPORT"] || data.SOURCE || "LOCAL").toUpperCase().trim();
             const source = (sourceValue === "IMPORT" || (sourceValue !== "LOCAL" && sourceValue !== "LOKAL")) 
                 ? "IMPORT" 
                 : "LOCAL";
@@ -69,11 +70,11 @@ export class RawmatImportService {
                 name: String(data["MATERIAL NAME"] || "").trim(),
                 price: data.PRICE ?? 0,
                 min_buy: data.MOQ ?? 0,
-                min_stock: data["MIN STOCK"] ?? 0,
+                min_stock: data["MIN STOCK"],
                 unit: (data.UOM || "UNIT").toUpperCase().trim(),
                 category: data.CATEGORY.toUpperCase().trim(),
                 supplier: (data.SUPPLIER || "UNKNOWN").toUpperCase().trim(),
-                country: "", // Skipped per user request
+                country: String(data.COUNTRY || data.NEGARA || "").trim(),
                 source,
                 lead_time: data["LEAD TIME"] ?? 0,
                 errors: [],
@@ -192,17 +193,39 @@ export class RawmatImportService {
             //   c) Backfill slug pada record lama yang ditemukan via nama
             //   d) INSERT hanya yang benar-benar baru
             const supplierSlugMap = new Map<string, { name: string; lowerName: string; country: string; source: string }>();
+            const supplierCodeToId = new Map<string, number>();
             for (const d of data) {
                 if (d.supplier?.trim()) {
-                    const slug = normalizeSlug(d.supplier);
+                    const supplier = d.supplier.trim();
+                    const supplierId = supplierIdFromObscuredCode(supplier);
+                    if (supplierId) {
+                        supplierCodeToId.set(supplier, supplierId);
+                        continue;
+                    }
+
+                    const slug = normalizeSlug(supplier);
                     supplierSlugMap.set(slug, {
-                        name: d.supplier.trim(),
-                        lowerName: d.supplier.trim().toLowerCase(),
+                        name: supplier,
+                        lowerName: supplier.toLowerCase(),
                         country: d.country,
                         source: d.source,
                     });
                 }
             }
+
+            const supplierIds = [...new Set(supplierCodeToId.values())];
+            if (supplierIds.length) {
+                const existingSuppliers = await tx.supplier.findMany({
+                    where: { id: { in: supplierIds } },
+                    select: { id: true },
+                });
+                const existingIds = new Set(existingSuppliers.map((supplier) => supplier.id));
+                const missingCode = [...supplierCodeToId.entries()].find(([, id]) => !existingIds.has(id));
+                if (missingCode) {
+                    throw new Error(`Supplier dengan kode ${missingCode[0]} tidak ditemukan`);
+                }
+            }
+
             const supplierSlugs     = [...supplierSlugMap.keys()];
             const supplierLowerNames = supplierSlugs.map((s) => supplierSlugMap.get(s)!.lowerName);
             const supplierSlugToId  = new Map<string, number>(); // slug → id
@@ -292,19 +315,20 @@ export class RawmatImportService {
                 if (!unitId) throw new Error(`Unit tidak ditemukan untuk material: ${row.name}`);
 
                 const categoryId = row.category ? (categorySlugToId.get(normalizeSlug(row.category)) ?? null) : null;
+                const minStock = this.parseDecimal(row.min_stock);
 
                 const rm = await tx.rawMaterial.upsert({
                     where: row.barcode?.trim() ? { barcode: row.barcode.trim() } : { id: -1 }, // ID -1 to force create if no barcode
                     create: {
                         barcode: row.barcode?.trim() || null,
                         name: row.name,
-                        min_stock: this.parseDecimal(row.min_stock) ?? 0,
+                        min_stock: minStock,
                         unit_id: unitId,
                         raw_mat_categories_id: categoryId,
                     },
                     update: {
                         name: row.name,
-                        min_stock: this.parseDecimal(row.min_stock) ?? 0,
+                        ...(minStock !== null && { min_stock: minStock }),
                         unit_id: unitId,
                         raw_mat_categories_id: categoryId,
                     },
@@ -318,7 +342,9 @@ export class RawmatImportService {
                 const rm = rmResults[i];
                 if (!row || !rm) continue;
 
-                const supplierId = row.supplier ? supplierSlugToId.get(normalizeSlug(row.supplier)) : null;
+                const supplierId = row.supplier
+                    ? supplierCodeToId.get(row.supplier.trim()) ?? supplierSlugToId.get(normalizeSlug(row.supplier))
+                    : null;
 
                 if (supplierId) {
                     await tx.supplierMaterial.upsert({

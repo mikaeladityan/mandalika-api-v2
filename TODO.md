@@ -1,5 +1,9 @@
 # TODO
 
+- [x] Perbaiki import Raw Material: kode anonimisasi supplier (`SUP-005`/`SUP1000`) didecode menjadi `supplier_id`, diverifikasi ada, lalu dihubungkan tanpa membuat supplier kode baru. CSV juga menerima header `SOURCE` dan `NEGARA`.
+- [x] Import Raw Material tidak mengubah `min_stock` bila kolom `MIN STOCK` kosong atau tidak ada; nilai `0` eksplisit tetap disimpan.
+- [x] Bersihkan 28 supplier kode palsu hasil import lama dan 371 relasi `supplier_materials` duplikat; supplier asli dan relasi historis PO/RFQ/utang dipertahankan.
+
 - [x] Samakan filter kategori Consolidation dengan Rekomendasi berbasis supplier preferred terpilih; verifikasi tidak ada material yang muncul di Lokal dan Impor sekaligus.
 - [ ] Bersihkan data `supplier_materials` dengan lebih dari satu `is_preferred` per raw material (316 RM, 204 di antaranya LOCAL+IMPORT) dan tambahkan partial unique index penjaga.
 - [ ] Perbaiki COUNT daftar Rekomendasi `type=lokal` yang memakai join preferred tanpa LATERAL sehingga `len` tidak cocok dengan jumlah baris.
@@ -33,3 +37,8 @@
 - [x] Arahkan Bulk Horizon page RM Discontinue ke Work Order agregat per RM.
 - [x] Hapus informasi FG dari export CSV page material.
 - [x] Gabungkan quantity Work Order General DRAFT/ACC ke Consolidation Discontinue DRAFT/ACC untuk RM dan periode sama.
+
+- [x] Perbaiki tiga bug kalkulasi Recommendation sebelum snapshot lock produksi pertama.
+- [x] Tambah Recommendation Period Lock berversi untuk General, Discontinue FG × RM, dan Discontinue Material.
+- [x] Dokumen terkait: [spec Lock](docs/superpowers/specs/2026-09-19-recommendation-period-lock-design.md), [plan Lock](docs/superpowers/plans/2026-09-19-recommendation-period-lock.md), [spec bug kalkulasi](docs/superpowers/specs/2026-09-19-recommendation-calc-bugs-design.md), dan [plan bug kalkulasi](docs/superpowers/plans/2026-09-19-recommendation-calc-bugs.md).
+- [ ] Verifikasi bypass endpoint RFQ/PO generik pada PO `DRAFT`/`SUBMITTED` saat periode terkunci bila ditemukan di lapangan.
