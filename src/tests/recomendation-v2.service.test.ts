@@ -55,11 +55,12 @@ describe("RecomendationV2Service - Override Features", () => {
         { anchored: true, stock: 50, shortage: 0 },
         { anchored: true, stock: 10, shortage: 0 },
         { anchored: true, stock: 7, shortage: 3 },
-        { anchored: true, stock: 0, shortage: 10 },
+        { anchored: true, stock: 0, openPo: 0, shortage: 10 },
+        { anchored: true, stock: 2, openPo: 3, shortage: 5 },
         { anchored: true, stock: 9.9, shortage: 0.1 },
         { anchored: true, stock: -2, shortage: 12 },
         { anchored: false, stock: -2, shortage: 0 },
-    ])("keeps discontinue shortages isolated (anchor=$anchored, stock=$stock)", async ({ anchored, stock, shortage }) => {
+    ].map((row) => ({ openPo: 0, ...row })))("keeps discontinue shortages isolated (anchor=$anchored, stock=$stock, open PO=$openPo)", async ({ anchored, stock, openPo, shortage }) => {
         if (anchored) vi.mocked(DiscontinueService.needs).mockResolvedValueOnce([{
             product_id: 1, material_id: 7, recipe_quantity: 0.2, total_needed: 10,
             anchor_material_id: 7, anchor_quantity: 10, anchor_material_name: "Fragrance Oil VAMO",
@@ -72,7 +73,7 @@ describe("RecomendationV2Service - Override Features", () => {
             needs_data: [{ month: 9, year: 2026, needs: 100 }, { month: 10, year: 2026, needs: 200 }],
             sales_data: [], po_data: [], work_order_data: null,
             total_forecast_horizon_dynamic: 300, recommendation_quantity: 240,
-            current_stock: stock, open_po: 0, safety_stock_x_resep: 10,
+            current_stock: stock, open_po: openPo, safety_stock_x_resep: 10,
             stock_fg_x_resep: 0, forecast_needed: 300, ranking: 1, moq: 1,
         }))).mockResolvedValueOnce([{ count: 2 }]).mockResolvedValueOnce([
             { product_id: 1, estimated_producible_fg: 42 },

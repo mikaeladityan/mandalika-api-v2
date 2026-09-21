@@ -50,6 +50,10 @@ Query `type` opsional:
 - `lokal` — FP Local
 
 Endpoint existing tetap mengembalikan list per FG × RM untuk pengaturan anchor dan analisis loss.
+Nilai `recommendation_quantity` dihitung dengan rumus
+`MAX(0, total kebutuhan anchor − current stock − Open PO)`. Open PO memakai periode dan
+horizon query yang sama dengan rekomendasi General. Endpoint membutuhkan session aplikasi;
+query invalid mengembalikan 400, akses tanpa izin 401/403, dan kegagalan server 500.
 
 ## Recommendation Material Discontinue
 

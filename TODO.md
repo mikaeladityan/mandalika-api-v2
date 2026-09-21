@@ -37,6 +37,7 @@
 - [x] Arahkan Bulk Horizon page RM Discontinue ke Work Order agregat per RM.
 - [x] Hapus informasi FG dari export CSV page material.
 - [x] Gabungkan quantity Work Order General DRAFT/ACC ke Consolidation Discontinue DRAFT/ACC untuk RM dan periode sama.
+- [x] Kurangi Open PO pada rekomendasi FG Discontinue per FG × RM, sama seperti rekomendasi General.
 
 - [x] Perbaiki tiga bug kalkulasi Recommendation sebelum snapshot lock produksi pertama.
 - [x] Samakan `current_stock` Rekomendasi dengan filter periode RM Inventory; default bulan berjalan dan snapshot gudang bulan sebelumnya tidak ikut dijumlah.
