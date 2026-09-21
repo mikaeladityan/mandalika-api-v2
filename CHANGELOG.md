@@ -4,6 +4,8 @@ Semua perubahan utama pada sisi server dicatat di sini.
 
 ## [Unreleased]
 
+- Fixed: Rekomendasi FG Discontinue per FG × RM sekarang mengurangi current stock dan Open PO dari total kebutuhan anchor; sebelumnya hanya current stock yang dikurangi.
+
 - Fixed: Import Raw Material sekarang decode kode supplier anonimisasi (`SUP-001` hingga `SUP9999`) menjadi `supplier_id` existing. Kode yang tidak punya supplier ditolak, bukan dibuat sebagai supplier baru. Header CSV `SOURCE` dan `NEGARA` diterima sebagai alias `LOCAL/IMPORT` dan `COUNTRY`. Data supplier kode palsu hasil import lama juga dibersihkan: 28 supplier dan 371 relasi material duplikat dihapus setelah dipastikan relasi kanonis sudah ada.
 - Fixed: Import Raw Material tidak lagi mengosongkan `min_stock` menjadi nol saat file CSV tidak memuat kolom `MIN STOCK`; angka nol eksplisit tetap dapat dipakai untuk mengubah nilai.
 

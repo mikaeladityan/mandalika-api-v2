@@ -720,7 +720,10 @@ export class RecomendationV2Service {
 
             // Recalculate recommendation specifically for special paper to avoid mixed units subtraction
             const discontinueShortage = anchoredNeed?.anchor_valid && anchoredNeed.total_needed > 0
-                ? Prisma.Decimal.max(0, new Prisma.Decimal(anchoredNeed.total_needed).minus(currentStock)).toDecimalPlaces(8).toNumber()
+                ? Prisma.Decimal.max(
+                    0,
+                    new Prisma.Decimal(anchoredNeed.total_needed).minus(currentStock).minus(openPo),
+                ).toDecimalPlaces(8).toNumber()
                 : 0;
             let recommendationQuantity = discontinue ? discontinueShortage : Number(r.recommendation_quantity);
             if (!discontinue && isSpecial && horizon > 0) {
