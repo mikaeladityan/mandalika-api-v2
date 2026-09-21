@@ -8,7 +8,7 @@ Semua perubahan utama pada sisi server dicatat di sini.
 - Fixed: Import Raw Material tidak lagi mengosongkan `min_stock` menjadi nol saat file CSV tidak memuat kolom `MIN STOCK`; angka nol eksplisit tetap dapat dipakai untuk mengubah nilai.
 
 - Added: Recommendation Period Lock berversi dengan snapshot untuk General, Discontinue FG × RM, dan Discontinue Material; tersedia endpoint lock/unlock/history, locked read path, SQL filter/sort, dan write gate `PERIOD_LOCKED`.
-- Fixed: Physical stock RM memakai snapshot terakhir pada atau sebelum periode target; Bulk Horizon memakai `recipes.use_size_calc`; Discontinue Loss memakai preferred supplier dengan `supplier_id` terkecil.
+- Fixed: Physical stock RM pada Rekomendasi memakai snapshot tepat pada bulan/tahun filter, sama dengan RM Inventory; snapshot gudang dari bulan sebelumnya tidak lagi menambah `current_stock`. Bulk Horizon memakai `recipes.use_size_calc`; Discontinue Loss memakai preferred supplier dengan `supplier_id` terkecil.
 
 - Fixed: Consolidation memakai supplier preferred terpilih (is_preferred dengan supplier_id terkecil) untuk filter `lokal`/`impor`, sama seperti daftar Rekomendasi. Raw material dengan supplier LOCAL dan IMPORT sekaligus tidak lagi muncul di kedua kategori; nama supplier, harga, dan MOQ ikut memakai preferred terpilih yang sama. Aturan scope dipindah ke modul bersama `shared/material-type-scope.ts`.
 

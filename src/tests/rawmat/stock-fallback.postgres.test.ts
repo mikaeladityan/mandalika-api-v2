@@ -83,11 +83,11 @@ describe.skipIf(!connectionString)("RM stock fallback (PostgreSQL)", () => {
         expect(await stock(1)).toMatchObject({ stock_source: "FG", amount: 70, booked: 30, avail: 40 });
     });
 
-    it("uses latest RM snapshot at or before target month", async () => {
+    it("does not carry an RM snapshot from a previous month into the selected period", async () => {
         await client.query("INSERT INTO pg_temp.raw_material_inventories(raw_material_id, warehouse_id, quantity, year, month) VALUES (1, 1, 50, 2026, 7)");
         const query = Prisma.sql`SELECT ${rawMaterialPhysicalStockSql(Prisma.sql`1`, 2026, 9)}::numeric AS stock`;
         const result = await client.query<{ stock: string }>(query.text, query.values);
-        expect(Number(result.rows[0]?.stock)).toBe(50);
+        expect(Number(result.rows[0]?.stock ?? 0)).toBe(0);
     });
 
     it("keeps RM even when booking exhausts the RM balance", async () => {

@@ -58,7 +58,8 @@ export function rawMaterialPhysicalStockSql(materialId: Prisma.Sql, year: number
             ) AS period_rank
             FROM raw_material_inventories
             WHERE raw_material_id = ${materialId}
-              AND (year * 12 + month) <= (${year} * 12 + ${month})
+              AND year = ${year}
+              AND month = ${month}
         ) latest WHERE latest.period_rank = 1
     )`;
 }

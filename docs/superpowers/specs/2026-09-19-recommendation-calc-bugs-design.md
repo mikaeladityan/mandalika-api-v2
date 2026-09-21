@@ -4,7 +4,7 @@
 
 Perbaiki 3 bug kalkulasi di alur rekomendasi pengadaan yang ketemu saat code review manual (bukan diff review) terhadap `recomendation-v2.service.ts`, `recommendation-stock.ts`, dan `discontinue-loss.service.ts` pada branch `fix/forecast-safety-stock-delivery-formula`. Ketiganya bikin angka yang ditampilkan/disimpan salah pada kondisi data tertentu — independen dari fitur [[2026-09-19-recommendation-period-lock-design|Lock Rekomendasi per Periode]], tapi relevan buatnya: kalau kalkulasi sumbernya salah, Lock cuma membekukan angka yang salah itu secara permanen sebagai riwayat. Idealnya 3 bug ini beres duluan sebelum periode pertama dikunci.
 
-## Bug #1 — Physical stock jadi 0 kalau RM gak punya snapshot di bulan exact
+## Bug #1 — Physical stock harus mengikuti bulan filter
 
 **Lokasi:** `src/module/application/recomendation-v2/recommendation-stock.ts:53-64`, fungsi `rawMaterialPhysicalStockSql`.
 
@@ -16,13 +16,13 @@ WHERE raw_material_id = ${materialId}
   AND month = ${month}
 ```
 
-`year`/`month` yang dipakai adalah `invYear`/`invMonth` hasil `resolveInvPeriod` (`recomendation-v2.service.ts:152-157`) — periode inventori **global** terbaru, bukan periode terbaru khusus RM ini. Pola yang benar sudah dipakai di tempat lain di file yang sama: `product_stock_agg` (baris 223-236) dan CTE production-capacity (baris 584-596), keduanya pakai `DISTINCT ON (...) ... WHERE (year*12+month) <= target ... ORDER BY ... DESC` — ambil snapshot terakhir *sebelum atau sama dengan* target, bukan exact match.
+`year`/`month` yang dipakai adalah periode inventory hasil filter Rekomendasi. Query harus mengikuti semantik RM Inventory: hanya snapshot pada bulan/tahun tersebut, lalu memilih row terbaru per gudang di dalam periode.
 
-**Akibat:** RM yang gak ada pergerakan/opname di bulan global-terbaru (jadi gak ada baris `raw_material_inventories` di bulan itu) → hasil query NULL → `current_stock` jatuh ke 0 lewat fallback FG (yang juga 0 kalau barcode gak match kode produk). Stok asli RM itu (tercatat di bulan sebelumnya) diabaikan total.
+**Akibat bila memakai `<= target`:** gudang tanpa snapshot di bulan terpilih membawa saldo bulan lama dan menambah `current_stock`. Contoh PB10M-GP September 2026: Produksi 1.137 + Kandangan 13.800 seharusnya 14.937, tetapi snapshot Pusat SBY Agustus 9.500 ikut dihitung sehingga menjadi 24.437.
 
-**Skenario gagal:** RM X terakhir di-stock-opname 2 bulan lalu dengan saldo 50.000. Bulan ini gak ada opname baru. `current_stock` yang dipakai buat `recommendation_quantity = GREATEST(0, need - (stock+open_po))` jadi 0, bukan 50.000 → rekomendasi over-purchase 50.000 unit yang sebenarnya gak perlu dibeli.
+**Skenario gagal:** RM mempunyai snapshot September pada dua gudang dan snapshot Agustus pada gudang ketiga. Filter September hanya boleh menjumlah dua row September.
 
-**Keputusan perbaikan:** ganti jadi pola "periode terakhir ≤ target" yang sama dengan `product_stock_agg`, per material (bukan per bulan global) — `DISTINCT ON (raw_material_id, warehouse_id) ... WHERE (year*12+month) <= (${year}*12+${month}) ORDER BY year DESC, month DESC, date DESC, updated_at DESC, id DESC`.
+**Keputusan revisi 2026-09-21:** gunakan `year = targetYear AND month = targetMonth`, lalu pilih row terbaru per gudang. Keputusan mengikuti filter RM Inventory dan validasi data PB10M-GP.
 
 ## Bug #2 — `bulkSaveHorizon` pakai aturan size-multiplier beda dari `list()`
 
@@ -58,7 +58,7 @@ Commit `79d05de` (fix(recommendation): persist bulk horizon in listed supplier c
 
 ## Testing
 
-1. **Bug #1** — RM dengan baris `raw_material_inventories` cuma di bulan N-2 (kosong di bulan global-terbaru N): `current_stock` harus ambil saldo bulan N-2, bukan 0.
+1. **Bug #1** — RM dengan snapshot bulan N pada satu gudang dan snapshot N-1 pada gudang lain: `current_stock` hanya menjumlah snapshot bulan N.
 2. **Bug #2** — resep `use_size_calc=true` pada RM non-FO dengan unit bukan ml/l/liter: `bulkSaveHorizon` menyimpan `total_needed`/`stock_fg_x_resep` yang sama dengan yang ditampilkan `list()` untuk kombinasi bulan/horizon yang sama.
 3. **Bug #3** — RM dengan 2 baris `supplier_materials` `is_preferred=true` beda harga: `discontinue-loss` dan `list()`/consolidation mengembalikan harga dari baris `supplier_id` yang sama.
 
