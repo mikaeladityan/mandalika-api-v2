@@ -95,7 +95,9 @@ export class ConsolidationService {
             quantity: {
                 gt: 0,
             },
-            ...(query.product_status && { product_status: query.product_status }),
+            // Consolidation umum hanya untuk produk aktif. FG Discontinue harus
+            // selalu meminta scope PENDING secara eksplisit.
+            product_status: query.product_status ?? "ACTIVE",
         };
 
         if (typeScopeMaterialIds) {
@@ -230,7 +232,7 @@ export class ConsolidationService {
             quantity: {
                 gt: 0,
             },
-            ...(query.product_status && { product_status: query.product_status }),
+            product_status: query.product_status ?? "ACTIVE",
             hidden_at: null,
         };
 

@@ -444,6 +444,16 @@ describe("ConsolidationService.list — hidden filter", () => {
         expect(result.data[0]?.quantity).toBe(25);
         expect(findMany).toHaveBeenCalledTimes(1);
     });
+
+    it("defaults Consolidation General to active products", async () => {
+        const { findMany } = setupListMocks();
+
+        await ConsolidationService.list({ page: 1, take: 10 } as any);
+
+        expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ product_status: "ACTIVE" }),
+        }));
+    });
 });
 
 describe("ConsolidationService.summaryBySupplier — hidden excluded", () => {
