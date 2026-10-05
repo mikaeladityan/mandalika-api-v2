@@ -359,15 +359,15 @@ export class ProductService {
                 ].some((type) => productTypeSlug.includes(type));
 
                 if (isManualForecastProduct) {
-                    const now = new Date();
+                    const current = ForecastService.currentForecastPeriod();
                     await prisma.forecast.updateMany({
                         where: {
                             product_id: id,
                             OR: [
-                                { year: { gt: now.getFullYear() } },
+                                { year: { gt: current.year } },
                                 {
-                                    year: now.getFullYear(),
-                                    month: { gte: now.getMonth() + 1 },
+                                    year: current.year,
+                                    month: { gte: current.month },
                                 },
                             ],
                         },
@@ -382,10 +382,10 @@ export class ProductService {
                         where: {
                             product_id: id,
                             OR: [
-                                { year: { gt: now.getFullYear() } },
+                                { year: { gt: current.year } },
                                 {
-                                    year: now.getFullYear(),
-                                    month: { gte: now.getMonth() + 1 },
+                                    year: current.year,
+                                    month: { gte: current.month },
                                 },
                             ],
                         },

@@ -40,7 +40,7 @@ export class ForecastController {
 
         await CreateLogger({
             activity: "CREATE",
-            description: `${Table} Run: ${result.processed_records} record(s) untuk periode ${body.start_month}/${body.start_year}`,
+            description: `${Table} Run: ${result.processed_records} record(s) untuk periode ${result.period.start_month}/${result.period.start_year}`,
             email: session.email,
         } satisfies CreateLoggingActivityDTO);
 

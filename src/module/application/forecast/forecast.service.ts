@@ -112,6 +112,17 @@ export class ForecastService {
         return size === 100 || size === 110 || size === 120;
     }
 
+    static currentForecastPeriod() {
+        // Use the business calendar even when the API server runs in UTC.
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: "Asia/Jakarta", year: "numeric", month: "numeric",
+        }).formatToParts(new Date());
+        return {
+            month: Number(parts.find((part) => part.type === "month")!.value),
+            year: Number(parts.find((part) => part.type === "year")!.value),
+        };
+    }
+
     static calculateSafetyStock(
         averageForecast: number,
         safetyPercentage: number,
@@ -729,7 +740,7 @@ export class ForecastService {
     static computeForecastBatch(params: {
         products: SelectedProduct[];
         monthsRange: { month: number; year: number }[];
-        pctMap: Map<string, { id: number; value: unknown }>;
+        pctMap: Map<string, { id: number; value: number | string | Prisma.Decimal }>;
         inputMap: Map<number, number>;
         is_others: boolean | undefined;
         distField: DistField;
@@ -748,7 +759,10 @@ export class ForecastService {
 
         // track the input for the current month calculation (starts with actual sales)
         let currentInputMap = new Map<number, number>(inputMap);
-        let previousTheoreticalAtomFinal = new Map<string, number>();
+        // Carry totals before EDAR and stock allocation, so mirrored rows or
+        // incomplete distribution percentages cannot distort the next month's Growth.
+        const previousBottleTotal = new Map<string, number>();
+        const previousVialTotal = new Map<string, number>();
 
         // Track aromas where regular variants should mirror hampers variants
         const extMirrorAromas = new Set<string>();
@@ -824,23 +838,30 @@ export class ForecastService {
                         ForecastService.isAnchorSize(p.size?.size)
                     );
                 });
-                const atomizer = group.find(
-                    (p) => p.product_type?.slug?.toLowerCase() === "atomizer",
-                );
+                const vials = group.filter((p) => {
+                    const slug = p.product_type?.slug;
+                    return p.size?.size === 2 && (
+                        ForecastService.isExtSlug(slug) ||
+                        ForecastService.isHampersExtSlug(slug) ||
+                        ForecastService.isParfumSlug(slug) ||
+                        ForecastService.isHampersParfumSlug(slug)
+                    );
+                });
 
-                let atomBase = 0;
-                if (atomizer) {
-                    atomBase = currentInputMap.get(atomizer.id) ?? 0;
-                } else if (i === 0) {
-                    atomBase =
-                        extAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0) +
-                        parfumAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0);
-                } else {
-                    atomBase = previousTheoreticalAtomFinal.get(aromaName) ?? 0;
-                }
+                // M1 starts from each group's own three-month average issuance.
+                // Atomizer issuance never contributes to either total.
+                const bottleBase = i === 0
+                    ? extAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0) +
+                        parfumAnchors.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0)
+                    : previousBottleTotal.get(aromaName) ?? 0;
+                const vialBase = i === 0
+                    ? vials.reduce((acc, p) => acc + (currentInputMap.get(p.id) ?? 0), 0)
+                    : previousVialTotal.get(aromaName) ?? 0;
 
-                const atomFinal = atomBase * (1 + pctValue);
-                previousTheoreticalAtomFinal.set(aromaName, atomFinal);
+                const bottleTotal = bottleBase * (1 + pctValue);
+                const vialTotal = vialBase * (1 + pctValue);
+                previousBottleTotal.set(aromaName, bottleTotal);
+                previousVialTotal.set(aromaName, vialTotal);
 
                 // ═══ TWO-PASS APPROACH for Hampers Mirroring ═══
                 // Map to store computed final_forecast per product id within this group+month
@@ -864,7 +885,7 @@ export class ForecastService {
 
                     const isRegularExtParfum =
                         (ForecastService.isExtSlug(slug) || ForecastService.isParfumSlug(slug)) &&
-                        (ForecastService.isAnchorSize(size) || (size === 2 && distField === "reference_distribution_percentage"));
+                        ForecastService.isAnchorSize(size);
 
                     // In Pass 1, skip regular EXT/Parfum that need mirroring (defer to Pass 2)
                     const needsMirrorInPass1 =
@@ -898,41 +919,15 @@ export class ForecastService {
                     const isVial2ml = size === 2 && isExtParfumFamily;
 
                     if (isExtParfumAnchor) {
-                        base_forecast = input * (1 + pctValue);
-                        final_forecast = atomFinal * distPct;
+                        base_forecast = bottleTotal;
+                        final_forecast = bottleTotal * distPct;
                     } else if (isVial2ml) {
-                        base_forecast = input * (1 + pctValue);
-                        // EDAR Vial is independent; keep the reference calculation unchanged.
-                        if (distField === "distribution_percentage") {
-                            final_forecast = atomFinal * distPct;
-                        } else {
-                            // Copy from its corresponding 100-120ml variant in this group.
-                            // Slug dicocokkan per keluarga (EXT/EDP vs Parfum), bukan string persis.
-                            const isSameFamily = (candidate?: string | null) => {
-                                if (ForecastService.isExtSlug(slug)) {
-                                    return ForecastService.isExtSlug(candidate);
-                                }
-                                if (ForecastService.isHampersExtSlug(slug)) {
-                                    return ForecastService.isHampersExtSlug(candidate);
-                                }
-                                if (ForecastService.isParfumSlug(slug)) {
-                                    return ForecastService.isParfumSlug(candidate);
-                                }
-                                return ForecastService.isHampersParfumSlug(candidate);
-                            };
-                            const parent = group.find(
-                                (p) =>
-                                    isSameFamily(p.product_type?.slug) &&
-                                    ForecastService.isAnchorSize(p.size?.size),
-                            );
-                            if (parent) {
-                                final_forecast =
-                                    computedFinalMap.get(parent.id) ??
-                                    atomFinal * Number(parent[distField] ?? 0);
-                            } else {
-                                final_forecast = atomFinal * distPct;
-                            }
-                        }
+                        base_forecast = vialTotal;
+                        final_forecast = vialTotal * distPct;
+                    } else if (slug === "atomizer") {
+                        // Atomizer follows the grown main-bottle total before EDAR.
+                        base_forecast = bottleTotal;
+                        final_forecast = bottleTotal;
                     }
 
                     computedFinalMap.set(product.id, final_forecast);
@@ -964,16 +959,16 @@ export class ForecastService {
                         ForecastService.isParfumSlug(slug) && ForecastService.isAnchorSize(size);
 
                     const needsExtMirror =
-                        (isRegularExt || (size === 2 && ForecastService.isExtSlug(slug) && distField === "reference_distribution_percentage")) && extMirrorAromas.has(aromaName);
+                        isRegularExt && extMirrorAromas.has(aromaName);
                     const needsParfumMirror =
-                        (isRegularParfum || (size === 2 && ForecastService.isParfumSlug(slug) && distField === "reference_distribution_percentage")) &&
+                        isRegularParfum &&
                         parfumMirrorAromas.has(aromaName);
 
                     if (!needsExtMirror && !needsParfumMirror) continue;
 
                     // Find the corresponding hampers product and COPY its final_forecast directly
                     let final_forecast = 0;
-                    const base_forecast = input * (1 + pctValue);
+                    const base_forecast = bottleTotal;
 
                     if (needsExtMirror) {
                         const hExt = group.find(
@@ -982,10 +977,10 @@ export class ForecastService {
                                 ForecastService.isAnchorSize(p.size?.size),
                         );
                         if (hExt) {
-                            // Direct copy of hampers' final_forecast value for both 100ml and 2ml
+                            // Preserve the existing main-bottle Hampers mirroring rule.
                             final_forecast =
                                 computedFinalMap.get(hExt.id) ??
-                                atomFinal * Number(hExt[distField] ?? 0);
+                                bottleTotal * Number(hExt[distField] ?? 0);
                         }
                     } else if (needsParfumMirror) {
                         const hParf = group.find(
@@ -994,10 +989,10 @@ export class ForecastService {
                                 ForecastService.isAnchorSize(p.size?.size),
                         );
                         if (hParf) {
-                            // Direct copy of hampers' final_forecast value for both 100ml and 2ml
+                            // Preserve the existing main-bottle Hampers mirroring rule.
                             final_forecast =
                                 computedFinalMap.get(hParf.id) ??
-                                atomFinal * Number(hParf[distField] ?? 0);
+                                bottleTotal * Number(hParf[distField] ?? 0);
                         }
                     }
 
@@ -1118,7 +1113,11 @@ export class ForecastService {
                 "Forecasting untuk produk 'Others' tidak didukung. Silakan kelola secara manual.",
             );
         }
-        const { product_id, start_year, start_month, horizon = 12 } = body;
+        const { product_id, horizon = 12 } = body;
+        const current = ForecastService.currentForecastPeriod();
+        const isHistoricalStart = body.start_year * 12 + body.start_month < current.year * 12 + current.month;
+        const start_month = isHistoricalStart ? current.month : body.start_month;
+        const start_year = isHistoricalStart ? current.year : body.start_year;
 
         // 1. Resolve all months in the requested horizon
         const monthsRange = Array.from({ length: horizon }, (_, i) => {
@@ -1409,13 +1408,24 @@ export class ForecastService {
         }
 
         return {
-            message: `Forecast berhasil disimpan: ${batch.length} record diproses. Safety Stock: ${safetyStockBatch.length} record.`,
+            message: `Forecast mulai ${start_month}/${start_year} berhasil disimpan: ${batch.length} record diproses. Safety Stock: ${safetyStockBatch.length} record.`,
             processed_records: batch.length,
             safety_stock_records: safetyStockBatch.length,
+            period: { start_month, start_year, horizon },
         };
     }
     static async updateManual(body: UpdateManualForecastDTO) {
         const { product_id, month, year, final_forecast, ratio } = body;
+        const current = ForecastService.currentForecastPeriod();
+        if (year * 12 + month < current.year * 12 + current.month) {
+            throw new ApiError(400, "Forecast bulan lampau tidak dapat diubah. Pilih bulan berjalan atau bulan berikutnya.");
+        }
+        const writablePeriods = {
+            OR: [
+                { year: { gt: current.year } },
+                { year: current.year, month: { gte: current.month } },
+            ],
+        };
 
         // 1. Load product to check if it's a Display product
         const product = await prisma.product.findUnique({
@@ -1712,16 +1722,16 @@ export class ForecastService {
             );
         }
 
-        // No planning-horizon field exists on this request. Reallocate from the earliest stored
-        // month so an M2 edit retains stock already consumed by M1 instead of restarting at M2.
+        // Reallocate only the current/future series. Historical forecasts and their
+        // stock allocations stay frozen, even when the product has older stored rows.
         const seriesStart = await prisma.forecast.findFirst({
-            where: { product_id },
+            where: { product_id, ...writablePeriods },
             orderBy: [{ year: "asc" }, { month: "asc" }],
             select: { month: true, year: true },
         });
         if (seriesStart) {
             const stored = await prisma.forecast.findMany({
-                where: { product_id },
+                where: { product_id, ...writablePeriods },
                 orderBy: [{ year: "asc" }, { month: "asc" }],
             });
             const stock = await ForecastService.loadOpeningFinishedGoodsStock(

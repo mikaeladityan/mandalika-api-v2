@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import prisma from "../../config/prisma.js";
 import { SafetyStockService } from "../../module/application/forecast/safety-stock/services.js";
 import { escapeIlike, ForecastService } from "../../module/application/forecast/forecast.service.js";
@@ -367,14 +367,19 @@ describe("ForecastService", () => {
     });
 
     describe("run persistence", () => {
+        beforeEach(() => {
+            vi.useFakeTimers({ toFake: ["Date"] });
+            vi.setSystemTime(new Date("2026-01-15T03:00:00Z"));
+        });
+        afterEach(() => vi.useRealTimers());
         it("persists operational final_forecast and legacy gross net_forecast", async () => {
             (prisma.product.findMany as any).mockResolvedValueOnce([{
                 id: 1,
                 name: "AROMA",
-                product_type: { slug: "atomizer" },
-                size: { size: 10 },
-                distribution_percentage: 0,
-                reference_distribution_percentage: 0,
+                product_type: { slug: "edp" },
+                size: { size: 110 },
+                distribution_percentage: 1,
+                reference_distribution_percentage: 1,
                 safety_percentage: 0,
             }]);
             (prisma.forecastPercentage.findMany as any).mockResolvedValueOnce([
@@ -397,6 +402,11 @@ describe("ForecastService", () => {
     });
 
     describe("updateManual allocation", () => {
+        beforeEach(() => {
+            vi.useFakeTimers({ toFake: ["Date"] });
+            vi.setSystemTime(new Date("2026-01-15T03:00:00Z"));
+        });
+        afterEach(() => vi.useRealTimers());
         it("reallocates an M2 gross edit from the earliest stored M1", async () => {
             (prisma.product.findUnique as any).mockResolvedValueOnce({
                 id: 1,

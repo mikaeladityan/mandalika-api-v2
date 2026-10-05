@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import app from "../../app.js";
 import prisma from "../../config/prisma.js";
 import { sessionCache } from "../../lib/session.management.js";
@@ -70,6 +70,11 @@ describe("ForecastRoutes", () => {
     // ─── POST /run ────────────────────────────────────────────────────────────
 
     describe("POST /run", () => {
+        beforeEach(() => {
+            vi.useFakeTimers({ toFake: ["Date"] });
+            vi.setSystemTime(new Date("2026-01-15T03:00:00Z"));
+        });
+        afterEach(() => vi.useRealTimers());
         it("should return 201 on successful forecast run", async () => {
             // @ts-ignore
             prisma.product.findMany.mockResolvedValue(mockProducts);
@@ -95,6 +100,8 @@ describe("ForecastRoutes", () => {
             expect(res.status).toBe(201);
             expect(body.status).toBe("success");
             expect(body.data).toHaveProperty("processed_records");
+            // Request starts in December 2025; the clock is January 2026.
+            expect(body.data.period).toEqual({ start_month: 1, start_year: 2026, horizon: 1 });
         });
 
         it("should apply default horizon=12 if not provided", async () => {

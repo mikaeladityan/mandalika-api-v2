@@ -1,15 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProductService } from "../../module/application/product/product.service.js";
 import { ForecastService } from "../../module/application/forecast/forecast.service.js";
 import { UpdateProductSchema } from "../../module/application/product/product.schema.js";
 
 const mocks = vi.hoisted(() => ({
     findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), run: vi.fn(), sync: vi.fn(),
+    forecastUpdateMany: vi.fn(), safetyUpdateMany: vi.fn(),
 }));
 vi.mock("../../config/prisma.js", () => {
     const product = { findUnique: mocks.findUnique, findMany: mocks.findMany, update: mocks.update };
-    return { default: { product, $transaction: async (fn: (tx: { product: typeof product }) => Promise<object>) => fn({ product }) } };
+    return { default: {
+        product,
+        forecast: { updateMany: mocks.forecastUpdateMany },
+        safetyStock: { updateMany: mocks.safetyUpdateMany },
+        $transaction: async (fn: (tx: { product: typeof product }) => Promise<object>) => fn({ product }),
+    } };
 });
+
+afterEach(() => vi.useRealTimers());
 vi.mock("../../module/application/product/sheet/product-sheet.queue.js", () => ({ enqueueProductSheetSync: mocks.sync }));
 
 const period = { start_month: 9, start_year: 2026, horizon: 3 };
@@ -36,6 +44,18 @@ beforeEach(() => {
 });
 
 describe("EDAR pairing and automatic forecast", () => {
+    it("discontinues manual products only from the current Jakarta month onward, preserving historical Forecast and Safety Stock", async () => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date("2026-12-31T18:00:00Z"));
+        rows[0]!.product_type.slug = "display";
+        await ProductService.status(1, "PENDING", { start_month: 12, start_year: 2026, horizon: 3 });
+        const where = { product_id: 1, OR: [
+            { year: { gt: 2027 } }, { year: 2027, month: { gte: 1 } },
+        ] };
+        expect(mocks.forecastUpdateMany).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ where }));
+        expect(mocks.safetyUpdateMany).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ where }));
+        expect(mocks.run).not.toHaveBeenCalled();
+    });
     it.each([0, 0.6, 1])("updates opposite family to complement of %s and reruns once", async (percentage) => {
         rows.push(product(3, "parfum", 2), product(4, "pooler"));
         await ProductService.update(1, { distribution_percentage: percentage, rerun: period });

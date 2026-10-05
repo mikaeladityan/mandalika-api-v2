@@ -11,7 +11,7 @@ const compute = (products: SelectedProduct[]) => ForecastService.computeForecast
     products,
     monthsRange: [{ month: 9, year: 2026 }, { month: 10, year: 2026 }],
     pctMap: new Map([["2026-9", { id: 1, value: "0.1" }], ["2026-10", { id: 2, value: "0.1" }]]),
-    inputMap: new Map([[1, 1000], [2, 500], [3, 500]]),
+    inputMap: new Map([[1, 9000], [2, 600], [3, 400], [4, 140], [5, 60]]),
     is_others: false, distField: "distribution_percentage",
 });
 
@@ -21,7 +21,7 @@ describe("Forecast with independent EDAR pairs and discontinued FG", () => {
             product(1, "atomizer", 10, 0), product(2, "edp", 110, 0.6), product(3, "parfum", 110, 0.4),
             product(4, "edp", 2, 0.7), product(5, "parfum", 2, 0.3),
         ]);
-        expect(rows.filter((row) => row.month === 9).map((row) => row.final_forecast)).toEqual([1100, 660, 440, 770, 330]);
+        expect(rows.filter((row) => row.month === 9).map((row) => row.final_forecast)).toEqual([1100, 660, 440, 154, 66]);
     });
     it("writes zero for discontinued product and allocates entire pool to its active partner", () => {
         const rows = compute([product(2, "edp", 110, 0, "PENDING"), product(3, "parfum", 110, 1)]);

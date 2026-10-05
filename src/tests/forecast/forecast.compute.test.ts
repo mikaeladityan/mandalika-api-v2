@@ -9,7 +9,8 @@ vi.mock("../../config/prisma.js", () => ({
     },
 }));
 
-import { ForecastService } from "../../module/application/forecast/forecast.service.js";
+import { Prisma } from "../../generated/prisma/client.js";
+import { ForecastService, type SelectedProduct, type DistField, type ForecastBatchRow } from "../../module/application/forecast/forecast.service.js";
 
 const pctMap = new Map([["2026-1", { id: 1, value: "0.10" }], ["2026-2", { id: 2, value: "0.10" }]]);
 const months2 = [
@@ -17,250 +18,171 @@ const months2 = [
     { month: 2, year: 2026 },
 ];
 
+const product = (
+    id: number, slug: string, size: number, edar: number, acuan = edar,
+    status: "ACTIVE" | "PENDING" = "ACTIVE", name = "GORGEOUS TUBEROSE",
+): SelectedProduct => ({
+    id, name, status, product_type: { slug }, size: { size },
+    distribution_percentage: new Prisma.Decimal(edar),
+    reference_distribution_percentage: new Prisma.Decimal(acuan),
+    safety_percentage: new Prisma.Decimal(0),
+});
+
+const products = [
+    product(1, "atomizer", 10, 0),
+    product(2, "edp", 110, 0.6, 0.5),
+    product(3, "parfume-intense", 110, 0.4, 0.5),
+    product(4, "edp", 2, 0.7, 0.2),
+    product(5, "parfume-intense", 2, 0.3, 0.8),
+];
+const inputMap = new Map([[1, 9_000], [2, 600], [3, 400], [4, 140], [5, 60]]);
+const compute = (
+    selectedProducts = products,
+    inputs = inputMap,
+    distField: DistField = "distribution_percentage",
+    percentages = pctMap,
+) => ForecastService.computeForecastBatch({
+    products: selectedProducts, inputMap: inputs, distField,
+    monthsRange: months2, pctMap: percentages, is_others: false,
+});
+const pick = (rows: ForecastBatchRow[], id: number, month = 1) =>
+    rows.find((row) => row.product_id === id && row.month === month)!;
+
 describe("ForecastService.computeForecastBatch", () => {
-    it("edar=0 tapi acuan>0 menghasilkan final_acuan > 0 (kasus divergensi)", () => {
-        const products: any[] = [
-            {
-                id: 1,
-                name: "AROMA X EXT 110ML",
-                product_type: { slug: "ext" },
-                size: { size: 110 },
-                distribution_percentage: "0",
-                reference_distribution_percentage: "0.6",
-                safety_percentage: "0",
-            },
-        ];
-        const inputMap = new Map([[1, 100]]);
-        const base = { products, monthsRange: [months2[0]!], pctMap, inputMap, is_others: false };
+    it("uses bottle issuance, applies Growth, then distributes EDAR; Atomizer copies the grown bottle total", () => {
+        const rows = compute();
+        expect(pick(rows, 1).final_forecast).toBeCloseTo(1_100, 5);
+        expect(pick(rows, 2).final_forecast).toBeCloseTo(660, 5);
+        expect(pick(rows, 3).final_forecast).toBeCloseTo(440, 5);
+        expect(pick(rows, 1).base_forecast).toBeCloseTo(1_100, 5);
+        expect(pick(rows, 2).base_forecast).toBeCloseTo(1_100, 5);
+        expect(pick(rows, 2).final_forecast + pick(rows, 3).final_forecast)
+            .toBeCloseTo(pick(rows, 1).final_forecast, 5);
+        expect(pick(rows, 1).status).toBe("ADJUSTED");
+    });
 
-        const edar = ForecastService.computeForecastBatch({ ...base, distField: "distribution_percentage" });
-        const acuan = ForecastService.computeForecastBatch({ ...base, distField: "reference_distribution_percentage" });
+    it("uses Vial issuance independently of bottle and Atomizer issuance", () => {
+        const rows = compute();
+        expect(pick(rows, 4).base_forecast).toBeCloseTo(220, 5);
+        expect(pick(rows, 4).final_forecast).toBeCloseTo(154, 5);
+        expect(pick(rows, 5).final_forecast).toBeCloseTo(66, 5);
+        const changed = compute(products, new Map([...inputMap, [1, 50_000], [2, 6_000]]));
+        expect(pick(changed, 4).final_forecast).toBe(pick(rows, 4).final_forecast);
+        expect(pick(changed, 5).final_forecast).toBe(pick(rows, 5).final_forecast);
+    });
 
-        // atomBase = 100 (anchor input), atomFinal = 100 * 1.1 = 110
-        expect(edar[0]!.final_forecast).toBe(0); // 110 * 0
-        expect(acuan[0]!.final_forecast).toBeCloseTo(66, 5); // 110 * 0.6
+    it("uses independent Vial issuance and reference percentages for ACUAN, without copying bottles", () => {
+        const rows = compute(products, inputMap, "reference_distribution_percentage");
+        expect(pick(rows, 1).final_forecast).toBeCloseTo(1_100, 5);
+        expect(pick(rows, 2).final_forecast).toBeCloseTo(550, 5);
+        expect(pick(rows, 3).final_forecast).toBeCloseTo(550, 5);
+        expect(pick(rows, 4).final_forecast).toBeCloseTo(44, 5);
+        expect(pick(rows, 5).final_forecast).toBeCloseTo(176, 5);
+    });
+
+    it.each(["distribution_percentage", "reference_distribution_percentage"] as const)(
+        "chains each group's grown total separately across months (%s)", (field) => {
+            const rows = compute(products, inputMap, field);
+            expect(pick(rows, 1, 2).final_forecast).toBeCloseTo(1_210, 5);
+            expect(pick(rows, 2, 2).base_forecast).toBeCloseTo(1_210, 5);
+            expect(pick(rows, 4, 2).base_forecast).toBeCloseTo(242, 5);
+            expect(pick(rows, 2, 2).final_forecast + pick(rows, 3, 2).final_forecast).toBeCloseTo(1_210, 5);
+            expect(pick(rows, 4, 2).final_forecast + pick(rows, 5, 2).final_forecast).toBeCloseTo(242, 5);
+            expect(pick(rows, 1, 2).status).toBe("DRAFT");
+        },
+    );
+
+    it("supports negative Growth followed by positive Growth", () => {
+        const rows = compute(products, inputMap, "distribution_percentage", new Map([
+            ["2026-1", { id: 1, value: "-0.05" }],
+            ["2026-2", { id: 2, value: "0.03" }],
+        ]));
+        expect(pick(rows, 1).final_forecast).toBeCloseTo(950, 5);
+        expect(pick(rows, 1, 2).final_forecast).toBeCloseTo(978.5, 5);
+        expect(pick(rows, 4, 2).base_forecast).toBeCloseTo(195.7, 5);
+    });
+
+    it.each([100, 110, 120])("recognizes main bottle size %s without requiring an Atomizer", (size) => {
+        const rows = compute([product(2, "ext", size, 0.6), product(3, "parfum", size, 0.4)]);
+        expect(pick(rows, 2).final_forecast).toBeCloseTo(660, 5);
+        expect(pick(rows, 3, 2).final_forecast).toBeCloseTo(484, 5);
+    });
+
+    it.each(["parfume-intense", "perfume-intense", "parfume", "parfum", "perfume"])(
+        "recognizes Parfum alias %s for both bottle and Vial issuance", (slug) => {
+            const rows = compute([products[0]!, products[1]!, product(3, slug, 110, 0.4),
+                products[3]!, product(5, slug, 2, 0.3)]);
+            expect(pick(rows, 1).final_forecast).toBeCloseTo(1_100, 5);
+            expect(pick(rows, 5).final_forecast).toBeCloseTo(66, 5);
+        },
+    );
+
+    it("forecasts Vial without main bottles, and never falls back to Atomizer issuance", () => {
+        const rows = compute([products[0]!, products[3]!, products[4]!]);
+        expect(pick(rows, 1).final_forecast).toBe(0);
+        expect(pick(rows, 4).final_forecast).toBeCloseTo(154, 5);
+        const noVialIssuance = compute(products, new Map([[1, 9_000], [2, 600], [3, 400]]));
+        expect(pick(noVialIssuance, 4).final_forecast).toBe(0);
+        expect(pick(noVialIssuance, 5, 2).final_forecast).toBe(0);
+    });
+
+    it("does not mix issuance from different aromas or unrelated sizes", () => {
+        const rows = compute([...products, product(6, "edp", 110, 1, 1, "ACTIVE", "OTHER AROMA"),
+            product(7, "edp", 30, 1)], new Map([...inputMap, [6, 2_000], [7, 3_000]]));
+        expect(pick(rows, 1).final_forecast).toBeCloseTo(1_100, 5);
+        expect(pick(rows, 6).final_forecast).toBeCloseTo(2_200, 5);
+        expect(pick(rows, 7).final_forecast).toBeCloseTo(3_300, 5);
+    });
+
+    it("keeps theoretical totals when EDAR is zero or incomplete instead of reapplying it each month", () => {
+        const rows = compute([product(1, "atomizer", 10, 0), product(2, "edp", 110, 0, 0.6)]);
+        expect(pick(rows, 1, 2).final_forecast).toBeCloseTo(726, 5);
+        expect(pick(rows, 2, 2).final_forecast).toBe(0);
+        const acuan = compute([product(2, "edp", 110, 0, 0.6)], inputMap, "reference_distribution_percentage");
+        expect(pick(acuan, 2).final_forecast).toBeCloseTo(396, 5);
+        expect(pick(acuan, 2, 2).final_forecast).toBeCloseTo(435.6, 5);
     });
 
     it.each([
         { hampersSlug: "hampers-ext", regularSlug: "ext" },
         { hampersSlug: "hampers-perfume", regularSlug: "parfume-intense" },
-    ])("canonical $hampersSlug mirror mengikuti distField yang dipilih", ({ hampersSlug, regularSlug }) => {
-        const products: any[] = [
-            {
-                id: 10,
-                name: "HAMPERS AROMA Y 110ML",
-                product_type: { slug: hampersSlug },
-                size: { size: 110 },
-                distribution_percentage: "0.4",
-                reference_distribution_percentage: "0.8",
-                safety_percentage: "0",
-            },
-            {
-                id: 11,
-                name: "AROMA Y 110ML",
-                product_type: { slug: regularSlug },
-                size: { size: 110 },
-                distribution_percentage: "0.3",
-                reference_distribution_percentage: "0.2",
-                safety_percentage: "0",
-            },
+    ])("preserves $hampersSlug bottle mirroring without copying bottles into Vial or inflating subsequent totals", ({ hampersSlug, regularSlug }) => {
+        const selected = [
+            product(10, hampersSlug, 110, 0.4, 0.8, "ACTIVE", "HAMPERS GORGEOUS TUBEROSE"),
+            product(11, regularSlug, 110, 0.3, 0.2),
+            product(12, regularSlug, 2, 1, 1),
         ];
-        const inputMap = new Map([
-            [10, 50],
-            [11, 100],
-        ]);
-        const base = { products, monthsRange: [months2[0]!], pctMap, inputMap, is_others: false };
-
-        const edar = ForecastService.computeForecastBatch({ ...base, distField: "distribution_percentage" });
-        const acuan = ForecastService.computeForecastBatch({ ...base, distField: "reference_distribution_percentage" });
-
-        // atomBase = 50 + 100 = 150 → atomFinal = 165
-        const edarHampers = edar.find((r) => r.product_id === 10)!;
-        const edarRegular = edar.find((r) => r.product_id === 11)!;
-        expect(edarHampers.final_forecast).toBeCloseTo(66, 5); // 165 * 0.4
-        expect(edarRegular.final_forecast).toBeCloseTo(66, 5); // mirror hampers
-
-        const acuanHampers = acuan.find((r) => r.product_id === 10)!;
-        const acuanRegular = acuan.find((r) => r.product_id === 11)!;
-        expect(acuanHampers.final_forecast).toBeCloseTo(132, 5); // 165 * 0.8
-        expect(acuanRegular.final_forecast).toBeCloseTo(132, 5); // mirror hampers
+        const inputs = new Map([[10, 50], [11, 100], [12, 20]]);
+        for (const field of ["distribution_percentage", "reference_distribution_percentage"] as const) {
+            const rows = compute(selected, inputs, field);
+            const expected = field === "distribution_percentage" ? 66 : 132;
+            expect(pick(rows, 10).final_forecast).toBeCloseTo(expected, 5);
+            expect(pick(rows, 11).final_forecast).toBeCloseTo(expected, 5);
+            expect(pick(rows, 11, 2).final_forecast).toBeCloseTo(expected * 1.1, 5);
+            expect(pick(rows, 12).final_forecast).toBeCloseTo(22, 5);
+            expect(pick(rows, 12, 2).final_forecast).toBeCloseTo(24.2, 5);
+        }
     });
 
-    it("chain antar-bulan: atomBase bulan-2 = atomFinal bulan-1", () => {
-        const products: any[] = [
-            {
-                id: 1,
-                name: "AROMA Z EXT 110ML",
-                product_type: { slug: "ext" },
-                size: { size: 110 },
-                distribution_percentage: "0.5",
-                reference_distribution_percentage: "0.5",
-                safety_percentage: "0",
-            },
-        ];
-        const inputMap = new Map([[1, 100]]);
-        const rows = ForecastService.computeForecastBatch({
-            products,
-            monthsRange: months2,
-            pctMap,
-            inputMap,
-            is_others: false,
-            distField: "distribution_percentage",
-        });
-
-        const m1 = rows.find((r) => r.month === 1)!;
-        const m2 = rows.find((r) => r.month === 2)!;
-        expect(m1.final_forecast).toBeCloseTo(55, 5); // 110 * 0.5
-        expect(m2.final_forecast).toBeCloseTo(60.5, 5); // atomFinal m2 = 110 * 1.1 = 121 → 121 * 0.5
-        expect(m1.status).toBe("ADJUSTED");
-        expect(m2.status).toBe("DRAFT");
+    it("does not let opening stock allocation affect either group's Growth or Atomizer", () => {
+        const rows = ForecastService.applyOpeningStockToForecastBatch(compute(), new Map([[1, 2_000], [2, 800], [4, 200]]));
+        expect(pick(rows, 1).net_forecast).toBeCloseTo(1_100, 5);
+        expect(pick(rows, 1).final_forecast).toBe(0);
+        expect(pick(rows, 1, 2).net_forecast).toBeCloseTo(1_210, 5);
+        expect(pick(rows, 1, 2).final_forecast).toBeCloseTo(310, 5);
+        expect(pick(rows, 2, 2).net_forecast).toBeCloseTo(726, 5);
+        expect(pick(rows, 2, 2).final_forecast).toBeCloseTo(586, 5);
+        expect(pick(rows, 4, 2).net_forecast).toBeCloseTo(169.4, 5);
+        expect(pick(rows, 4, 2).final_forecast).toBeCloseTo(123.4, 5);
     });
 
-    it("membagi gross Forecast Atomizer ke EXT dan Parfum sesuai EDAR", () => {
-        const atomizerPctMap = new Map([
-            ["2026-1", { id: 1, value: "-0.05" }],
-            ["2026-2", { id: 2, value: "0.03" }],
-        ]);
-        const products: any[] = [
-            {
-                id: 1,
-                name: "GORGEOUS TUBEROSE",
-                product_type: { slug: "ext" },
-                size: { size: 110 },
-                distribution_percentage: "0.6",
-                reference_distribution_percentage: "0.6",
-                safety_percentage: "1",
-            },
-            {
-                id: 3,
-                name: "GORGEOUS TUBEROSE",
-                product_type: { slug: "parfum" },
-                size: { size: 110 },
-                distribution_percentage: "0.4",
-                reference_distribution_percentage: "0.4",
-                safety_percentage: "1",
-            },
-            {
-                id: 2,
-                name: "GORGEOUS TUBEROSE",
-                product_type: { slug: "atomizer" },
-                size: { size: 10 },
-                distribution_percentage: "0",
-                reference_distribution_percentage: "0",
-                safety_percentage: "1.25",
-            },
-        ];
-        const rows = ForecastService.computeForecastBatch({
-            products,
-            monthsRange: months2,
-            pctMap: atomizerPctMap,
-            inputMap: new Map([
-                [1, 4_000],
-                [2, 7_500],
-                [3, 3_000],
-            ]),
-            is_others: false,
-            distField: "distribution_percentage",
-        });
-
-        const atomizerM1 = rows.find((row) => row.product_id === 2 && row.month === 1)!;
-        const atomizerM2 = rows.find((row) => row.product_id === 2 && row.month === 2)!;
-        const extM1 = rows.find((row) => row.product_id === 1 && row.month === 1)!;
-        const parfumM1 = rows.find((row) => row.product_id === 3 && row.month === 1)!;
-        const extM2 = rows.find((row) => row.product_id === 1 && row.month === 2)!;
-        const parfumM2 = rows.find((row) => row.product_id === 3 && row.month === 2)!;
-        expect(atomizerM1.base_forecast).toBeCloseTo(7_125, 5);
-        expect(atomizerM1.final_forecast).toBeCloseTo(7_125, 5);
-        expect(extM1.final_forecast).toBeCloseTo(4_275, 5);
-        expect(parfumM1.final_forecast).toBeCloseTo(2_850, 5);
-        expect(atomizerM2.base_forecast).toBeCloseTo(7_338.75, 5);
-        expect(atomizerM2.final_forecast).toBeCloseTo(7_338.75, 5);
-        expect(extM2.final_forecast).toBeCloseTo(4_403.25, 5);
-        expect(parfumM2.final_forecast).toBeCloseTo(2_935.5, 5);
-        expect(extM1.final_forecast + parfumM1.final_forecast).toBeCloseTo(
-            atomizerM1.final_forecast,
-            5,
-        );
+    it("retains the existing stop rule for missing or zero Growth", () => {
+        expect(compute(products, inputMap, "distribution_percentage", new Map())).toEqual([]);
+        const rows = compute(products, inputMap, "distribution_percentage", new Map([
+            ["2026-1", { id: 1, value: "0.1" }], ["2026-2", { id: 2, value: "0" }],
+        ]));
+        expect(rows).toHaveLength(5);
     });
-
-    it.each(["parfume-intense", "perfume-intense", "parfume"])(
-        "slug Parfum baru '%s' masuk pool Atomizer dan vial menyalin induknya",
-        (parfumSlug) => {
-        // Data produksi memakai slug "edp", bukan "ext".
-        const products: any[] = [
-            {
-                id: 1,
-                name: "GORGEOUS TUBEROSE",
-                product_type: { slug: "atomizer" },
-                size: { size: 10 },
-                distribution_percentage: "0",
-                reference_distribution_percentage: "0",
-                safety_percentage: "1.25",
-            },
-            {
-                id: 2,
-                name: "GORGEOUS TUBEROSE",
-                product_type: { slug: "edp" },
-                size: { size: 110 },
-                distribution_percentage: "0.6",
-                reference_distribution_percentage: "0.6",
-                safety_percentage: "1",
-            },
-            {
-                id: 3,
-                name: "GORGEOUS TUBEROSE",
-                product_type: { slug: parfumSlug },
-                size: { size: 110 },
-                distribution_percentage: "0.4",
-                reference_distribution_percentage: "0.4",
-                safety_percentage: "1",
-            },
-            {
-                id: 4,
-                name: "GORGEOUS TUBEROSE",
-                product_type: { slug: "edp" },
-                size: { size: 2 },
-                distribution_percentage: "0.6",
-                reference_distribution_percentage: "0.6",
-                safety_percentage: "1.25",
-            },
-            {
-                id: 5,
-                name: "GORGEOUS TUBEROSE",
-                product_type: { slug: parfumSlug },
-                size: { size: 2 },
-                distribution_percentage: "0.4",
-                reference_distribution_percentage: "0.4",
-                safety_percentage: "1.25",
-            },
-        ];
-        const rows = ForecastService.computeForecastBatch({
-            products,
-            monthsRange: [months2[0]!],
-            pctMap,
-            inputMap: new Map([
-                [1, 1_000],
-                [2, 400],
-                [3, 300],
-                [4, 200],
-                [5, 100],
-            ]),
-            is_others: false,
-            distField: "distribution_percentage",
-        });
-
-        const pick = (id: number) => rows.find((row) => row.product_id === id)!;
-        // Pool Atomizer = 1.000 × 1,10 = 1.100
-        expect(pick(1).final_forecast).toBeCloseTo(1_100, 5);
-        expect(pick(2).final_forecast).toBeCloseTo(660, 5); // 1.100 × 60%
-        expect(pick(3).final_forecast).toBeCloseTo(440, 5); // 1.100 × 40%
-        // EXT + Parfum harus tepat sama dengan pool Atomizer.
-        expect(pick(2).final_forecast + pick(3).final_forecast).toBeCloseTo(1_100, 5);
-        // Vial 2ml menyalin penuh nilai induk 110ml.
-        expect(pick(4).final_forecast).toBeCloseTo(660, 5);
-        expect(pick(5).final_forecast).toBeCloseTo(440, 5);
-        },
-    );
 });
 
 describe("ForecastService.calculateStockSurplus", () => {
