@@ -20,7 +20,7 @@ import * as ExcelJS from "exceljs";
 import { ApiError } from "../../../lib/errors/api.error.js";
 import { logger } from "../../../lib/logger.js";
 import { calculatePOEta } from "../purchase/po/po-eta.js";
-import { recommendationStockSql, recommendationForecastSql } from "./recommendation-stock.js";
+import { recommendationStockSql, recommendationForecastSql, recommendationOpenPoSql, resolveRecommendationInvPeriod } from "./recommendation-stock.js";
 import { DiscontinueService } from "./discontinue/discontinue.service.js";
 import { materialTypeScopeSql } from "../shared/material-type-scope.js";
 import { RecommendationLockView, RecommendationPeriodLockService } from "./period-lock/services.js";
@@ -378,22 +378,7 @@ export class RecomendationV2Service {
                         invYear, invMonth, fgInvYear, fgInvMonth,
                         type === "tester" ? Prisma.sql`COALESCE(sa.stock_fg_x_resep, 0)` : undefined,
                     )} AS current_stock,
-                    (
-                        COALESCE((
-                            SELECT SUM(po.quantity)
-                            FROM "raw_material_open_pos" po
-                            WHERE po.raw_material_id = fm.id AND po.status = 'OPEN'
-                        ), 0)
-                        +
-                        COALESCE((
-                            SELECT SUM(poi.qty_ordered - poi.qty_received)
-                            FROM "purchase_order_items" poi
-                            JOIN "purchase_orders" po ON poi.po_id = po.id
-                            WHERE poi.raw_material_id = fm.id
-                              AND po.status = 'ORDERED'
-                              AND poi.qty_received < poi.qty_ordered
-                        ), 0)
-                    ) AS open_po,
+                    ${recommendationOpenPoSql(Prisma.sql`fm.id`)} AS open_po,
 
                     -- Open PO per month breakdown: match the purchase Open PO list.
                     (
@@ -2115,10 +2100,7 @@ export class RecomendationV2Service {
         current: { month: number; year: number },
         latest: { month: number; year: number } | null
     ): { month: number; year: number } {
-        if (!latest) return current;
-        return (current.year * 12 + current.month) > (latest.year * 12 + latest.month)
-            ? { month: latest.month, year: latest.year }
-            : current;
+        return resolveRecommendationInvPeriod(current, latest);
     }
 
     private static async resolveSupplierAndPrice(

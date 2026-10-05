@@ -78,6 +78,7 @@ async function captureLiveRows(period: LockPeriodRequest): Promise<SnapshotCaptu
         RecomendationV2Service.list({ ...query, product_status: "PENDING" }),
     ]);
     const { aggregateDiscontinueMaterialRows } = await import("../discontinue/material-recommendation.service.js");
+    const { calculateDiscontinueSnapshotLoss } = await import("../discontinue/discontinue-loss.service.js");
     const discontinueMaterial = {
         data: aggregateDiscontinueMaterialRows(discontinueFg.data),
         periods: discontinueFg.periods,
@@ -98,7 +99,7 @@ async function captureLiveRows(period: LockPeriodRequest): Promise<SnapshotCaptu
                     where: { is_preferred: true, status: "ACTIVE" },
                     orderBy: { supplier_id: "asc" },
                     take: 1,
-                    select: { supplier_id: true, supplier: { select: { name: true } } },
+                    select: { unit_price: true, supplier_id: true, supplier: { select: { name: true } } },
                 },
             },
         }).catch(() => []),
@@ -111,6 +112,10 @@ async function captureLiveRows(period: LockPeriodRequest): Promise<SnapshotCaptu
         const sales = row.sales ?? [];
         const meta = metaByMaterial.get(Number(row.material_id));
         const preferred = meta?.supplier_materials?.[0];
+        const payload = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+        if (view === RecommendationLockView.DISCONTINUE_FG) {
+            payload.discontinue_loss = calculateDiscontinueSnapshotLoss(row, preferred?.unit_price ?? null);
+        }
         return {
             view,
             raw_mat_id: Number(row.material_id),
@@ -127,7 +132,7 @@ async function captureLiveRows(period: LockPeriodRequest): Promise<SnapshotCaptu
             sort_forecast_needed: Number(row.forecast_needed ?? 0),
             sort_recommendation: Number(row.recommendation_quantity ?? 0),
             hidden: Boolean(row.work_order_hidden_at),
-            payload: JSON.parse(JSON.stringify(row)) as Record<string, unknown>,
+            payload,
         };
     };
     return {

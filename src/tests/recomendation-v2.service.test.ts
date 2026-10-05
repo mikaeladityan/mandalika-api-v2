@@ -402,7 +402,8 @@ describe("RecomendationV2Service - Override Features", () => {
             mockList([]);
             await RecomendationV2Service.list(query);
             const call = vi.mocked(prisma.$queryRaw).mock.calls[1]!;
-            const sql = (call[0] as TemplateStringsArray).join(" ");
+            // Expand nested Prisma.sql helpers so the assertion checks the actual query.
+            const sql = Prisma.sql(call[0] as TemplateStringsArray, ...call.slice(1)).sql;
             expect(sql.match(/po.status = 'ORDERED'/g)).toHaveLength(2);
             expect(sql.match(/poi.qty_received < poi.qty_ordered/g)).toHaveLength(2);
             expect(sql).not.toMatch(/SUBMITTED|APPROVED/);

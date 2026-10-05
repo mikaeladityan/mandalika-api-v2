@@ -10,6 +10,8 @@ export const DiscontinueLossRowSchema = z.object({
     barcode: z.string().nullable(),
     material_name: z.string(),
     uom: z.string(),
+    total_needed: z.number(),
+    open_po: z.number(),
     stock: z.number(),
     need_buy: z.number(),
     remaining: z.number(),
@@ -22,5 +24,7 @@ export const DiscontinueLossSchema = z.object({
     purchase_value: z.number(),
     missing_prices: z.number(),
     anchor_valid: z.boolean(),
+    locked: z.boolean().default(false),
+    historical_prices_missing: z.boolean().default(false),
 });
 export type DiscontinueLoss = z.infer<typeof DiscontinueLossSchema>;

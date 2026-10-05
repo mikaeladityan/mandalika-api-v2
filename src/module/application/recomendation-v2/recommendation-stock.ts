@@ -78,3 +78,28 @@ export function recommendationForecastSql(
         ELSE f.final_forecast
     END`;
 }
+
+/** Match the inventory period used by the recommendation table. */
+export function resolveRecommendationInvPeriod(
+    current: { month: number; year: number },
+    latest: { month: number; year: number } | null,
+): { month: number; year: number } {
+    return latest && current.year * 12 + current.month > latest.year * 12 + latest.month
+        ? { month: latest.month, year: latest.year }
+        : current;
+}
+
+/** Outstanding manual and ordered purchase quantities, counted once per RM. */
+export function recommendationOpenPoSql(materialId: Prisma.Sql): Prisma.Sql {
+    return Prisma.sql`(
+        COALESCE((
+            SELECT SUM(po.quantity) FROM raw_material_open_pos po
+            WHERE po.raw_material_id = ${materialId} AND po.status = 'OPEN'
+        ), 0) + COALESCE((
+            SELECT SUM(poi.qty_ordered - poi.qty_received)
+            FROM purchase_order_items poi JOIN purchase_orders po ON poi.po_id = po.id
+            WHERE poi.raw_material_id = ${materialId} AND po.status = 'ORDERED'
+                AND poi.qty_received < poi.qty_ordered
+        ), 0)
+    )`;
+}
