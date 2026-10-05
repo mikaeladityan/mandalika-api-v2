@@ -396,8 +396,8 @@ describe("ForecastService", () => {
 
             await ForecastService.run({ start_month: 1, start_year: 2026, horizon: 1 });
 
-            // Actual average 300/3=100; gross=110; Stock SO 50 => operational=60.
-            expect(executed[0]).toContain("110.00000000000001, 60.000000000000014, 110.00000000000001");
+            // Gross=110; Need Produce=60; no surplus stock remains for Forecast M1.
+            expect(executed[0]).toContain("110.00000000000001, 110.00000000000001, 110.00000000000001");
         });
     });
 
@@ -427,7 +427,6 @@ describe("ForecastService", () => {
                 ]);
             (prisma.forecast as any).findFirst = vi.fn().mockResolvedValue({ month: 1, year: 2026 });
             (prisma.$queryRaw as any)
-                .mockResolvedValueOnce([])
                 .mockResolvedValueOnce([{ product_id: 1, quantity: 2_000 }]);
             const updates: any[] = [];
             (prisma.forecast.update as any).mockImplementation((args: any) => {
@@ -445,7 +444,7 @@ describe("ForecastService", () => {
 
             expect(updates.slice(-3)).toEqual([
                 { net_forecast: 1_000, final_forecast: 0 },
-                { net_forecast: 1_600, final_forecast: 600 },
+                { net_forecast: 1_600, final_forecast: 1_600 },
                 { net_forecast: 1_200, final_forecast: 1_200 },
             ]);
         });
@@ -453,9 +452,9 @@ describe("ForecastService", () => {
 
     describe("get", () => {
         it.each([
-            { stock: 220, stored: [100, 100, 100, 100], expected: [0, 0, 80, 100] },
-            { stock: 220, stored: [0, 0, 80, 100], expected: [0, 0, 80, 100] },
-            { stock: 40, stored: [100, 100, 100, 100], expected: [60, 100, 100, 100] },
+            { stock: 220, stored: [100, 100, 100, 100], expected: [0, 80, 100, 100] },
+            { stock: 220, stored: [0, 0, 80, 100], expected: [0, 80, 100, 100] },
+            { stock: 40, stored: [100, 100, 100, 100], expected: [100, 100, 100, 100] },
             { stock: 500, stored: [100, 100, 100, 100], expected: [0, 0, 0, 0] },
         ])("allocates Others window from gross demand with stock $stock and stored $stored", async ({ stock, stored, expected }) => {
             (prisma.product.count as any).mockResolvedValue(1);
@@ -479,10 +478,10 @@ describe("ForecastService", () => {
             });
             const item = result.data[0]!;
             expect(item.monthly_data.map((m) => m.final_forecast)).toEqual(expected);
-            expect(item.need_produce).toBe(expected[0]);
+            expect(item.need_produce).toBe(Math.max(0, 100 - stock));
             expect(item.monthly_data.map((m) => m.gross_forecast)).toEqual([100, 100, 100, 100]);
             expect(item.monthly_data.every((m) => m.base_forecast === 80 && m.ratio === 25)).toBe(true);
-            expect(item.safety_stock_summary?.total_forecast).toBe(400);
+            expect(item.safety_stock_summary?.total_forecast).toBe(expected.reduce((sum, value) => sum + value, 0));
             expect(prisma.forecast.update).not.toHaveBeenCalled();
 
             const exportQuery = {
@@ -494,15 +493,15 @@ describe("ForecastService", () => {
             })).toString("utf-8");
             const [affectedHeader, affectedRow] = affectedCsv.replace(/^\uFEFF/, "").split("\n");
             expect(affectedHeader).toBe("FC Des'26,FC Jan'27,FC Feb'27,FC Mar'27,NEED PRODUCE,KETERANGAN PRODUKSI,STATUS");
-            expect(affectedRow!.split(",").slice(0, 5)).toEqual([...expected, expected[0]].map(String));
-            expect(affectedRow).toContain(expected[0]! > 0 ? "PERLU PRODUKSI" : "STOK CUKUP");
+            expect(affectedRow!.split(",").slice(0, 5)).toEqual([...expected, Math.max(0, 100 - stock)].map(String));
+            expect(affectedRow).toContain(100 > stock ? "PERLU PRODUKSI" : "STOK CUKUP");
 
             const pureCsv = (await ForecastService.export({
                 ...exportQuery, export_mode: "pure",
             })).toString("utf-8");
             expect(pureCsv).toContain("NEED PRODUCE");
-            expect(pureCsv.split("\n")[1]!.split(",").slice(0, 5)).toEqual(["100", "100", "100", "100", String(expected[0])]);
-            expect(pureCsv.split("\n")[1]).toContain(expected[0]! > 0 ? "PERLU PRODUKSI" : "STOK CUKUP");
+            expect(pureCsv.split("\n")[1]!.split(",").slice(0, 5)).toEqual(["100", "100", "100", "100", String(Math.max(0, 100 - stock))]);
+            expect(pureCsv.split("\n")[1]).toContain(100 > stock ? "PERLU PRODUKSI" : "STOK CUKUP");
 
             const hiddenColumnsCsv = (await ForecastService.export({
                 ...exportQuery, export_mode: "pure", visibleColumns: "forecast-values",
@@ -510,7 +509,7 @@ describe("ForecastService", () => {
             expect(hiddenColumnsCsv).toBe(pureCsv);
         });
 
-        it("maps operational final, legacy gross, and Need Produce M1 without another stock deduction", async () => {
+        it("separates first-stage Need Produce from monthly Forecast allocated with its stock surplus", async () => {
             (prisma.product.count as any).mockResolvedValue(1);
             (prisma.$queryRaw as any).mockResolvedValue([{
                 id: 1,
@@ -545,8 +544,8 @@ describe("ForecastService", () => {
             const result = await ForecastService.get({ start_month: 1, start_year: 2026, horizon: 1 });
             const item = result.data[0]!;
 
-            expect(item.monthly_data[0]).toMatchObject({ final_forecast: 400, gross_forecast: 1_400 });
-            expect(item.need_produce).toBe(400);
+            expect(item.monthly_data[0]).toMatchObject({ final_forecast: 800, gross_forecast: 1_400 });
+            expect(item.need_produce).toBe(0);
         });
 
         it.each([

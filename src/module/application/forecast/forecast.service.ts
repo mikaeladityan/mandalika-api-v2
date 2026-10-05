@@ -621,11 +621,19 @@ export class ForecastService {
             [...openingStockByProduct].map(([productId, stock]) => [productId, Math.max(0, stock)]),
         );
 
+        const openingAllocated = new Set<number>();
         for (const row of [...result].sort(
             (a, b) => a.year - b.year || a.month - b.month || a.product_id - b.product_id,
         )) {
             // Legacy DB naming is counterintuitive: net_forecast is gross/pure demand.
             const gross = Math.max(0, Number(row.net_forecast ?? row.final_forecast));
+            // First allocate M1 for Need Produce. Only its surplus enters the
+            // monthly Forecast allocation, starting again at M1 as required.
+            if (!openingAllocated.has(row.product_id)) {
+                remainingStock.set(row.product_id, Math.max(0,
+                    (remainingStock.get(row.product_id) ?? 0) - gross));
+                openingAllocated.add(row.product_id);
+            }
             const stock = remainingStock.get(row.product_id) ?? 0;
             const allocated = Math.min(stock, gross);
             row.net_forecast = gross;
@@ -677,7 +685,7 @@ export class ForecastService {
         const first = item.monthly_data[0];
         const surplus = Math.round(item.current_stock - Number(first?.gross_forecast ?? 0));
 
-        let remaining = item.current_stock;
+        let remaining = Math.max(0, item.current_stock - Number(first?.gross_forecast ?? 0));
         let lastSustained: { month: number; year: number } | null = null;
         for (const m of item.monthly_data) {
             const forecast = Number(m.gross_forecast ?? 0);
@@ -2282,10 +2290,10 @@ export class ForecastService {
                 };
             });
 
-            // Others can contain manual forecasts allocated from an older stored period.
-            // Project operational demand from this window's frozen Stock SO, using gross
-            // demand so an already allocated forecast never has stock deducted twice.
-            if (query.is_others) {
+            // Project this window from gross demand: Need Produce consumes M1
+            // first, then its stock surplus covers Forecast M1..Mn.
+            // This is read-only and does not rewrite existing historical records.
+            {
                 const operational = ForecastService.applyOpeningStockToForecastBatch(
                     monthly_data.map((m) => ({
                         product_id: p.id,
@@ -2336,13 +2344,13 @@ export class ForecastService {
                 last_updated: ss?.created_at ? new Date(ss.created_at) : null,
             };
 
-            // final_forecast is already operational after frozen Stock SO allocation.
+            // Need Produce is the first allocation, separate from monthly Forecast.
             const m1MonthData = monthly_data.find(
                 (m) => m.month === startMonth && m.year === startYear,
             );
-            const m1Forecast = m1MonthData?.final_forecast ?? 0;
+            const m1Forecast = m1MonthData?.gross_forecast ?? 0;
             const currentStock = Number(p.current_stock ?? 0);
-            const needProduce = m1Forecast;
+            const needProduce = Math.max(0, m1Forecast - currentStock);
 
             const edar_sales_share: ResponseForecastDTO["edar_sales_share"] = (() => {
                 if (Number(p.distribution_percentage ?? 0) <= 0) return null;

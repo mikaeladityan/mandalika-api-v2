@@ -167,13 +167,13 @@ describe("ForecastService.computeForecastBatch", () => {
     it("does not let opening stock allocation affect either group's Growth or Atomizer", () => {
         const rows = ForecastService.applyOpeningStockToForecastBatch(compute(), new Map([[1, 2_000], [2, 800], [4, 200]]));
         expect(pick(rows, 1).net_forecast).toBeCloseTo(1_100, 5);
-        expect(pick(rows, 1).final_forecast).toBe(0);
+        expect(pick(rows, 1).final_forecast).toBeCloseTo(200, 5);
         expect(pick(rows, 1, 2).net_forecast).toBeCloseTo(1_210, 5);
-        expect(pick(rows, 1, 2).final_forecast).toBeCloseTo(310, 5);
+        expect(pick(rows, 1, 2).final_forecast).toBeCloseTo(1_210, 5);
         expect(pick(rows, 2, 2).net_forecast).toBeCloseTo(726, 5);
-        expect(pick(rows, 2, 2).final_forecast).toBeCloseTo(586, 5);
+        expect(pick(rows, 2, 2).final_forecast).toBeCloseTo(726, 5);
         expect(pick(rows, 4, 2).net_forecast).toBeCloseTo(169.4, 5);
-        expect(pick(rows, 4, 2).final_forecast).toBeCloseTo(123.4, 5);
+        expect(pick(rows, 4, 2).final_forecast).toBeCloseTo(169.4, 5);
     });
 
     it("retains the existing stop rule for missing or zero Growth", () => {
@@ -195,16 +195,16 @@ describe("ForecastService.calculateStockSurplus", () => {
     };
 
     it("menghitung sisa stok dan daya tahannya saat tidak perlu produksi", () => {
-        // 8.649 - 7.203 = 1.446, dan stok hanya cukup sampai September.
+        // Sisa tahap Need Produce 1.446 belum cukup menutup Forecast M1 7.203.
         expect(ForecastService.calculateStockSurplus(item)).toEqual({
             surplus: 1_446,
-            durability: "s/d Sep'26",
+            durability: null,
         });
     });
 
     it("stok besar bertahan sampai bulan terakhir yang tercakup", () => {
         expect(
-            ForecastService.calculateStockSurplus({ ...item, current_stock: 20_000 }).durability,
+            ForecastService.calculateStockSurplus({ ...item, current_stock: 25_000 }).durability,
         ).toBe("s/d Okt'26");
     });
 });
@@ -221,6 +221,23 @@ describe("ForecastService.applyOpeningStockToForecastBatch", () => {
         status: "DRAFT" as const,
     });
 
+    it("uses the same M1 for Need Produce first, then allocates its surplus from M1 again", () => {
+        const batch = [row(1, 1, 500), row(1, 2, 300), row(1, 3, 200), row(1, 4, 500)];
+        const result = ForecastService.applyOpeningStockToForecastBatch(batch, new Map([[1, 1_500]]));
+        expect(result.map((r) => r.final_forecast)).toEqual([0, 0, 0, 500]);
+        expect(batch.map((r) => r.final_forecast)).toEqual([500, 300, 200, 500]);
+        expect(ForecastService.calculateStockSurplus({ current_stock: 1_500,
+            monthly_data: batch.map((r) => ({ ...r, gross_forecast: r.final_forecast })),
+        })).toEqual({ surplus: 1_000, durability: "s/d Mar'26" });
+    });
+
+    it("keeps Forecast M1 separate from Need Produce when the surplus covers only part of M1", () => {
+        const result = ForecastService.applyOpeningStockToForecastBatch(
+            [row(1, 10, 7_522.56), row(1, 11, 7_447.33)], new Map([[1, 10_336]]));
+        expect(result[0]!.final_forecast).toBeCloseTo(4_709.12, 5);
+        expect(result[1]!.final_forecast).toBeCloseTo(7_447.33, 5);
+    });
+
     it("stores gross in legacy net_forecast and allocates Stock SO chronologically", () => {
         const result = ForecastService.applyOpeningStockToForecastBatch(
             [row(1, 1, 1_000), row(1, 2, 1_400), row(1, 3, 1_200)],
@@ -228,7 +245,7 @@ describe("ForecastService.applyOpeningStockToForecastBatch", () => {
         );
 
         expect(result.map(({ net_forecast }) => net_forecast)).toEqual([1_000, 1_400, 1_200]);
-        expect(result.map(({ final_forecast }) => final_forecast)).toEqual([0, 400, 1_200]);
+        expect(result.map(({ final_forecast }) => final_forecast)).toEqual([0, 1_400, 1_200]);
     });
 
     it("sorts periods and keeps each SKU stock allocation independent", () => {
@@ -239,7 +256,7 @@ describe("ForecastService.applyOpeningStockToForecastBatch", () => {
         const operational = new Map(result.map((r) => [`${r.product_id}-${r.month}`, r.final_forecast]));
 
         expect(operational).toEqual(new Map([
-            ["2-2", 100], ["1-2", 80], ["2-1", 30], ["1-1", 0],
+            ["2-2", 100], ["1-2", 100], ["2-1", 80], ["1-1", 60],
         ]));
     });
 
@@ -249,7 +266,7 @@ describe("ForecastService.applyOpeningStockToForecastBatch", () => {
             new Map([[1, 2_000]]),
         );
 
-        expect(result.map(({ final_forecast }) => final_forecast)).toEqual([0, 600, 1_200]);
+        expect(result.map(({ final_forecast }) => final_forecast)).toEqual([0, 1_600, 1_200]);
     });
 });
 

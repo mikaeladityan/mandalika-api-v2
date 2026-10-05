@@ -80,8 +80,8 @@ describe("Forecast issuance pipeline", () => {
         [1_100, 660, 440, 154, 66].forEach((value, index) => expect(m1[index]).toBeCloseTo(value, 5));
         [1_210, 726, 484, 169.4, 72.6].forEach((value, index) => expect(m2[index]).toBeCloseTo(value, 5));
         const saved: ForecastBatchRow[] = allocation.mock.results[0]!.value;
-        expect(saved.find((row) => row.product_id === 1 && row.month === 1)?.final_forecast).toBe(0);
-        expect(saved.find((row) => row.product_id === 4 && row.month === 2)?.final_forecast).toBeCloseTo(123.4, 5);
+        expect(saved.find((row) => row.product_id === 1 && row.month === 1)?.final_forecast).toBeCloseTo(200, 5);
+        expect(saved.find((row) => row.product_id === 4 && row.month === 2)?.final_forecast).toBeCloseTo(169.4, 5);
         expect(mocks.execute).toHaveBeenCalledTimes(2); // forecast + safety stock
         const forecastSql: string = mocks.execute.mock.calls[0]![0];
         expect(forecastSql).toContain("INSERT INTO forecasts");
@@ -222,7 +222,7 @@ describe("Forecast historical protection", () => {
         expect(mocks.forecastFirst).toHaveBeenCalledWith(expect.objectContaining({ where: cutoff }));
         expect(mocks.forecasts).toHaveBeenLastCalledWith(expect.objectContaining({ where: cutoff }));
         expect(stock).toHaveBeenCalledWith([1], 10, 2026);
-        expect(future.map((r) => r.final_forecast)).toEqual([0, 130]);
+        expect(future.map((r) => r.final_forecast)).toEqual([80, 150]);
         expect(historical).toEqual(snapshot);
         for (const [args] of mocks.forecastUpdate.mock.calls) {
             expect(args.where.product_id_month_year.month).toBeGreaterThanOrEqual(10);

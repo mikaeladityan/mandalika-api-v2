@@ -28,7 +28,18 @@ Vial ACUAN juga memakai issuance Vial sendiri.
 `base_forecast` botol/Vial berisi total kelompok setelah Growth, sedangkan
 forecast per varian sebelum stok disimpan dalam field legacy `net_forecast`
 dan ditampilkan sebagai `gross_forecast`. `final_forecast` adalah kebutuhan
-setelah stok awal FG dialokasikan berurutan ke tiap bulan, per produk.
+setelah sisa stok tahap Need Produce dialokasikan berurutan ke tiap bulan, per produk.
+
+```text
+Need Produce = Maks(0, gross_forecast M1 − stok awal FG)
+Sisa stok awal Forecast = Maks(0, stok awal FG − gross_forecast M1)
+final_forecast bulan = Maks(0, gross_forecast bulan − sisa stok)
+Sisa stok berikutnya = Maks(0, sisa stok − gross_forecast bulan)
+```
+
+Alokasi Forecast dimulai lagi pada M1 menggunakan sisa stok tahap Need Produce.
+Contoh stok 1.500 dan gross M1..M4 = 500, 300, 200, 500: Need Produce 0,
+sisa stok awal Forecast 1.000, dan final M1..M4 = 0, 0, 0, 500.
 
 Aturan existing tetap berlaku: input awal botol mencakup anchor reguler dan
 Hampers dalam aroma yang sama; botol reguler menyalin forecast Hampers jika
