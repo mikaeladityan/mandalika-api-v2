@@ -397,7 +397,7 @@ describe("ForecastService", () => {
             await ForecastService.run({ start_month: 1, start_year: 2026, horizon: 1 });
 
             // Gross=110; Need Produce=60; no surplus stock remains for Forecast M1.
-            expect(executed[0]).toContain("110.00000000000001, 110.00000000000001, 110.00000000000001");
+            expect(executed[0]).toContain("110.00000000000001, 60.000000000000014, 110.00000000000001");
         });
     });
 
@@ -454,7 +454,7 @@ describe("ForecastService", () => {
         it.each([
             { stock: 220, stored: [100, 100, 100, 100], expected: [0, 80, 100, 100] },
             { stock: 220, stored: [0, 0, 80, 100], expected: [0, 80, 100, 100] },
-            { stock: 40, stored: [100, 100, 100, 100], expected: [100, 100, 100, 100] },
+            { stock: 40, stored: [100, 100, 100, 100], expected: [60, 100, 100, 100] },
             { stock: 500, stored: [100, 100, 100, 100], expected: [0, 0, 0, 0] },
         ])("allocates Others window from gross demand with stock $stock and stored $stored", async ({ stock, stored, expected }) => {
             (prisma.product.count as any).mockResolvedValue(1);

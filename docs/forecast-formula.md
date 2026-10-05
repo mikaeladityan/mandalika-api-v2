@@ -38,6 +38,8 @@ Sisa stok berikutnya = Maks(0, sisa stok − gross_forecast bulan)
 ```
 
 Alokasi Forecast dimulai lagi pada M1 menggunakan sisa stok tahap Need Produce.
+Jika Need Produce positif, Forecast M1 memakai angka Need Produce tersebut;
+stok sudah habis dan Forecast M2..Mn memakai permintaan bulanan penuh.
 Contoh stok 1.500 dan gross M1..M4 = 500, 300, 200, 500: Need Produce 0,
 sisa stok awal Forecast 1.000, dan final M1..M4 = 0, 0, 0, 500.
 

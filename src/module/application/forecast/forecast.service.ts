@@ -630,9 +630,15 @@ export class ForecastService {
             // First allocate M1 for Need Produce. Only its surplus enters the
             // monthly Forecast allocation, starting again at M1 as required.
             if (!openingAllocated.has(row.product_id)) {
-                remainingStock.set(row.product_id, Math.max(0,
-                    (remainingStock.get(row.product_id) ?? 0) - gross));
+                const openingStock = remainingStock.get(row.product_id) ?? 0;
+                const needProduce = Math.max(0, gross - openingStock);
+                remainingStock.set(row.product_id, Math.max(0, openingStock - gross));
                 openingAllocated.add(row.product_id);
+                if (needProduce > 0) {
+                    row.net_forecast = gross;
+                    row.final_forecast = needProduce;
+                    continue;
+                }
             }
             const stock = remainingStock.get(row.product_id) ?? 0;
             const allocated = Math.min(stock, gross);

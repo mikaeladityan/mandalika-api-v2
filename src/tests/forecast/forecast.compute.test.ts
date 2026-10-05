@@ -256,7 +256,7 @@ describe("ForecastService.applyOpeningStockToForecastBatch", () => {
         const operational = new Map(result.map((r) => [`${r.product_id}-${r.month}`, r.final_forecast]));
 
         expect(operational).toEqual(new Map([
-            ["2-2", 100], ["1-2", 100], ["2-1", 80], ["1-1", 60],
+            ["2-2", 100], ["1-2", 100], ["2-1", 30], ["1-1", 60],
         ]));
     });
 
